@@ -40,6 +40,8 @@ class WorkspaceScreen(Screen):
         Binding("r", "refresh", "Refresh"),
         Binding("s", "sync", "Sync"),
         Binding("q", "quit", "Quit"),
+        Binding("ctrl+k", "jump_prev", "Jump prev", show=False),
+        Binding("ctrl+j", "jump_next", "Jump next", show=False),
     ]
 
     def __init__(
@@ -154,6 +156,16 @@ class WorkspaceScreen(Screen):
 
     def action_refresh(self) -> None:
         self._refresh_data()
+
+    def action_jump_prev(self) -> None:
+        chain = self.focus_chain
+        if chain:
+            chain[0].focus()
+
+    def action_jump_next(self) -> None:
+        chain = self.focus_chain
+        if chain:
+            chain[-1].focus()
 
     def action_sync(self) -> None:
         grid = self.query_one("#grid", FeatureWorktreesGrid)

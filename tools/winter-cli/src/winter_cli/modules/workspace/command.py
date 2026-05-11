@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import click
 
+from winter_cli.cli_context import cli_ctx
 from winter_cli.modules.workspace.models import DiffMode
 from winter_cli.modules.workspace.handlers import (
     InitParams,
@@ -38,7 +39,7 @@ def ws_init(ctx: click.Context, target: str | None, all_targets: bool, output_js
       winter ws init alpha        # reconcile the alpha/ worktree (create if missing)
       winter ws init --all        # reconcile projects/, standalone repos, and every worktree
     """
-    container = ctx.obj["container"]
+    container = cli_ctx(ctx).container
     handler = container.init_handler()
     handler.run(InitParams(target=target, all=all_targets, output_json=output_json))
 
@@ -48,7 +49,7 @@ def ws_init(ctx: click.Context, target: str | None, all_targets: bool, output_js
 @click.pass_context
 def ws_list(ctx: click.Context, output_json: bool):
     """List all worktrees."""
-    container = ctx.obj["container"]
+    container = cli_ctx(ctx).container
     handler = container.workspace_handler()
     handler.list(WorktreeListParams(output_json=output_json))
 
@@ -59,7 +60,7 @@ def ws_list(ctx: click.Context, output_json: bool):
 @click.pass_context
 def ws_status(ctx: click.Context, worktree: str | None, output_json: bool):
     """Show status for a worktree (defaults to all)."""
-    container = ctx.obj["container"]
+    container = cli_ctx(ctx).container
     handler = container.workspace_handler()
     handler.status(WorktreeStatusParams(worktree=worktree, output_json=output_json))
 
@@ -70,7 +71,7 @@ def ws_status(ctx: click.Context, worktree: str | None, output_json: bool):
 @click.pass_context
 def ws_sync(ctx: click.Context, worktree: str, output_json: bool):
     """Sync a worktree with origin (fetch + ff-only merge)."""
-    container = ctx.obj["container"]
+    container = cli_ctx(ctx).container
     handler = container.workspace_handler()
     handler.sync(WorktreeSyncParams(worktree=worktree, output_json=output_json))
 
@@ -82,7 +83,7 @@ def ws_sync(ctx: click.Context, worktree: str, output_json: bool):
 @click.pass_context
 def ws_connect(ctx: click.Context, worktree: str, feature_branch: str, output_json: bool):
     """Connect a worktree to a remote feature branch."""
-    container = ctx.obj["container"]
+    container = cli_ctx(ctx).container
     handler = container.workspace_handler()
     handler.connect(WorktreeConnectParams(worktree=worktree, feature_branch=feature_branch, output_json=output_json))
 
@@ -93,7 +94,7 @@ def ws_connect(ctx: click.Context, worktree: str, feature_branch: str, output_js
 @click.pass_context
 def ws_disconnect(ctx: click.Context, worktree: str, output_json: bool):
     """Disconnect a worktree from its feature branch."""
-    container = ctx.obj["container"]
+    container = cli_ctx(ctx).container
     handler = container.workspace_handler()
     handler.disconnect(WorktreeDisconnectParams(worktree=worktree, output_json=output_json))
 
@@ -105,7 +106,7 @@ def ws_disconnect(ctx: click.Context, worktree: str, output_json: bool):
 @click.pass_context
 def ws_push(ctx: click.Context, worktree: str, repos: tuple[str, ...], output_json: bool):
     """Push worktree repos to their upstream branch."""
-    container = ctx.obj["container"]
+    container = cli_ctx(ctx).container
     handler = container.workspace_handler()
     handler.push(WorktreePushParams(
         worktree=worktree,
@@ -127,7 +128,7 @@ def ws_prune(ctx: click.Context, dry_run: bool, force: bool, output_json: bool):
     under .claude/skills/ and .claude/agents/. Refuses to delete repos with
     uncommitted changes or attached worktrees.
     """
-    container = ctx.obj["container"]
+    container = cli_ctx(ctx).container
     handler = container.workspace_handler()
     handler.prune(WorkspacePruneParams(dry_run=dry_run, force=force, output_json=output_json))
 
@@ -142,7 +143,7 @@ def ws_index(ctx: click.Context, name: str, output_json: bool):
     Greek letters get fixed indices 1..24. Any other name is hashed
     deterministically into 26..281 via SHA-1.
     """
-    container = ctx.obj["container"]
+    container = cli_ctx(ctx).container
     handler = container.workspace_handler()
     handler.index(WorktreeIndexParams(name=name, output_json=output_json))
 
@@ -167,7 +168,7 @@ def ws_diff(ctx: click.Context, worktree: str, staged: bool, branch: bool, repo:
     else:
         mode = DiffMode.uncommitted
 
-    container = ctx.obj["container"]
+    container = cli_ctx(ctx).container
     handler = container.workspace_handler()
     handler.diff(WorktreeDiffParams(
         worktree=worktree,
@@ -188,7 +189,7 @@ def repo_group():
 @click.pass_context
 def repo_list(ctx: click.Context, output_json: bool):
     """List all repositories."""
-    container = ctx.obj["container"]
+    container = cli_ctx(ctx).container
     handler = container.repo_handler()
     handler.list(RepoListParams(output_json=output_json))
 
@@ -227,7 +228,7 @@ def repo_add(
     Writes to .winter/config.toml unless --local is given, in which case the
     entry lands in .winter/config.local.toml (auto-created if missing).
     """
-    container = ctx.obj["container"]
+    container = cli_ctx(ctx).container
     handler = container.repo_handler()
     handler.add(RepoAddParams(
         url=url,
@@ -263,6 +264,6 @@ def repo_remove(ctx: click.Context, target: str, local: bool, output_json: bool)
             "(e.g. project/winter, standalone/winter-harness)"
         )
     kind, _, name = target.partition("/")
-    container = ctx.obj["container"]
+    container = cli_ctx(ctx).container
     handler = container.repo_handler()
     handler.remove(RepoRemoveParams(kind=kind, name=name, local=local, output_json=output_json))

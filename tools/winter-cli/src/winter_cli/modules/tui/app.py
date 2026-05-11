@@ -20,8 +20,10 @@ class WinterDashboardApp(App):
         Binding("q", "quit", "Quit"),
     ]
 
-    def __init__(self, container: Container, **kwargs) -> None:
+    def __init__(self, container: Container, source_override: str | None = None, **kwargs) -> None:
         super().__init__(**kwargs)
+        if source_override:
+            self.title = f"Winter Dashboard  --winter={source_override}"
         self.screen_factory = ScreenFactory(container)
 
         plugin_registry = container.plugin_registry()

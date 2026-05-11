@@ -9,18 +9,19 @@ sys.dont_write_bytecode = True
 
 import click
 
+from winter_cli.cli_context import CliContext
 from winter_cli.modules.tui.command import dashboard
 from winter_cli.modules.workspace.command import ws_group, repo_group
 
 
 @click.group()
+@click.option("--source-override", default=None, hidden=True)
 @click.pass_context
-def cli(ctx: click.Context):
+def cli(ctx: click.Context, source_override: str | None):
     """Winter — workspace management CLI."""
     from winter_cli.container import Container
 
-    ctx.ensure_object(dict)
-    ctx.obj["container"] = Container()
+    ctx.obj = CliContext(container=Container(), source_override=source_override)
 
 
 cli.add_command(dashboard)
