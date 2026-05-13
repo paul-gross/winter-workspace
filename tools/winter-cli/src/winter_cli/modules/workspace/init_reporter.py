@@ -5,7 +5,7 @@ import threading
 from typing import Any, Protocol
 
 
-class InitReporter(Protocol):
+class IInitReporter(Protocol):
     """Protocol for reporters that observe init reconcile events as they happen."""
 
     def target_started(self, target: str) -> None: ...

@@ -8,7 +8,7 @@ from pathlib import Path
 
 from winter_cli.config.models import WorkspaceConfig
 from winter_cli.modules.workspace.extensions import ExtensionService
-from winter_cli.modules.workspace.init_reporter import InitReporter
+from winter_cli.modules.workspace.init_reporter import IInitReporter
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
 
 
@@ -61,7 +61,7 @@ class PruneService:
         elif orphan.path.exists():
             orphan.path.unlink()
 
-    def reaggregate_excludes(self, reporter: InitReporter) -> bool:
+    def reaggregate_excludes(self, reporter: IInitReporter) -> bool:
         return self._extension_svc.finalize_excludes(self._repo_factory.get_standalone_repos(), reporter)
 
     # ── detection ────────────────────────────────────────────────────────

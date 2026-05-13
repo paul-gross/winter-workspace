@@ -8,7 +8,7 @@ from typing import Any
 
 import click
 
-from winter_cli.cli_output_service import Cell, CliOutputService
+from winter_cli.core.cli_output_service import Cell, ICliOutputService
 from winter_cli.modules.workspace.models import (
     CheckoutResult,
     DiffMode,
@@ -27,8 +27,8 @@ from winter_cli.modules.workspace.drift import DriftWarningService
 from winter_cli.modules.workspace.internal.read_workspace_repository import resolve_worktree_index
 from winter_cli.modules.workspace.prune_service import PruneOrphan, PruneService
 from winter_cli.modules.workspace.reporter_factory import ReporterFactory
-from winter_cli.modules.workspace.workspace_repository import ReadWorkspaceRepository
-from winter_cli.modules.workspace.repo_repository import ReadRepoRepository
+from winter_cli.modules.workspace.workspace_repository import IReadWorkspaceRepository
+from winter_cli.modules.workspace.repo_repository import IReadRepoRepository
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
 from winter_cli.modules.workspace.workspace_service import WorkspaceService
 
@@ -122,13 +122,13 @@ class WorkspaceHandler:
     def __init__(
         self,
         workspace_svc: WorkspaceService,
-        workspace_repo: ReadWorkspaceRepository,
-        repo_repo: ReadRepoRepository,
+        workspace_repo: IReadWorkspaceRepository,
+        repo_repo: IReadRepoRepository,
         repo_factory: RepositoryFactory,
         drift_warning_svc: DriftWarningService,
         prune_svc: PruneService,
         reporter_factory: ReporterFactory,
-        cli_output_svc: CliOutputService,
+        cli_output_svc: ICliOutputService,
         workspace: Workspace,
     ) -> None:
         self._workspace_svc = workspace_svc

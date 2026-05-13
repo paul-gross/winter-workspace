@@ -5,7 +5,7 @@ import threading
 from typing import Any, Protocol
 
 
-class FetchReporter(Protocol):
+class IFetchReporter(Protocol):
     """Protocol for reporters that observe `ws fetch` events as they happen."""
 
     def fetch_started(self) -> None: ...

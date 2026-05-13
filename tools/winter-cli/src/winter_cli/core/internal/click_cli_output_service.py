@@ -1,45 +1,19 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
 from typing import Any
 
 import click
 
-
-@dataclass(frozen=True)
-class Cell:
-    """A table cell composed of styled segments.
-
-    Use ``Cell.of(text, style=...)`` for a single-style cell, or
-    ``Cell.compose([(text, style), ...])`` for a cell built from multiple
-    independently-styled segments. The concatenated plain text is used for
-    column-width computation so ANSI escapes never perturb alignment.
-    """
-
-    segments: tuple[tuple[str, str | None], ...]
-
-    @classmethod
-    def of(cls, text: str, style: str | None = None) -> "Cell":
-        return cls(((text, style),))
-
-    @classmethod
-    def compose(cls, segments: Iterable[tuple[str, str | None]]) -> "Cell":
-        return cls(tuple(segments))
-
-    @property
-    def text(self) -> str:
-        return "".join(seg for seg, _ in self.segments)
+from winter_cli.core.cli_output_service import Cell
 
 
-class CliOutputService:
-    """Renders CLI output for handlers — space-aligned tables, status lines, etc.
+class ClickCliOutputService:
+    """Click-backed ICliOutputService — renders styled text and space-aligned tables.
 
-    Style names accepted by ``style()`` and Cell segments: standard color names
-    (``red``, ``green``, ``yellow``, ``blue``, ``magenta``, ``cyan``), plus
-    ``bold``, ``dim``, and ``dark_orange``. Output goes through ``click.echo``
-    in the handlers, which strips ANSI when stdout isn't a TTY and respects the
-    ``NO_COLOR`` env var.
+    Output goes through ``click.style`` for ANSI styling. The handlers echo the
+    resulting strings via ``click.echo``, which strips ANSI when stdout isn't a
+    TTY and respects the ``NO_COLOR`` env var.
     """
 
     def style(self, text: str, style: str) -> str:

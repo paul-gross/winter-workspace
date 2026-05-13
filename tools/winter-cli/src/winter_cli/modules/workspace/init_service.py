@@ -10,7 +10,7 @@ import git
 
 from winter_cli.config.models import WorkspaceConfig
 from winter_cli.modules.workspace.extensions import ExtensionService
-from winter_cli.modules.workspace.init_reporter import InitReporter
+from winter_cli.modules.workspace.init_reporter import IInitReporter
 from winter_cli.modules.workspace.internal.managed_block import (
     GITIGNORE_BEGIN,
     GITIGNORE_END,
@@ -64,7 +64,7 @@ class InitService:
 
     # ── Public API ────────────────────────────────────────────────────────
 
-    def reconcile_projects(self, reporter: InitReporter) -> bool:
+    def reconcile_projects(self, reporter: IInitReporter) -> bool:
         target = "projects/"
         reporter.target_started(target)
 
@@ -82,7 +82,7 @@ class InitService:
         reporter.target_completed(target, success)
         return success
 
-    def reconcile_standalones(self, reporter: InitReporter) -> bool:
+    def reconcile_standalones(self, reporter: IInitReporter) -> bool:
         repos = self._repo_factory.get_standalone_repos()
         if not repos:
             return True
@@ -107,7 +107,7 @@ class InitService:
         reporter.target_completed(target, success)
         return success
 
-    def reconcile_worktree(self, name: str, reporter: InitReporter) -> bool:
+    def reconcile_worktree(self, name: str, reporter: IInitReporter) -> bool:
         reporter.target_started(name)
         success = True
 
@@ -164,7 +164,7 @@ class InitService:
                     success = False
         return success
 
-    def reconcile_all(self, reporter: InitReporter) -> bool:
+    def reconcile_all(self, reporter: IInitReporter) -> bool:
         success = self.reconcile_projects(reporter)
         if not self.reconcile_standalones(reporter):
             success = False
@@ -213,7 +213,7 @@ class InitService:
     def _reconcile_source_checkout(
         self,
         repo: ProjectRepository,
-        reporter: InitReporter,
+        reporter: IInitReporter,
     ) -> bool:
         repo_path = repo.main_path
         label = repo.name
@@ -241,7 +241,7 @@ class InitService:
     def _reconcile_standalone(
         self,
         repo: StandaloneRepository,
-        reporter: InitReporter,
+        reporter: IInitReporter,
     ) -> bool:
         repo_path = repo.path
         label = repo.name
@@ -273,7 +273,7 @@ class InitService:
         url: str,
         name: str,
         repo_path: Path,
-        reporter: InitReporter,
+        reporter: IInitReporter,
     ) -> bool:
         try:
             git.Repo.clone_from(url, str(repo_path))
@@ -289,7 +289,7 @@ class InitService:
         repo: ProjectRepository,
         branch_name: str,
         worktree_root: Path,
-        reporter: InitReporter,
+        reporter: IInitReporter,
     ) -> bool:
         worktree_path = worktree_root / repo.name
         location = str(worktree_path)
@@ -316,7 +316,7 @@ class InitService:
         self,
         repo: ProjectRepository,
         worktree_path: Path,
-        reporter: InitReporter,
+        reporter: IInitReporter,
     ) -> bool:
         """Wire a pinned worktree to push and pull against `origin/<main-branch>`.
 
@@ -361,7 +361,7 @@ class InitService:
         repo: ProjectRepository,
         branch_name: str,
         worktree_path: Path,
-        reporter: InitReporter,
+        reporter: IInitReporter,
     ) -> bool:
         try:
             source = git.Repo(str(repo.main_path))
@@ -381,7 +381,7 @@ class InitService:
     def _write_workspace_self_exclude(
         self,
         dir_name: str,
-        reporter: InitReporter,
+        reporter: IInitReporter,
     ) -> bool:
         """Add `/{dir_name}/` to a managed block in the workspace's `.git/info/exclude`.
 
@@ -432,7 +432,7 @@ class InitService:
         self,
         worktree_root: Path,
         worktree_name: str,
-        reporter: InitReporter,
+        reporter: IInitReporter,
     ) -> bool:
         """Seed the worktree's .winter.env with workspace-managed base variables.
 
@@ -522,7 +522,7 @@ class InitService:
     def _apply_identity(
         self,
         repo_path: Path,
-        reporter: InitReporter,
+        reporter: IInitReporter,
         repo_name: str,
     ) -> bool:
         identity = self._config.git_identity
@@ -542,7 +542,7 @@ class InitService:
         self,
         repo_path: Path,
         repo: IWorkspaceRepository,
-        reporter: InitReporter,
+        reporter: IInitReporter,
         location: str,
     ) -> bool:
         entries = list(self._config.git_excludes) + list(repo.git_excludes)
@@ -611,7 +611,7 @@ class InitService:
         self,
         repo_path: Path,
         repo: IWorkspaceRepository,
-        reporter: InitReporter,
+        reporter: IInitReporter,
     ) -> bool:
         if not repo.cmd:
             return True

@@ -11,8 +11,8 @@ from winter_cli.modules.workspace.models import (
     StandaloneRepository,
     Workspace,
 )
-from winter_cli.cli_output_service import CliOutputService
-from winter_cli.cli_input_validation_service import CliInputValidationService
+from winter_cli.core.cli_input_validation_service import CliInputValidationService
+from winter_cli.core.cli_output_service import ICliOutputService
 from winter_cli.config.models import ProjectRepositoryConfig, StandaloneRepositoryConfig
 from winter_cli.config.winter_configuration_repository import IWriteWinterConfigurationRepository
 from winter_cli.modules.workspace.drift import DriftWarningService
@@ -53,7 +53,7 @@ class RepoHandler:
         self,
         repo_factory: RepositoryFactory,
         drift_warning_svc: DriftWarningService,
-        cli_output_svc: CliOutputService,
+        cli_output_svc: ICliOutputService,
         cli_input_validation_svc: CliInputValidationService,
         write_winter_config_repo: IWriteWinterConfigurationRepository,
         workspace: Workspace,

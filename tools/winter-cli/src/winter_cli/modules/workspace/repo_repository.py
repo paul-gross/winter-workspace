@@ -17,7 +17,7 @@ from winter_cli.modules.workspace.models import (
 )
 
 
-class ReadRepoRepository(Protocol):
+class IReadRepoRepository(Protocol):
     def get_workspace(self, root_path: Path, session_prefix: str) -> Workspace: ...
     def get_worktree_status(self, worktree: FeatureWorktree) -> RepoStatus: ...
     def get_standalone_status(self, repo: StandaloneRepository) -> StandaloneRepoStatus: ...
@@ -25,7 +25,7 @@ class ReadRepoRepository(Protocol):
     def get_diff(self, worktree: FeatureWorktree, mode: DiffMode) -> RepoDiffResult: ...
 
 
-class WriteRepoRepository(ReadRepoRepository, Protocol):
+class IWriteRepoRepository(IReadRepoRepository, Protocol):
     def fetch(self, worktree: FeatureWorktree) -> None: ...
     def integrate(
         self,

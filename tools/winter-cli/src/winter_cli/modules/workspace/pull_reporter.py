@@ -7,7 +7,7 @@ from typing import Any, Protocol
 from winter_cli.modules.workspace.models import SyncResult
 
 
-class PullReporter(Protocol):
+class IPullReporter(Protocol):
     """Protocol for reporters that observe `ws pull` events as they happen."""
 
     def pull_started(self) -> None: ...

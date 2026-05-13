@@ -38,11 +38,11 @@ from winter_cli.modules.workspace.models import (
     WorktreeRepoStatus,
     WorktreeSyncReport,
 )
-from winter_cli.modules.workspace.fetch_reporter import FetchReporter
-from winter_cli.modules.workspace.pull_reporter import PullReporter
+from winter_cli.modules.workspace.fetch_reporter import IFetchReporter
+from winter_cli.modules.workspace.pull_reporter import IPullReporter
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
-from winter_cli.modules.workspace.workspace_repository import ReadWorkspaceRepository
-from winter_cli.modules.workspace.repo_repository import WriteRepoRepository
+from winter_cli.modules.workspace.workspace_repository import IReadWorkspaceRepository
+from winter_cli.modules.workspace.repo_repository import IWriteRepoRepository
 from winter_cli.plugins.types import EnvironmentDecorator, WorktreeRepoDecorator
 
 logger = logging.getLogger(__name__)
@@ -82,8 +82,8 @@ def _matches_any_pattern(env_name: str, repo_name: str, patterns: list[str]) -> 
 class WorkspaceService:
     def __init__(
         self,
-        worktree_repo: ReadWorkspaceRepository,
-        repo_repo: WriteRepoRepository,
+        worktree_repo: IReadWorkspaceRepository,
+        repo_repo: IWriteRepoRepository,
         repo_factory: RepositoryFactory,
         workspace: Workspace,
     ) -> None:
@@ -291,7 +291,7 @@ class WorkspaceService:
         self,
         scope: RepoScope,
         patterns: list[str] | None,
-        reporter: FetchReporter,
+        reporter: IFetchReporter,
     ) -> FetchReport:
         """Fetch unique project repos matched by `patterns`, and/or standalone repos.
 
@@ -370,7 +370,7 @@ class WorkspaceService:
         patterns: list[str] | None,
         mode: PullMode,
         autostash: bool,
-        reporter: PullReporter,
+        reporter: IPullReporter,
     ) -> PullReport:
         """Fetch + integrate (ff-only / merge / rebase) project worktrees matched
         by `patterns`, and/or standalone repos.
@@ -660,7 +660,7 @@ class WorkspaceService:
         targets: list[_PullTarget],
         mode: PullMode,
         autostash: bool,
-        reporter: PullReporter,
+        reporter: IPullReporter,
     ) -> list[tuple[str, RepoSyncOutcome]]:
         """Fetch a project repo once, then integrate each of its worktrees.
 

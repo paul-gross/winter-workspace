@@ -20,8 +20,8 @@ from winter_cli.modules.workspace.prune_service import PruneService
 from winter_cli.modules.workspace.reporter_factory import ReporterFactory
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
 from winter_cli.modules.workspace.workspace_service import WorkspaceService
-from winter_cli.cli_output_service import CliOutputService
-from winter_cli.cli_input_validation_service import CliInputValidationService
+from winter_cli.core.cli_input_validation_service import CliInputValidationService
+from winter_cli.core.internal.click_cli_output_service import ClickCliOutputService
 from winter_cli.modules.tui.screens.workspace import WorkspaceScreen
 from winter_cli.modules.tui.screens.worktree_detail import WorktreeDetailScreen
 from winter_cli.plugins.loader import PluginRegistry
@@ -32,7 +32,7 @@ class Container(containers.DeclarativeContainer):
 
     __self__ = providers.Self()
 
-    cli_output_svc = providers.Singleton(CliOutputService)
+    cli_output_svc = providers.Singleton(ClickCliOutputService)
     cli_input_validation_svc = providers.Singleton(CliInputValidationService)
 
     workspace_config_svc = providers.Singleton(WorkspaceConfigService)

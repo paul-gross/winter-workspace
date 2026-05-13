@@ -13,7 +13,7 @@ else:
     import tomli as tomllib
 
 from winter_cli.config.models import AdoptExtensions, WorkspaceConfig
-from winter_cli.modules.workspace.init_reporter import InitReporter
+from winter_cli.modules.workspace.init_reporter import IInitReporter
 from winter_cli.modules.workspace.internal.managed_block import (
     GITIGNORE_BEGIN,
     GITIGNORE_END,
@@ -83,7 +83,7 @@ class ExtensionService:
     def process(
         self,
         repo: StandaloneRepository,
-        reporter: InitReporter,
+        reporter: IInitReporter,
     ) -> bool:
         mode = self._config.adopt_extensions
         if mode == AdoptExtensions.none:
@@ -147,7 +147,7 @@ class ExtensionService:
         repos: list[StandaloneRepository],
         worktree_root: Path,
         worktree_name: str,
-        reporter: InitReporter,
+        reporter: IInitReporter,
     ) -> bool:
         """Run each installed extension's `on_worktree_init` hook.
 
@@ -184,7 +184,7 @@ class ExtensionService:
         hook: str,
         worktree_root: Path,
         worktree_name: str,
-        reporter: InitReporter,
+        reporter: IInitReporter,
     ) -> bool:
         script_path = (repo.path / hook).resolve()
         try:
@@ -249,7 +249,7 @@ class ExtensionService:
         self,
         repo: StandaloneRepository,
         manifest_path: Path | None,
-        reporter: InitReporter,
+        reporter: IInitReporter,
     ) -> ExtensionManifest | None:
         data: dict = {}
         if manifest_path is not None:
@@ -284,7 +284,7 @@ class ExtensionService:
         self,
         repo: StandaloneRepository,
         skills_root: Path | None,
-        reporter: InitReporter,
+        reporter: IInitReporter,
         strict: bool,
     ) -> bool:
         """Ensure SKILL.md files don't override the symlinked directory name.
@@ -378,7 +378,7 @@ class ExtensionService:
         prefix: str,
         kind: str,
         repo_name: str,
-        reporter: InitReporter,
+        reporter: IInitReporter,
         include_dirs: bool,
         include_files: bool,
         file_suffix: str = "",
@@ -461,7 +461,7 @@ class ExtensionService:
     def finalize_excludes(
         self,
         repos: list[StandaloneRepository],
-        reporter: InitReporter,
+        reporter: IInitReporter,
     ) -> bool:
         """Aggregate-update the workspace `.git/info/exclude` with one block per extension.
 
@@ -602,7 +602,7 @@ class ExtensionService:
     def finalize_claudemd(
         self,
         repos: list[StandaloneRepository],
-        reporter: InitReporter,
+        reporter: IInitReporter,
     ) -> bool:
         """Aggregate-update `CLAUDE.winter.md` with the extension list.
 

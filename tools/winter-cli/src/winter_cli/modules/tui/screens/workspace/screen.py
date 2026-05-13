@@ -14,8 +14,8 @@ from winter_cli.modules.workspace.models import (
     StandaloneRepoStatus,
     Workspace,
 )
-from winter_cli.modules.workspace.repo_repository import ReadRepoRepository
-from winter_cli.modules.workspace.workspace_repository import ReadWorkspaceRepository
+from winter_cli.modules.workspace.repo_repository import IReadRepoRepository
+from winter_cli.modules.workspace.workspace_repository import IReadWorkspaceRepository
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
 from winter_cli.modules.workspace.workspace_service import WorkspaceService
 from winter_cli.plugins.loader import PluginRegistry
@@ -47,8 +47,8 @@ class WorkspaceScreen(Screen):
     def __init__(
         self,
         workspace_svc: WorkspaceService,
-        workspace_repo: ReadWorkspaceRepository,
-        repo_repo: ReadRepoRepository,
+        workspace_repo: IReadWorkspaceRepository,
+        repo_repo: IReadRepoRepository,
         repo_factory: RepositoryFactory,
         workspace: Workspace,
         plugin_registry: PluginRegistry,
