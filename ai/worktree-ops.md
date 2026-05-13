@@ -29,7 +29,7 @@ Raw equivalent for a single repo:
 git clone <repo-url> ./projects/<repo-name>
 ```
 
-## Creating a feature worktree
+## Creating a feature environment
 
 ```bash
 winter ws init <name>
@@ -44,7 +44,7 @@ This command:
 - For pinned repos, wires the upstream to `origin/<main-branch>` — see [Pinned repos](#pinned-repos).
 - Runs each repo's `cmd` list.
 - Seeds `./<name>/.winter.env` with `WINTER_ENV`, `WINTER_ENV_INDEX`, and `WINTER_PORT_BASE`.
-- Runs every installed extension's `on_worktree_init` hook.
+- Runs every installed extension's `on_env_init` hook.
 
 Greek letters (`alpha`, `beta`, …) are the convention because they carry a port-offset index, but any valid name works.
 
@@ -56,13 +56,13 @@ Raw equivalent, per repo:
 git -C ./projects/<repo-name> worktree add ../../<name>/<repo-name> -b <name> <main-branch>
 ```
 
-## Connecting a worktree to a remote feature branch
+## Connecting a feature environment to a remote feature branch
 
 ```bash
 winter ws connect <name> <feature-branch>
 ```
 
-Sets `push.default=upstream` and the upstream (`origin/<feature-branch>`) on each non-pinned repo's worktree. The connected feature branch is read back from git's upstream tracking on the first non-pinned repo, so all non-pinned repos in a worktree must use the same remote feature branch name. The remote branch is not created yet — that happens on first push:
+Sets `push.default=upstream` and the upstream (`origin/<feature-branch>`) on each non-pinned repo's worktree. The connected feature branch is read back from git's upstream tracking on the first non-pinned repo, so all non-pinned repos in an env must use the same remote feature branch name. The remote branch is not created yet — that happens on first push:
 
 ```bash
 git -C "./<name>/<repo-name>" push -u origin <name>:<feature-branch>
@@ -74,15 +74,15 @@ git -C "./<name>/<repo-name>" push -u origin <name>:<feature-branch>
 
 Pinned repos are skipped during connect/disconnect (no feature branch tracking to set/unset) and excluded from `push` by default. See the [Pinned repos](#pinned-repos) section for how to include them.
 
-## Disconnecting a worktree
+## Disconnecting a feature environment
 
 ```bash
 winter ws disconnect <name>
 ```
 
-Unsets upstream tracking on each non-pinned repo. With no upstream set, the worktree reads as disconnected.
+Unsets upstream tracking on each non-pinned repo. With no upstream set, the env reads as disconnected.
 
-## Syncing a feature worktree against main
+## Syncing a feature environment against main
 
 ```bash
 winter ws sync <name>

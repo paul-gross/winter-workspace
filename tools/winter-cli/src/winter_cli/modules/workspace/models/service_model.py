@@ -124,9 +124,9 @@ class WorktreeRepoStatus:
 
 
 @dataclasses.dataclass
-class WorktreeSyncReport:
-    """Report from syncing all repos in a worktree — per-repo outcomes and overall success."""
-    worktree: str
+class EnvSyncReport:
+    """Report from syncing every repo in a feature environment — per-repo outcomes and overall success."""
+    env: str
     repos: list[RepoSyncOutcome]
     success: bool
 
@@ -147,7 +147,7 @@ class RepoCheckoutOutcome:
 
 
 @dataclasses.dataclass
-class WorktreeCheckoutReport:
+class EnvCheckoutReport:
     """All-or-nothing report from `winter ws checkout`.
 
     `aborted` is True when at least one repo refused safety in Phase 1 — in that
@@ -156,16 +156,16 @@ class WorktreeCheckoutReport:
     listed because nothing happened to them). When `aborted` is False, every
     non-pinned repo has a `reset` or `skip-missing-ref` outcome.
     """
-    worktree: str
+    env: str
     feature_branch: str
     aborted: bool
     repos: list[RepoCheckoutOutcome]
 
 
 @dataclasses.dataclass
-class WorktreeDiffResult:
-    """Combined diff results across all repos in a worktree."""
-    worktree: str
+class EnvDiffResult:
+    """Combined diff results across every repo in a feature environment."""
+    env: str
     mode: DiffMode
     repos: list[RepoDiffResult]
 
@@ -202,14 +202,14 @@ class FetchReport:
 @dataclasses.dataclass
 class EnvSkipped:
     """An env skipped by a multi-repo op (typically: not connected to a feature branch)."""
-    worktree: str
+    env: str
     reason: str
 
 
 @dataclasses.dataclass
 class PullReport:
     """Top-level pull report — per-env sync results plus standalone outcomes."""
-    envs: list[WorktreeSyncReport]
+    envs: list[EnvSyncReport]
     standalone: list[RepoSyncOutcome]
     skipped: list[EnvSkipped] = dataclasses.field(default_factory=list)
 
@@ -234,16 +234,16 @@ class RepoPushOutcome:
 
 
 @dataclasses.dataclass
-class WorktreePushReport:
+class EnvPushReport:
     """Per-env push outcomes."""
-    worktree: str
+    env: str
     repos: list[RepoPushOutcome]
 
 
 @dataclasses.dataclass
 class PushReport:
     """Top-level push report — per-env outcomes plus standalone outcomes."""
-    envs: list[WorktreePushReport]
+    envs: list[EnvPushReport]
     standalone: list[RepoPushOutcome]
     skipped: list[EnvSkipped] = dataclasses.field(default_factory=list)
 

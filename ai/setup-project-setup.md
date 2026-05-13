@@ -18,7 +18,7 @@ Each feature environment is independent — its own checkout, its own dependenci
 - Stamping git identity from `.winter/config.local.toml`
 - Writing `git_excludes` (workspace-wide and per-repo) into each repo's `.git/info/exclude`
 - Running each repo's `cmd` list (`npm install`, `dotnet restore`, etc.)
-- Running every installed extension's `on_worktree_init` hook
+- Running every installed extension's `on_env_init` hook
 
 The goal here is **not** to replace `project-setup.md`. It's to offload the boring, standard pieces — single-line installs, a handful of file patterns to git-ignore — into `.winter/config.toml` so the cli can run them automatically. Anything that's conditional, multi-step, depends on the environment's ports/db/env, or needs branching logic stays in `project-setup.md` where it can be expressed clearly.
 

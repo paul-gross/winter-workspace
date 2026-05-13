@@ -20,11 +20,11 @@ from winter_cli.modules.workspace.models import (
     RepoScope,
     SyncResult,
     Workspace,
-    WorktreeCheckoutReport,
+    EnvCheckoutReport,
     WorktreeRepoStatus,
 )
 from winter_cli.modules.workspace.drift import DriftWarningService
-from winter_cli.modules.workspace.internal.read_workspace_repository import resolve_worktree_index
+from winter_cli.modules.workspace.internal.read_workspace_repository import resolve_env_index
 from winter_cli.modules.workspace.prune_service import PruneOrphan, PruneService
 from winter_cli.modules.workspace.reporter_factory import ReporterFactory
 from winter_cli.modules.workspace.workspace_repository import IReadWorkspaceRepository
@@ -34,45 +34,45 @@ from winter_cli.modules.workspace.workspace_service import WorkspaceService
 
 
 @dataclasses.dataclass
-class WorktreeListParams:
+class EnvListParams:
     output_json: bool
 
 
 @dataclasses.dataclass
-class WorktreeStatusParams:
-    worktree: str | None
+class EnvStatusParams:
+    env: str | None
     output_json: bool
 
 
 @dataclasses.dataclass
-class WorktreeSyncParams:
-    worktree: str
+class EnvSyncParams:
+    env: str
     output_json: bool
 
 
 @dataclasses.dataclass
-class WorktreeConnectParams:
-    worktree: str
+class EnvConnectParams:
+    env: str
     feature_branch: str
     output_json: bool
 
 
 @dataclasses.dataclass
-class WorktreeDisconnectParams:
-    worktree: str
+class EnvDisconnectParams:
+    env: str
     output_json: bool
 
 
 @dataclasses.dataclass
-class WorktreeCheckoutParams:
-    worktree: str
+class EnvCheckoutParams:
+    env: str
     feature_branch: str
     force: bool
     output_json: bool
 
 
 @dataclasses.dataclass
-class WorktreePushParams:
+class EnvPushParams:
     patterns: list[str]
     scope: RepoScope
     pinned_scope: PinnedScope
@@ -80,14 +80,14 @@ class WorktreePushParams:
 
 
 @dataclasses.dataclass
-class WorktreeFetchParams:
+class EnvFetchParams:
     patterns: list[str]
     scope: RepoScope
     output_json: bool
 
 
 @dataclasses.dataclass
-class WorktreePullParams:
+class EnvPullParams:
     patterns: list[str]
     scope: RepoScope
     mode: PullMode
@@ -96,8 +96,8 @@ class WorktreePullParams:
 
 
 @dataclasses.dataclass
-class WorktreeDiffParams:
-    worktree: str
+class EnvDiffParams:
+    env: str
     mode: DiffMode
     repo_filter: str | None
     no_headers: bool
@@ -105,7 +105,7 @@ class WorktreeDiffParams:
 
 
 @dataclasses.dataclass
-class WorktreeIndexParams:
+class EnvIndexParams:
     name: str
     output_json: bool
 
@@ -141,7 +141,7 @@ class WorkspaceHandler:
         self._cli_output_svc = cli_output_svc
         self._workspace = workspace
 
-    def list(self, params: WorktreeListParams) -> None:
+    def list(self, params: EnvListParams) -> None:
         project_repos = self._repo_factory.get_project_repos()
         self._drift_warning_svc.raise_warning()
         environments = self._workspace_repo.get_environments(self._workspace, project_repos)
@@ -159,15 +159,15 @@ class WorkspaceHandler:
             rows.append([s.environment.name, feature_branch, status_text])
 
         for line in self._cli_output_svc.render_table(
-            rows, headers=["WORKTREE", "FEATURE BRANCH", "STATUS"]
+            rows, headers=["ENV", "FEATURE BRANCH", "STATUS"]
         ):
             click.echo(line)
 
-    def status(self, params: WorktreeStatusParams) -> None:
+    def status(self, params: EnvStatusParams) -> None:
         project_repos = self._repo_factory.get_project_repos()
         self._drift_warning_svc.raise_warning()
-        if params.worktree:
-            env = self._workspace_repo.get_environment(self._workspace, params.worktree)
+        if params.env:
+            env = self._workspace_repo.get_environment(self._workspace, params.env)
             env_status = self._workspace_repo.get_environment_status(env, project_repos)
             env_worktrees = self._workspace_svc.get_feature_environment_worktrees(env, project_repos)
             repo_statuses = self._workspace_svc.get_worktree_repo_statuses(env_worktrees)
@@ -182,12 +182,12 @@ class WorkspaceHandler:
                 overviews.append(FeatureEnvironmentOverview(status=env_status, repo_statuses=repo_statuses))
             self._render_grid(overviews, params.output_json)
 
-    def sync(self, params: WorktreeSyncParams) -> None:
-        env = self._workspace_repo.get_environment(self._workspace, params.worktree)
+    def sync(self, params: EnvSyncParams) -> None:
+        env = self._workspace_repo.get_environment(self._workspace, params.env)
         project_repos = self._repo_factory.get_project_repos()
         self._drift_warning_svc.raise_warning()
         env_worktrees = self._workspace_svc.get_feature_environment_worktrees(env, project_repos)
-        report = self._workspace_svc.sync_worktree(env_worktrees)
+        report = self._workspace_svc.sync_env(env_worktrees)
 
         if params.output_json:
             _echo_json(_to_dict(report))
@@ -223,52 +223,52 @@ class WorkspaceHandler:
 
         out = self._cli_output_svc
         if report.success:
-            click.echo(f"\n{out.style('✓', 'green')} {report.worktree} synced successfully")
+            click.echo(f"\n{out.style('✓', 'green')} {report.env} synced successfully")
         else:
-            click.echo(f"\n{out.style('!', 'yellow')} {report.worktree} has diverged repos")
+            click.echo(f"\n{out.style('!', 'yellow')} {report.env} has diverged repos")
             sys.exit(1)
 
-    def connect(self, params: WorktreeConnectParams) -> None:
-        env = self._workspace_repo.get_environment(self._workspace, params.worktree)
+    def connect(self, params: EnvConnectParams) -> None:
+        env = self._workspace_repo.get_environment(self._workspace, params.env)
         project_repos = self._repo_factory.get_project_repos()
         self._drift_warning_svc.raise_warning()
         env_worktrees = self._workspace_svc.get_feature_environment_worktrees(env, project_repos)
-        count = self._workspace_svc.connect_worktree(env_worktrees, params.feature_branch)
+        count = self._workspace_svc.connect_env(env_worktrees, params.feature_branch)
 
         if params.output_json:
-            _echo_json({"worktree": params.worktree, "feature_branch": params.feature_branch, "repos_configured": count})
+            _echo_json({"env": params.env, "feature_branch": params.feature_branch, "repos_configured": count})
             return
 
         out = self._cli_output_svc
         click.echo(
             f"{out.style('✓', 'green')} Connected "
-            f"{out.style(params.worktree, 'bold')} → "
+            f"{out.style(params.env, 'bold')} → "
             f"{out.style(params.feature_branch, 'bold')} ({count} repos)"
         )
 
-    def disconnect(self, params: WorktreeDisconnectParams) -> None:
-        env = self._workspace_repo.get_environment(self._workspace, params.worktree)
+    def disconnect(self, params: EnvDisconnectParams) -> None:
+        env = self._workspace_repo.get_environment(self._workspace, params.env)
         project_repos = self._repo_factory.get_project_repos()
         self._drift_warning_svc.raise_warning()
         env_worktrees = self._workspace_svc.get_feature_environment_worktrees(env, project_repos)
-        count = self._workspace_svc.disconnect_worktree(env_worktrees)
+        count = self._workspace_svc.disconnect_env(env_worktrees)
 
         if params.output_json:
-            _echo_json({"worktree": params.worktree, "repos_configured": count})
+            _echo_json({"env": params.env, "repos_configured": count})
             return
 
         out = self._cli_output_svc
         click.echo(
             f"{out.style('✓', 'green')} Disconnected "
-            f"{out.style(params.worktree, 'bold')} ({count} repos)"
+            f"{out.style(params.env, 'bold')} ({count} repos)"
         )
 
-    def checkout(self, params: WorktreeCheckoutParams) -> None:
-        env = self._workspace_repo.get_environment(self._workspace, params.worktree)
+    def checkout(self, params: EnvCheckoutParams) -> None:
+        env = self._workspace_repo.get_environment(self._workspace, params.env)
         project_repos = self._repo_factory.get_project_repos()
         self._drift_warning_svc.raise_warning()
         env_worktrees = self._workspace_svc.get_feature_environment_worktrees(env, project_repos)
-        report = self._workspace_svc.checkout_worktree(
+        report = self._workspace_svc.checkout_env(
             env_worktrees, params.feature_branch, params.force,
         )
 
@@ -282,7 +282,7 @@ class WorkspaceHandler:
         if report.aborted:
             sys.exit(1)
 
-    def _render_checkout_report(self, report: WorktreeCheckoutReport) -> None:
+    def _render_checkout_report(self, report: EnvCheckoutReport) -> None:
         out = self._cli_output_svc
         rows: list[list[str | Cell]] = []
         row_styles: list[str | None] = []
@@ -303,7 +303,7 @@ class WorkspaceHandler:
 
         if report.aborted:
             click.echo(
-                f"\n{out.style('✗', 'red')} {out.style(report.worktree, 'bold')} "
+                f"\n{out.style('✗', 'red')} {out.style(report.env, 'bold')} "
                 f"not checked out — safety gate refused (no changes made). "
                 f"Re-run with {out.style('--force', 'bold')} to bypass."
             )
@@ -315,11 +315,11 @@ class WorkspaceHandler:
                 details.append(f"{skip_count} skipped")
             click.echo(
                 f"\n{out.style('✓', 'green')} Checked out "
-                f"{out.style(report.worktree, 'bold')} → "
+                f"{out.style(report.env, 'bold')} → "
                 f"{out.style(report.feature_branch, 'bold')} ({', '.join(details)})"
             )
 
-    def fetch(self, params: WorktreeFetchParams) -> None:
+    def fetch(self, params: EnvFetchParams) -> None:
         self._drift_warning_svc.raise_warning()
         reporter = self._reporter_factory.get_fetch_reporter(params.output_json)
         report = self._workspace_svc.fetch_all(
@@ -337,7 +337,7 @@ class WorkspaceHandler:
         if not report.success:
             sys.exit(1)
 
-    def pull(self, params: WorktreePullParams) -> None:
+    def pull(self, params: EnvPullParams) -> None:
         self._drift_warning_svc.raise_warning()
         reporter = self._reporter_factory.get_pull_reporter(params.output_json)
         report = self._workspace_svc.pull_all(
@@ -367,7 +367,7 @@ class WorkspaceHandler:
                 )
             sys.exit(1)
 
-    def push(self, params: WorktreePushParams) -> None:
+    def push(self, params: EnvPushParams) -> None:
         self._drift_warning_svc.raise_warning()
         report = self._workspace_svc.push_all(
             scope=params.scope,
@@ -385,8 +385,8 @@ class WorkspaceHandler:
         if not report.success:
             sys.exit(1)
 
-    def index(self, params: WorktreeIndexParams) -> None:
-        idx = resolve_worktree_index(params.name)
+    def index(self, params: EnvIndexParams) -> None:
+        idx = resolve_env_index(params.name)
         if params.output_json:
             _echo_json({"name": params.name, "index": idx})
             return
@@ -490,16 +490,16 @@ class WorkspaceHandler:
         except ValueError:
             return str(path)
 
-    def diff(self, params: WorktreeDiffParams) -> None:
-        env = self._workspace_repo.get_environment(self._workspace, params.worktree)
+    def diff(self, params: EnvDiffParams) -> None:
+        env = self._workspace_repo.get_environment(self._workspace, params.env)
         project_repos = self._repo_factory.get_project_repos()
         self._drift_warning_svc.raise_warning()
         env_worktrees = self._workspace_svc.get_feature_environment_worktrees(env, project_repos)
-        result = self._workspace_svc.get_worktree_diff(env_worktrees, params.mode, repo_filter=params.repo_filter)
+        result = self._workspace_svc.get_env_diff(env_worktrees, params.mode, repo_filter=params.repo_filter)
 
         if params.output_json:
             data = {
-                "worktree": result.worktree,
+                "env": result.env,
                 "mode": result.mode.value,
                 "repos": [
                     {
@@ -539,7 +539,7 @@ class WorkspaceHandler:
 
         for env_report in report.envs:
             if sectioned:
-                click.echo(out.style(env_report.worktree, "bold"))
+                click.echo(out.style(env_report.env, "bold"))
             if env_report.repos:
                 for line in self._push_table_lines(env_report.repos):
                     click.echo(line)
@@ -549,7 +549,7 @@ class WorkspaceHandler:
                 click.echo()
 
         for skip in report.skipped:
-            click.echo(f"{out.style('!', 'yellow')} {skip.worktree}: {skip.reason}")
+            click.echo(f"{out.style('!', 'yellow')} {skip.env}: {skip.reason}")
 
         if scope.includes_standalone:
             if sectioned:
@@ -590,7 +590,7 @@ class WorkspaceHandler:
             return
 
         out = self._cli_output_svc
-        click.echo(f"{out.style('Worktree:', 'bold')} {env_status.environment.name}")
+        click.echo(f"{out.style('Env:', 'bold')} {env_status.environment.name}")
         if env_status.feature_branch:
             click.echo(f"{out.style('Branch:', 'bold')}   {env_status.feature_branch}")
         for key, value in env_status.extensions.items():

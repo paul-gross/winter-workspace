@@ -20,7 +20,7 @@ from winter_cli.modules.workspace.internal.managed_block import (
     replace_or_append_block,
     strip_block,
 )
-from winter_cli.modules.workspace.internal.read_workspace_repository import resolve_worktree_index
+from winter_cli.modules.workspace.internal.read_workspace_repository import resolve_env_index
 from winter_cli.modules.workspace.models import StandaloneRepository
 
 EXT_MANIFEST = "winter-ext.toml"
@@ -30,7 +30,7 @@ DEFAULT_AGENTS_DIRS = ("agents", ".claude/agents")
 PORT_BASE = 4000
 PORT_STEP = 100
 
-HOOK_ON_WORKTREE_INIT = "on_worktree_init"
+HOOK_ON_ENV_INIT = "on_env_init"
 
 CLAUDEMD_BLOCK_NAME = "winter-extensions"
 CLAUDEMD_INDEX_FILENAME = "index.md"
@@ -54,7 +54,7 @@ class ExtensionManifest:
     (`.claude/skills/`/`.claude/agents/`), so vanilla Claude Code repos can be
     adopted as extensions without modification.
 
-    `hooks` maps hook names (e.g. `on_worktree_init`) to executable script paths
+    `hooks` maps hook names (e.g. `on_env_init`) to executable script paths
     relative to the extension's repo root. Hooks let an extension contribute
     setup steps that don't fit the symlink-skills/agents model — for example,
     dropping additional files into a worktree or running provisioning commands.
@@ -140,21 +140,22 @@ class ExtensionService:
 
         return True
 
-    # ── Worktree lifecycle hooks ──────────────────────────────────────────
+    # ── Env lifecycle hooks ───────────────────────────────────────────────
 
-    def run_worktree_init_hooks(
+    def run_env_init_hooks(
         self,
         repos: list[StandaloneRepository],
-        worktree_root: Path,
-        worktree_name: str,
+        env_root: Path,
+        env_name: str,
         reporter: IInitReporter,
     ) -> bool:
-        """Run each installed extension's `on_worktree_init` hook.
+        """Run each installed extension's `on_env_init` hook.
 
-        Called from `winter ws init <name>` after every project repo has been
-        worktreed and its `cmd` list has run. The hook executes from the new
-        worktree's directory so it can drop files in place, with env vars
-        identifying the workspace, the extension, and the worktree.
+        Called from `winter ws init <name>` after every project repo's
+        worktree has been created and its `cmd` list has run. The hook
+        executes from the new env's directory so it can drop files in
+        place, with env vars identifying the workspace, the extension,
+        and the feature env.
         """
         if self._config.adopt_extensions == AdoptExtensions.none:
             return True
@@ -170,10 +171,10 @@ class ExtensionService:
             if manifest is None:
                 success = False
                 continue
-            hook = manifest.hooks.get(HOOK_ON_WORKTREE_INIT)
+            hook = manifest.hooks.get(HOOK_ON_ENV_INIT)
             if not hook:
                 continue
-            if not self._run_hook(repo, manifest, hook, worktree_root, worktree_name, reporter):
+            if not self._run_hook(repo, manifest, hook, env_root, env_name, reporter):
                 success = False
         return success
 
@@ -182,8 +183,8 @@ class ExtensionService:
         repo: StandaloneRepository,
         manifest: ExtensionManifest,
         hook: str,
-        worktree_root: Path,
-        worktree_name: str,
+        env_root: Path,
+        env_name: str,
         reporter: IInitReporter,
     ) -> bool:
         script_path = (repo.path / hook).resolve()
@@ -202,22 +203,22 @@ class ExtensionService:
             reporter.repo_error(repo.name, f"hook `{hook}` is not executable")
             return False
 
-        index = resolve_worktree_index(worktree_name)
+        index = resolve_env_index(env_name)
         env = os.environ.copy()
         env.update({
             "WINTER_WORKSPACE_DIR": str(self._config.workspace_root),
             "WINTER_EXT_DIR": str(repo.path),
             "WINTER_EXT_PREFIX": manifest.prefix,
-            "WINTER_WORKTREE": worktree_name,
-            "WINTER_WORKTREE_INDEX": str(index),
+            "WINTER_ENV": env_name,
+            "WINTER_ENV_INDEX": str(index),
             "WINTER_PORT_BASE": str(PORT_BASE + index * PORT_STEP),
         })
 
-        reporter.cmd_started(repo.name, f"hook on_worktree_init")
+        reporter.cmd_started(repo.name, f"hook on_env_init")
         try:
             proc = subprocess.Popen(
                 [str(script_path)],
-                cwd=str(worktree_root),
+                cwd=str(env_root),
                 env=env,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -225,21 +226,21 @@ class ExtensionService:
                 bufsize=1,
             )
         except OSError as exc:
-            reporter.repo_error(repo.name, f"hook on_worktree_init — {exc}")
+            reporter.repo_error(repo.name, f"hook on_env_init — {exc}")
             return False
         assert proc.stdout is not None
         for line in proc.stdout:
             reporter.cmd_output_line(repo.name, line.rstrip("\n"))
         returncode = proc.wait()
-        reporter.cmd_completed(repo.name, "hook on_worktree_init", returncode)
+        reporter.cmd_completed(repo.name, "hook on_env_init", returncode)
         if returncode != 0:
             reporter.repo_error(
                 repo.name,
-                f"hook on_worktree_init exited with code {returncode}",
+                f"hook on_env_init exited with code {returncode}",
             )
             return False
         reporter.repo_action(
-            repo.name, str(worktree_root), "hook_ran", "on_worktree_init"
+            repo.name, str(env_root), "hook_ran", "on_env_init"
         )
         return True
 

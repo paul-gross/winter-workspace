@@ -35,7 +35,7 @@ Winter is two pieces of machinery: a directory convention and a CLI that maintai
 
 **Directory convention.** Each declared project repo is cloned into `projects/<name>/` (the source-of-truth checkout, always on its main branch). Feature environments live in their own top-level directories — Greek-letter shorthands like `alpha/`, `beta/`, ... or arbitrary names like `feature-xyz/` or `jira-123-thing/` — each containing a per-repo git worktree on a branch matching the directory name. Extensions are cloned at the workspace root and discovered automatically. Nothing in your project repos changes: the workspace is the only thing that knows about winter.
 
-**`winter ws init <name>`** is the single entry point: it creates the directory, runs `git worktree add` for every project repo (cut from each repo's main branch), copies your git identity, writes git-exclude entries, runs each repo's `cmd` list, seeds `.winter.env` with `WINTER_ENV` / `WINTER_ENV_INDEX` / `WINTER_PORT_BASE`, and fires every installed extension's `on_worktree_init` hook. Idempotent — safe to re-run.
+**`winter ws init <name>`** is the single entry point: it creates the directory, runs `git worktree add` for every project repo (cut from each repo's main branch), copies your git identity, writes git-exclude entries, runs each repo's `cmd` list, seeds `.winter.env` with `WINTER_ENV` / `WINTER_ENV_INDEX` / `WINTER_PORT_BASE`, and fires every installed extension's `on_env_init` hook. Idempotent — safe to re-run.
 
 **Ports per environment.** Each environment gets a 100-port window keyed off its index. Greek letters have fixed indices (alpha=1, beta=2, …) so alpha lives in the 4100s, beta in the 4200s, and so on. Multiple environments can run their services simultaneously without colliding.
 

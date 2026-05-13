@@ -36,7 +36,7 @@ class InitHandler:
         if params.all:
             success = self._init_service.reconcile_all(reporter)
         elif params.target:
-            success = self._init_service.reconcile_worktree(params.target, reporter)
+            success = self._init_service.reconcile_env(params.target, reporter)
         else:
             success = self._init_service.reconcile_projects(reporter)
             if not self._init_service.reconcile_standalones(reporter):

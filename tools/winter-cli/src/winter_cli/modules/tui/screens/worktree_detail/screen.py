@@ -258,7 +258,7 @@ class WorktreeDetailScreen(Screen):
         project_repos = self._repo_factory.get_project_repos()
         env = self._workspace_repo.get_environment(self._workspace, self.worktree_name)
         env_worktrees = self._workspace_svc.get_feature_environment_worktrees(env, project_repos)
-        self._workspace_svc.sync_worktree(env_worktrees)
+        self._workspace_svc.sync_env(env_worktrees)
         self._refresh_data()
 
     def _run_plugin_action(self, action_name: str) -> None:

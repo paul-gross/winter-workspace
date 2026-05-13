@@ -15,28 +15,28 @@ One idempotent command with three modes. Safe to re-run any time.
 | Form | What it reconciles |
 |------|--------------------|
 | `winter ws init` | Source checkouts in `projects/` and standalone repos. |
-| `winter ws init <name>` | The `./<name>/` feature worktree. |
-| `winter ws init --all` | Source checkouts, standalones, and every existing worktree. |
+| `winter ws init <name>` | The `./<name>/` feature environment. |
+| `winter ws init --all` | Source checkouts, standalones, and every existing feature environment. |
 
 Each mode applies the same per-repo reconcile steps (git identity, excludes, `cmd` list, extension processing, pinned-repo tracking on worktrees). See [worktree-ops.md](../worktree-ops.md) for the full step list and the pinned-repo specifics.
 
-Greek letters (`alpha`, `beta`, …) are the suggested convention for worktree names because they carry a fixed port-offset index 1..24. Any other valid directory name is accepted and gets a deterministic SHA-1-derived index in the range 26..281 (index 25 is reserved as a buffer). Hash collisions among non-Greek names are possible but unlikely.
+Greek letters (`alpha`, `beta`, …) are the suggested convention for feature environment names because they carry a fixed port-offset index 1..24. Any other valid directory name is accepted and gets a deterministic SHA-1-derived index in the range 26..281 (index 25 is reserved as a buffer). Hash collisions among non-Greek names are possible but unlikely.
 
 ## Workspace commands (`winter ws`)
 
 | Command | Usage | Purpose |
 |---------|-------|---------|
-| `winter ws init` | `winter ws init [TARGET] [--all] [--json]` | Reconcile source checkouts or a feature worktree |
-| `winter ws list` | `winter ws list [--json]` | List all feature worktrees |
-| `winter ws status` | `winter ws status [WORKTREE] [--json]` | Git status across all repos in a worktree |
-| `winter ws sync` | `winter ws sync WORKTREE [--json]` | Fetch all repos, ff-only merge `origin/main` (falls back to merge), then fast-forward source checkouts |
+| `winter ws init` | `winter ws init [TARGET] [--all] [--json]` | Reconcile source checkouts or a feature environment |
+| `winter ws list` | `winter ws list [--json]` | List all feature environments |
+| `winter ws status` | `winter ws status [ENV] [--json]` | Git status across all repos in a feature environment |
+| `winter ws sync` | `winter ws sync ENV [--json]` | Fetch all repos, ff-only merge `origin/main` (falls back to merge), then fast-forward source checkouts |
 | `winter ws fetch` | `winter ws fetch [PATTERNS...] [--standalone\|--all] [--json]` | Fetch refs from `origin` for project worktrees matched by PATTERNS |
 | `winter ws pull` | `winter ws pull [PATTERNS...] [--standalone\|--all] [--ff-only\|--merge\|--rebase] [--autostash] [--json]` | Fetch + ff-only integrate (default) project worktrees matched by PATTERNS |
 | `winter ws push` | `winter ws push [PATTERNS...] [--standalone\|--all] [--include-pinned\|--only-pinned] [--json]` | Push project worktrees matched by PATTERNS to their tracked upstream |
-| `winter ws connect` | `winter ws connect WORKTREE FEATURE_BRANCH [--json]` | Connect a worktree to a remote feature branch |
-| `winter ws disconnect` | `winter ws disconnect WORKTREE [--json]` | Disconnect from the feature branch |
-| `winter ws diff` | `winter ws diff WORKTREE [--staged\|--branch] [--repo REPO] [--json]` | Unified diff across all repos in a worktree |
-| `winter ws index` | `winter ws index NAME [--json]` | Print the port-offset index for a worktree name (Greek = 1..24, other = hashed 26..281) |
+| `winter ws connect` | `winter ws connect ENV FEATURE_BRANCH [--json]` | Connect a feature environment to a remote feature branch |
+| `winter ws disconnect` | `winter ws disconnect ENV [--json]` | Disconnect a feature environment from its feature branch |
+| `winter ws diff` | `winter ws diff ENV [--staged\|--branch] [--repo REPO] [--json]` | Unified diff across all repos in a feature environment |
+| `winter ws index` | `winter ws index NAME [--json]` | Print the port-offset index for a feature environment name (Greek = 1..24, other = hashed 26..281) |
 
 ### `fetch` / `pull` / `push` patterns and scope
 
@@ -83,14 +83,14 @@ Pattern syntax: `*` matches any chars within a segment (does not cross `/`); `?`
 
 `push` excludes pinned worktrees by default because pinned repos track the main branch and aren't part of the feature-push flow. Use `--include-pinned` when you've landed commits on a pinned repo's main branch and want to ship them, or `--only-pinned` to ship just those without touching feature branches.
 
-**`sync` vs `pull`.** `sync` always targets `origin/main` and falls back to a merge commit when ff-only fails (so source checkouts stay aligned even when the worktree has drifted). `pull` always targets the *tracked* upstream — the feature branch for non-pinned worktrees, main for pinned, custom branches for standalone repos — and is ff-only by default. Use `sync` to bring main into a feature env; use `pull` to grab remote commits made on the feature branch.
+**`sync` vs `pull`.** `sync` always targets `origin/main` and falls back to a merge commit when ff-only fails (so source checkouts stay aligned even when the env has drifted). `pull` always targets the *tracked* upstream — the feature branch for non-pinned worktrees, main for pinned, custom branches for standalone repos — and is ff-only by default. Use `sync` to bring main into a feature env; use `pull` to grab remote commits made on the feature branch.
 
 ## Repository commands (`winter repo`)
 
 | Command | Usage | Purpose |
 |---------|-------|---------|
 | `winter repo list` | `winter repo list [--json]` | List all project and standalone repositories and their types |
-| `winter repo status` | `winter repo status WORKTREE REPO [--json]` | Detailed git status for one repo in a worktree |
+| `winter repo status` | `winter repo status ENV REPO [--json]` | Detailed git status for one repo in a feature environment |
 
 ## Dashboard
 
@@ -98,7 +98,7 @@ Pattern syntax: `*` matches any chars within a segment (does not cross `/`); `?`
 winter dashboard
 ```
 
-Interactive TUI showing workspace status, worktrees, and repo details. Navigate with keyboard.
+Interactive TUI showing workspace status, feature environments, and repo details. Navigate with keyboard.
 
 ## Drift warnings
 
@@ -116,7 +116,7 @@ Drift detection currently covers project repos only. Missing or undeclared stand
 ### Bootstrap a new workspace
 ```bash
 winter ws init              # clone every declared repo into projects/
-winter ws init alpha        # create the alpha/ worktree
+winter ws init alpha        # create the alpha/ feature environment
 ```
 
 ### Check workspace state
@@ -129,7 +129,7 @@ winter ws status alpha
 winter ws sync alpha    # tries ff-only against origin/main, falls back to merge, reports diverged if both fail
 ```
 
-### Pull remote feature-branch commits into the local worktree
+### Pull remote feature-branch commits into the local env
 ```bash
 winter ws pull alpha               # ff-only against origin/<feature-branch>; diverged repos reported, not touched
 winter ws pull alpha --rebase      # ff or replay local commits onto upstream
@@ -163,7 +163,7 @@ winter ws diff alpha --staged          # staged changes only
 winter ws diff alpha --repo my-app     # single repo
 ```
 
-### Reuse a worktree for a different feature
+### Reuse a feature environment for a different feature
 ```bash
 winter ws disconnect alpha
 winter ws connect alpha feature/other-feature

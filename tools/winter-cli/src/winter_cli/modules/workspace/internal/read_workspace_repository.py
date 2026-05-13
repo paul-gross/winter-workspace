@@ -21,7 +21,7 @@ _GREEK_INDEX = {name: i + 1 for i, name in enumerate(GREEK_LETTERS)}
 _NON_GREEK_OFFSET = 26
 
 
-def resolve_worktree_index(name: str) -> int:
+def resolve_env_index(name: str) -> int:
     """Map a worktree name to a port-offset index.
 
     Greek letters get fixed indices 1..24 so port assignments stay consistent
@@ -84,7 +84,7 @@ class ReadWorkspaceRepository:
         return FeatureEnvironment(
             workspace=workspace,
             name=name,
-            index=resolve_worktree_index(name),
+            index=resolve_env_index(name),
             path=path,
         )
 

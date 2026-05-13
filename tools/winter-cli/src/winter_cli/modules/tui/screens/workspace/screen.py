@@ -178,7 +178,7 @@ class WorkspaceScreen(Screen):
         env_worktrees = self._env_worktrees.get(name)
         if env_worktrees is None:
             return
-        self._workspace_svc.sync_worktree(env_worktrees)
+        self._workspace_svc.sync_env(env_worktrees)
         self._refresh_data()
 
     def on_data_table_cell_selected(self, event: FeatureWorktreesGrid.CellSelected) -> None:

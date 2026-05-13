@@ -16,7 +16,7 @@ from winter_cli.modules.workspace.internal.managed_block import (
     GITIGNORE_END,
     replace_or_append_block,
 )
-from winter_cli.modules.workspace.internal.read_workspace_repository import resolve_worktree_index
+from winter_cli.modules.workspace.internal.read_workspace_repository import resolve_env_index
 from winter_cli.modules.workspace.models import ProjectRepository, IWorkspaceRepository, StandaloneRepository
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
 
@@ -107,12 +107,12 @@ class InitService:
         reporter.target_completed(target, success)
         return success
 
-    def reconcile_worktree(self, name: str, reporter: IInitReporter) -> bool:
+    def reconcile_env(self, name: str, reporter: IInitReporter) -> bool:
         reporter.target_started(name)
         success = True
 
-        worktree_root = self._config.workspace_root / name
-        worktree_root.mkdir(parents=True, exist_ok=True)
+        env_root = self._config.workspace_root / name
+        env_root.mkdir(parents=True, exist_ok=True)
 
         if not self._write_workspace_self_exclude(name, reporter):
             success = False
@@ -131,16 +131,16 @@ class InitService:
 
         if not self._run_per_repo(
             ready_repos,
-            lambda r: self._reconcile_worktree_repo(r, name, worktree_root, reporter),
+            lambda r: self._reconcile_worktree_repo(r, name, env_root, reporter),
         ):
             success = False
 
-        if not self._seed_winter_env(worktree_root, name, reporter):
+        if not self._seed_winter_env(env_root, name, reporter):
             success = False
 
         standalones = self._repo_factory.get_standalone_repos()
-        if not self._extension_svc.run_worktree_init_hooks(
-            standalones, worktree_root, name, reporter,
+        if not self._extension_svc.run_env_init_hooks(
+            standalones, env_root, name, reporter,
         ):
             success = False
 
@@ -169,7 +169,7 @@ class InitService:
         if not self.reconcile_standalones(reporter):
             success = False
         for name in self._discover_existing_worktrees():
-            if not self.reconcile_worktree(name, reporter):
+            if not self.reconcile_env(name, reporter):
                 success = False
         return success
 
@@ -288,10 +288,10 @@ class InitService:
         self,
         repo: ProjectRepository,
         branch_name: str,
-        worktree_root: Path,
+        env_root: Path,
         reporter: IInitReporter,
     ) -> bool:
-        worktree_path = worktree_root / repo.name
+        worktree_path = env_root / repo.name
         location = str(worktree_path)
         label = repo.name
 
@@ -430,8 +430,8 @@ class InitService:
 
     def _seed_winter_env(
         self,
-        worktree_root: Path,
-        worktree_name: str,
+        env_root: Path,
+        env_name: str,
         reporter: IInitReporter,
     ) -> bool:
         """Seed the worktree's .winter.env with workspace-managed base variables.
@@ -442,18 +442,18 @@ class InitService:
         and are preserved across re-runs. The block itself is rewritten in full
         each time, so changing the worktree's index updates the file cleanly.
         """
-        index = resolve_worktree_index(worktree_name)
+        index = resolve_env_index(env_name)
         port_base = PORT_BASE + index * PORT_STEP
 
         block_lines = [
             WINTER_ENV_BEGIN,
-            f"WINTER_ENV={worktree_name}",
+            f"WINTER_ENV={env_name}",
             f"WINTER_ENV_INDEX={index}",
             f"WINTER_PORT_BASE={port_base}",
             WINTER_ENV_END,
         ]
 
-        env_path = worktree_root / WINTER_ENV_FILE
+        env_path = env_root / WINTER_ENV_FILE
         existing = ""
         if env_path.exists():
             try:

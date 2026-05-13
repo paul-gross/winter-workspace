@@ -30,11 +30,11 @@ from winter_cli.modules.workspace.models.service_model import (
     RepoSyncOutcome,
     StandaloneRepoStatus,
     SyncResult,
-    WorktreeCheckoutReport,
-    WorktreeDiffResult,
-    WorktreePushReport,
+    EnvCheckoutReport,
+    EnvDiffResult,
+    EnvPushReport,
     WorktreeRepoStatus,
-    WorktreeSyncReport,
+    EnvSyncReport,
 )
 
 __all__ = [
@@ -67,9 +67,9 @@ __all__ = [
     "StandaloneRepository",
     "SyncResult",
     "Workspace",
-    "WorktreeCheckoutReport",
-    "WorktreeDiffResult",
-    "WorktreePushReport",
+    "EnvCheckoutReport",
+    "EnvDiffResult",
+    "EnvPushReport",
     "WorktreeRepoStatus",
-    "WorktreeSyncReport",
+    "EnvSyncReport",
 ]

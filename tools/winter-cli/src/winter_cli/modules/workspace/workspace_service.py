@@ -32,11 +32,11 @@ from winter_cli.modules.workspace.models import (
     FeatureEnvironmentWorktrees,
     FeatureWorktree,
     Workspace,
-    WorktreeCheckoutReport,
-    WorktreeDiffResult,
-    WorktreePushReport,
+    EnvCheckoutReport,
+    EnvDiffResult,
+    EnvPushReport,
     WorktreeRepoStatus,
-    WorktreeSyncReport,
+    EnvSyncReport,
 )
 from winter_cli.modules.workspace.fetch_reporter import IFetchReporter
 from winter_cli.modules.workspace.pull_reporter import IPullReporter
@@ -142,7 +142,7 @@ class WorkspaceService:
 
         return wt_repo_statuses
 
-    def sync_worktree(self, env_worktrees: FeatureEnvironmentWorktrees) -> WorktreeSyncReport:
+    def sync_env(self, env_worktrees: FeatureEnvironmentWorktrees) -> EnvSyncReport:
         """Sync a worktree's repos against `origin/<main>` (ff-or-merge).
 
         Sync intentionally falls back to a merge commit when ff-only fails —
@@ -163,9 +163,9 @@ class WorkspaceService:
             list(pool.map(self._repo_repo.sync_ff_only, project_repos))
 
         success = all(o.sync_result != SyncResult.diverged for o in outcomes)
-        return WorktreeSyncReport(worktree=env_worktrees.environment.name, repos=outcomes, success=success)
+        return EnvSyncReport(env=env_worktrees.environment.name, repos=outcomes, success=success)
 
-    def connect_worktree(self, env_worktrees: FeatureEnvironmentWorktrees, feature_branch: str) -> int:
+    def connect_env(self, env_worktrees: FeatureEnvironmentWorktrees, feature_branch: str) -> int:
         count = 0
         for wt in env_worktrees.worktrees:
             if wt.repository.pinned:
@@ -175,7 +175,7 @@ class WorkspaceService:
             count += 1
         return count
 
-    def disconnect_worktree(self, env_worktrees: FeatureEnvironmentWorktrees) -> int:
+    def disconnect_env(self, env_worktrees: FeatureEnvironmentWorktrees) -> int:
         count = 0
         for wt in env_worktrees.worktrees:
             if wt.repository.pinned:
@@ -184,12 +184,12 @@ class WorkspaceService:
             count += 1
         return count
 
-    def checkout_worktree(
+    def checkout_env(
         self,
         env_worktrees: FeatureEnvironmentWorktrees,
         feature_branch: str,
         force: bool,
-    ) -> WorktreeCheckoutReport:
+    ) -> EnvCheckoutReport:
         """Adopt `origin/<feature_branch>` into every non-pinned worktree repo, all-or-nothing.
 
         Phase 1 classifies each repo locally (no network): dirty / divergent
@@ -224,8 +224,8 @@ class WorkspaceService:
             passing.append(wt)
 
         if refused:
-            return WorktreeCheckoutReport(
-                worktree=env_worktrees.environment.name,
+            return EnvCheckoutReport(
+                env=env_worktrees.environment.name,
                 feature_branch=feature_branch,
                 aborted=True,
                 repos=refused + skipped,
@@ -243,8 +243,8 @@ class WorkspaceService:
         repo_order = [wt.repository.name for wt in targets]
         outcomes = applied + skipped
         outcomes.sort(key=lambda o: repo_order.index(o.repo_name))
-        return WorktreeCheckoutReport(
-            worktree=env_worktrees.environment.name,
+        return EnvCheckoutReport(
+            env=env_worktrees.environment.name,
             feature_branch=feature_branch,
             aborted=False,
             repos=outcomes,
@@ -262,9 +262,9 @@ class WorkspaceService:
     def get_feature_worktree(self, env: FeatureEnvironment, repo: ProjectRepository) -> FeatureWorktree:
         return FeatureWorktree(workspace=env.workspace, environment=env, repository=repo)
 
-    def get_worktree_diff(
+    def get_env_diff(
         self, env_worktrees: FeatureEnvironmentWorktrees, mode: DiffMode, repo_filter: str | None = None,
-    ) -> WorktreeDiffResult:
+    ) -> EnvDiffResult:
         worktrees = env_worktrees.worktrees
 
         if repo_filter:
@@ -285,7 +285,7 @@ class WorkspaceService:
                 continue
             results.append(diff)
 
-        return WorktreeDiffResult(worktree=env_worktrees.environment.name, mode=mode, repos=results)
+        return EnvDiffResult(env=env_worktrees.environment.name, mode=mode, repos=results)
 
     def fetch_all(
         self,
@@ -414,7 +414,7 @@ class WorkspaceService:
         # skips → per-repo results → summary. The pinned worktrees in a skipped
         # env still flow through the integrate stage below.
         for skip in skipped:
-            reporter.env_skipped(skip.worktree, skip.reason)
+            reporter.env_skipped(skip.env, skip.reason)
 
         # Group integrate targets by source repo so each project repo gets
         # one shared fetch. Within a group, integrates run serially (they're
@@ -457,14 +457,14 @@ class WorkspaceService:
                     )
                     standalone_outcomes.append(outcome)
 
-        env_reports: list[WorktreeSyncReport] = []
+        env_reports: list[EnvSyncReport] = []
         for env in matched_envs:
             if not outcomes_by_env[env.name]:
                 continue
             repo_order = [t.worktree.repository.name for t in targets if t.env_name == env.name]
             env_outcomes = self._sort_outcomes(outcomes_by_env[env.name], repo_order)
             success = all(o.sync_result != SyncResult.diverged for o in env_outcomes)
-            env_reports.append(WorktreeSyncReport(worktree=env.name, repos=env_outcomes, success=success))
+            env_reports.append(EnvSyncReport(env=env.name, repos=env_outcomes, success=success))
 
         standalone_outcomes.sort(key=lambda o: o.repo_name)
         report = PullReport(envs=env_reports, standalone=standalone_outcomes, skipped=skipped)
@@ -492,7 +492,7 @@ class WorkspaceService:
         envs = self._select_envs(scope, project_repos)
         standalone_repos = self._repo_factory.get_standalone_repos() if scope.includes_standalone else []
 
-        env_reports: list[WorktreePushReport] = []
+        env_reports: list[EnvPushReport] = []
         skipped: list[EnvSkipped] = []
         for env in envs:
             env_status = self._worktree_repo.get_environment_status(env, project_repos)
@@ -509,7 +509,7 @@ class WorkspaceService:
             non_pinned = [wt for wt in worktrees if not wt.repository.pinned]
             if non_pinned and not env_status.feature_branch:
                 skipped.append(EnvSkipped(
-                    worktree=env.name,
+                    env=env.name,
                     reason="not connected — run `winter ws connect` first",
                 ))
                 worktrees = [wt for wt in worktrees if wt.repository.pinned]
@@ -519,7 +519,7 @@ class WorkspaceService:
                 for wt in worktrees
                 if self._has_commits_to_push(wt)
             ]
-            env_reports.append(WorktreePushReport(worktree=env.name, repos=outcomes))
+            env_reports.append(EnvPushReport(env=env.name, repos=outcomes))
 
         standalone_outcomes: list[RepoPushOutcome] = []
         for repo in standalone_repos:
@@ -581,7 +581,7 @@ class WorkspaceService:
 
             if non_pinned and not env_status.feature_branch:
                 skipped.append(EnvSkipped(
-                    worktree=env.name,
+                    env=env.name,
                     reason="not connected — run `winter ws connect` first",
                 ))
                 wts_to_pull = pinned

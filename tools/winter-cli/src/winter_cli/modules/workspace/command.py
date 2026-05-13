@@ -10,17 +10,17 @@ from winter_cli.modules.workspace.handlers import (
     RepoListParams,
     RepoRemoveParams,
     WorkspacePruneParams,
-    WorktreeCheckoutParams,
-    WorktreeConnectParams,
-    WorktreeDiffParams,
-    WorktreeDisconnectParams,
-    WorktreeFetchParams,
-    WorktreeIndexParams,
-    WorktreeListParams,
-    WorktreePullParams,
-    WorktreePushParams,
-    WorktreeStatusParams,
-    WorktreeSyncParams,
+    EnvCheckoutParams,
+    EnvConnectParams,
+    EnvDiffParams,
+    EnvDisconnectParams,
+    EnvFetchParams,
+    EnvIndexParams,
+    EnvListParams,
+    EnvPullParams,
+    EnvPushParams,
+    EnvStatusParams,
+    EnvSyncParams,
 )
 
 
@@ -66,21 +66,21 @@ def _validate_pattern(pattern: str) -> None:
 
 @click.group("ws")
 def ws_group():
-    """Manage worktrees."""
+    """Manage feature environments."""
 
 
 @ws_group.command("init")
 @click.argument("target", required=False)
-@click.option("--all", "all_flag", is_flag=True, default=False, help="Reconcile projects/, standalone repos, and every existing worktree.")
+@click.option("--all", "all_flag", is_flag=True, default=False, help="Reconcile projects/, standalone repos, and every existing feature environment.")
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
 def ws_init(ctx: click.Context, target: str | None, all_flag: bool, output_json: bool):
-    """Reconcile source checkouts, standalone repos, or a feature worktree against the config.
+    """Reconcile source checkouts, standalone repos, or a feature environment against the config.
 
     \b
       winter ws init              # reconcile projects/ and standalone repos
-      winter ws init alpha        # reconcile the alpha/ worktree (create if missing)
-      winter ws init --all        # reconcile projects/, standalone repos, and every worktree
+      winter ws init alpha        # reconcile the alpha/ env (create if missing)
+      winter ws init --all        # reconcile projects/, standalone repos, and every env
     """
     container = cli_ctx(ctx).container
     handler = container.init_handler()
@@ -91,68 +91,68 @@ def ws_init(ctx: click.Context, target: str | None, all_flag: bool, output_json:
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
 def ws_list(ctx: click.Context, output_json: bool):
-    """List all worktrees."""
+    """List all feature environments."""
     container = cli_ctx(ctx).container
     handler = container.workspace_handler()
-    handler.list(WorktreeListParams(output_json=output_json))
+    handler.list(EnvListParams(output_json=output_json))
 
 
 @ws_group.command("status")
-@click.argument("worktree", required=False)
+@click.argument("env", required=False)
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
-def ws_status(ctx: click.Context, worktree: str | None, output_json: bool):
-    """Show status for a worktree (defaults to all)."""
+def ws_status(ctx: click.Context, env: str | None, output_json: bool):
+    """Show status for a feature environment (defaults to all)."""
     container = cli_ctx(ctx).container
     handler = container.workspace_handler()
-    handler.status(WorktreeStatusParams(worktree=worktree, output_json=output_json))
+    handler.status(EnvStatusParams(env=env, output_json=output_json))
 
 
 @ws_group.command("sync")
-@click.argument("worktree")
+@click.argument("env")
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
-def ws_sync(ctx: click.Context, worktree: str, output_json: bool):
-    """Sync a worktree with origin (fetch + ff-only merge)."""
+def ws_sync(ctx: click.Context, env: str, output_json: bool):
+    """Sync a feature environment with origin (fetch + ff-only merge)."""
     container = cli_ctx(ctx).container
     handler = container.workspace_handler()
-    handler.sync(WorktreeSyncParams(worktree=worktree, output_json=output_json))
+    handler.sync(EnvSyncParams(env=env, output_json=output_json))
 
 
 @ws_group.command("connect")
-@click.argument("worktree")
+@click.argument("env")
 @click.argument("feature_branch")
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
-def ws_connect(ctx: click.Context, worktree: str, feature_branch: str, output_json: bool):
-    """Connect a worktree to a remote feature branch."""
+def ws_connect(ctx: click.Context, env: str, feature_branch: str, output_json: bool):
+    """Connect a feature environment to a remote feature branch."""
     container = cli_ctx(ctx).container
     handler = container.workspace_handler()
-    handler.connect(WorktreeConnectParams(worktree=worktree, feature_branch=feature_branch, output_json=output_json))
+    handler.connect(EnvConnectParams(env=env, feature_branch=feature_branch, output_json=output_json))
 
 
 @ws_group.command("disconnect")
-@click.argument("worktree")
+@click.argument("env")
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
-def ws_disconnect(ctx: click.Context, worktree: str, output_json: bool):
-    """Disconnect a worktree from its feature branch."""
+def ws_disconnect(ctx: click.Context, env: str, output_json: bool):
+    """Disconnect a feature environment from its feature branch."""
     container = cli_ctx(ctx).container
     handler = container.workspace_handler()
-    handler.disconnect(WorktreeDisconnectParams(worktree=worktree, output_json=output_json))
+    handler.disconnect(EnvDisconnectParams(env=env, output_json=output_json))
 
 
 @ws_group.command("checkout")
-@click.argument("worktree")
+@click.argument("env")
 @click.argument("feature_branch")
 @click.option("--force", is_flag=True, default=False, help="Bypass dirty / divergent safety checks.")
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
-def ws_checkout(ctx: click.Context, worktree: str, feature_branch: str, force: bool, output_json: bool):
-    """Adopt a remote feature branch into WORKTREE, all-or-nothing across every repo.
+def ws_checkout(ctx: click.Context, env: str, feature_branch: str, force: bool, output_json: bool):
+    """Adopt a remote feature branch into ENV, all-or-nothing across every repo.
 
-    Sets upstream tracking and resets the worktree's Greek-letter branch in each
-    project repo to the local `origin/FEATURE_BRANCH` ref. No network — run
+    Sets upstream tracking and resets each project repo's Greek-letter worktree
+    branch to the local `origin/FEATURE_BRANCH` ref. No network — run
     `winter ws fetch` first if you need fresh remote-tracking refs.
 
     Phase 1 checks each repo for: working tree dirty (staged or unstaged),
@@ -164,8 +164,8 @@ def ws_checkout(ctx: click.Context, worktree: str, feature_branch: str, force: b
     """
     container = cli_ctx(ctx).container
     handler = container.workspace_handler()
-    handler.checkout(WorktreeCheckoutParams(
-        worktree=worktree, feature_branch=feature_branch, force=force, output_json=output_json,
+    handler.checkout(EnvCheckoutParams(
+        env=env, feature_branch=feature_branch, force=force, output_json=output_json,
     ))
 
 
@@ -197,7 +197,7 @@ def ws_fetch(ctx: click.Context, patterns: tuple[str, ...], standalone: bool, al
         _validate_pattern(pattern)
     container = cli_ctx(ctx).container
     handler = container.workspace_handler()
-    handler.fetch(WorktreeFetchParams(patterns=list(patterns), scope=scope, output_json=output_json))
+    handler.fetch(EnvFetchParams(patterns=list(patterns), scope=scope, output_json=output_json))
 
 
 @ws_group.command("pull")
@@ -246,7 +246,7 @@ def ws_pull(
         _validate_pattern(pattern)
     container = cli_ctx(ctx).container
     handler = container.workspace_handler()
-    handler.pull(WorktreePullParams(
+    handler.pull(EnvPullParams(
         patterns=list(patterns),
         scope=scope,
         mode=mode,
@@ -309,7 +309,7 @@ def ws_push(
         _validate_pattern(pattern)
     container = cli_ctx(ctx).container
     handler = container.workspace_handler()
-    handler.push(WorktreePushParams(
+    handler.push(EnvPushParams(
         patterns=list(patterns),
         scope=scope,
         pinned_scope=pinned_scope,
@@ -340,26 +340,26 @@ def ws_prune(ctx: click.Context, dry_run: bool, force: bool, output_json: bool):
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
 def ws_index(ctx: click.Context, name: str, output_json: bool):
-    """Print the port-offset index for a worktree name.
+    """Print the port-offset index for a feature environment name.
 
     Greek letters get fixed indices 1..24. Any other name is hashed
     deterministically into 26..281 via SHA-1.
     """
     container = cli_ctx(ctx).container
     handler = container.workspace_handler()
-    handler.index(WorktreeIndexParams(name=name, output_json=output_json))
+    handler.index(EnvIndexParams(name=name, output_json=output_json))
 
 
 @ws_group.command("diff")
-@click.argument("worktree")
+@click.argument("env")
 @click.option("--staged", is_flag=True, help="Show staged changes (index vs HEAD).")
 @click.option("--branch", is_flag=True, help="Show full branch diff (HEAD vs main).")
 @click.option("--repo", default=None, help="Limit to a single repo.")
 @click.option("--no-headers", is_flag=True, help="Omit repo separator headers.")
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
-def ws_diff(ctx: click.Context, worktree: str, staged: bool, branch: bool, repo: str | None, no_headers: bool, output_json: bool):
-    """Show unified diff across worktree repos."""
+def ws_diff(ctx: click.Context, env: str, staged: bool, branch: bool, repo: str | None, no_headers: bool, output_json: bool):
+    """Show unified diff across all repos in a feature environment."""
     if staged and branch:
         raise click.ClickException("--staged and --branch are mutually exclusive")
 
@@ -372,8 +372,8 @@ def ws_diff(ctx: click.Context, worktree: str, staged: bool, branch: bool, repo:
 
     container = cli_ctx(ctx).container
     handler = container.workspace_handler()
-    handler.diff(WorktreeDiffParams(
-        worktree=worktree,
+    handler.diff(EnvDiffParams(
+        env=env,
         mode=mode,
         repo_filter=repo,
         no_headers=no_headers,
