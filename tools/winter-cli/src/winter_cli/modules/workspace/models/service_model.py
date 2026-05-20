@@ -21,6 +21,7 @@ class IRepoStatus(Protocol):
     behind: int
     dirty_count: int
     tracking_ahead: int
+    tracking_behind: int
 
 
 @dataclasses.dataclass
@@ -43,6 +44,7 @@ class RepoStatus:
     recent_commits: list[RepoCommit] = dataclasses.field(default_factory=list)
     tracking_branch: str | None = None
     tracking_ahead: int = 0
+    tracking_behind: int = 0
     tracking_ref_present: bool = False
     """Whether the remote-tracking ref actually resolves locally.
 
@@ -129,6 +131,7 @@ class WorktreeRepoStatus:
     dirty_count: int
     tracking_branch: str | None = None
     tracking_ahead: int = 0
+    tracking_behind: int = 0
     tracking_ref_present: bool = False
     extensions: dict[str, Any] = dataclasses.field(default_factory=dict)
 

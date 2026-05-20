@@ -17,21 +17,36 @@ def render_repo_cell(repo_status: WorktreeRepoStatus) -> Text:
     elif repo_status.dirty_count > 1:
         parts.append((f"{repo_status.dirty_count} files", "red"))
 
+    # The cyan `[+N, -N]` and orange `[+]` markers describe divergence
+    # against the *tracking* branch — only meaningful when that ref differs
+    # from the main branch (otherwise the green/yellow counts above already
+    # say the same thing). Pinned repos always track main, so they're
+    # filtered out automatically by this comparison.
+    main_ref = (
+        f"origin/{repo_status.worktree.repository.main_branch}"
+        if repo_status.worktree.repository.main_branch
+        else None
+    )
+    tracking_differs_from_main = (
+        repo_status.tracking_branch is not None
+        and repo_status.tracking_branch != main_ref
+    )
+
     # `[+]` flags a non-pinned repo whose upstream is configured but the
     # remote-tracking ref doesn't exist locally yet — i.e., we're set up to
     # push to a feature branch that doesn't exist on origin, AND we actually
-    # have commits the first push would carry across. Pinned repos follow
-    # main and never participate in feature-branch flow; a repo with no
-    # tracking config has nothing to flag; and a fresh worktree with no
-    # commits ahead of main has nothing the marker would advertise.
+    # have commits the first push would carry across.
     unborn_upstream = (
-        not repo_status.worktree.repository.pinned
-        and repo_status.tracking_branch is not None
+        tracking_differs_from_main
         and not repo_status.tracking_ref_present
         and repo_status.ahead > 0
     )
 
-    if len(parts) == 0 and not unborn_upstream and repo_status.tracking_ahead == 0:
+    has_tracking_divergence = (
+        tracking_differs_from_main
+        and (repo_status.tracking_ahead > 0 or repo_status.tracking_behind > 0)
+    )
+    if len(parts) == 0 and not unborn_upstream and not has_tracking_divergence:
         return Text("·", style="dim")
 
     text = Text()
@@ -40,9 +55,14 @@ def render_repo_cell(repo_status: WorktreeRepoStatus) -> Text:
             text.append(" ")
         text.append(label, style=style)
 
-    if repo_status.tracking_ahead > 0:
+    if has_tracking_divergence:
+        inner_parts = []
+        if repo_status.tracking_ahead > 0:
+            inner_parts.append(f"+{repo_status.tracking_ahead}")
+        if repo_status.tracking_behind > 0:
+            inner_parts.append(f"-{repo_status.tracking_behind}")
         prefix = " " if parts else ""
-        text.append(f"{prefix}[+{repo_status.tracking_ahead}]", style="cyan")
+        text.append(f"{prefix}[{', '.join(inner_parts)}]", style="cyan")
     elif unborn_upstream:
         # Upstream configured but never fetched / never pushed. The bare
         # `[+]` (no count) reads as "ahead, by an unknown amount" alongside

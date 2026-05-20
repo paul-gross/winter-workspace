@@ -150,6 +150,7 @@ class ReadRepoRepository:
 
         tracking_branch: str | None = None
         tracking_ahead = 0
+        tracking_behind = 0
         tracking_ref_present = False
         try:
             tb = r.active_branch.tracking_branch()
@@ -166,6 +167,7 @@ class ReadRepoRepository:
                 if tracking_ref_present:
                     try:
                         tracking_ahead = int(r.git.rev_list("--count", f"{tb.name}..HEAD"))
+                        tracking_behind = int(r.git.rev_list("--count", f"HEAD..{tb.name}"))
                     except git.GitCommandError:
                         pass
         except TypeError:
@@ -209,5 +211,6 @@ class ReadRepoRepository:
             recent_commits=recent_commits,
             tracking_branch=tracking_branch,
             tracking_ahead=tracking_ahead,
+            tracking_behind=tracking_behind,
             tracking_ref_present=tracking_ref_present,
         )
