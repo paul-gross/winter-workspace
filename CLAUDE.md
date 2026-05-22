@@ -40,6 +40,16 @@ winter ws init <name>
 
 This creates the env directory, per-repo `git worktree` on a branch named `<name>`, copies git identity, writes git-exclude entries, runs each repo's `cmd` list, seeds the env's `.winter.env` with `WINTER_ENV`/`WINTER_ENV_INDEX`/`WINTER_PORT_BASE`, and runs each installed winter extension's `on_env_init` hook. After it finishes, follow `workspace:/ai/project/project-setup.md` for any project-specific orchestration that isn't declared in the config (e.g. appending project-specific vars to `.winter.env`, provisioning per-environment databases, generating other env files).
 
+## Tearing down a feature environment
+
+Symmetric counterpart of init:
+
+```bash
+winter ws destroy <name>
+```
+
+This fires every installed extension's `on_env_destroy` hook, `git worktree remove`s every per-repo worktree, removes the env directory, and strips the matching `# >>> winter-dir/<name>` block from `.git/info/exclude`. Use `--dry-run` to preview, `--force` to bypass the dirty-worktree check, `--strict` to abort on any hook failure. **Prefer this over `rm -rf <name>/`** — manual removal skips `on_env_destroy` hooks and leaves extension state (tmux sessions, watchers, provisioned resources) orphaned. See [ai/worktree-ops.md](./ai/worktree-ops.md#destroying-a-feature-environment) for the full flow.
+
 ## Path Notation
 
 Paths use a `<context>:<path>` prefix to clarify which repo/branch a file lives in:

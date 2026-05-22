@@ -205,7 +205,7 @@ Ask **one** question:
 **"Want to set up project-setup.md now?"**
 
 - "no" or "later": continue.
-- "yes": follow [ai/setup/project-setup.md](./ai/setup/project-setup.md) — that guide produces the two artifacts. After it's finished, tell the user: "Now applying the new config to all existing worktrees so the `cmd` list runs everywhere..." and run:
+- "yes": follow [ai/setup-project-setup.md](./ai/setup-project-setup.md) — that guide produces the two artifacts. After it's finished, tell the user: "Now applying the new config to all existing worktrees so the `cmd` list runs everywhere..." and run:
   ```bash
   winter ws init --all
   ```
@@ -253,7 +253,7 @@ Ask **one** question:
 **"Set up contributing.md now?"**
 
 - "no" or "later": continue.
-- "yes": follow [ai/setup/contributing.md](./ai/setup/contributing.md) to work with the user.
+- "yes": follow [ai/contributing-setup.md](./ai/contributing-setup.md) to work with the user.
 
 ### Final report
 

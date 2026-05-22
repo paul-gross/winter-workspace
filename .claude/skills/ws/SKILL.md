@@ -43,6 +43,9 @@ What would you like to do?
 | Work, implement, build, start a plan | `/ws-work <plan>` |
 | Initialize, bring up after clone, make it work | `/ws-init [target]` |
 | Configure, declare new repo, set git identity | `/ws-setup` |
+| Tear down, destroy, remove an environment | `winter ws destroy <name>` |
+| Adopt a remote feature branch into an env | `winter ws checkout <name> <feature-branch>` |
+| Clean up orphan project clones / broken symlinks | `winter ws prune` |
 
 Respond with a brief explanation and the exact command to run. For example:
 
@@ -53,6 +56,8 @@ Respond with a brief explanation and the exact command to run. For example:
 - "start user-notifications" → "To begin work on that plan, run: `/ws-work user-notifications`"
 - "I just cloned this, get it working" → "To apply your declared config across the workspace, run: `/ws-init`"
 - "bring up alpha after clone" → "To reconcile the alpha environment against your declared config, run: `/ws-init alpha`"
+- "destroy alpha" / "tear down beta" → "To tear down the environment (fires `on_env_destroy` hooks then removes the worktrees + dir), run: `winter ws destroy alpha`"
+- "check out feature/foo into gamma" → "To adopt an existing remote feature branch into gamma, run: `winter ws fetch gamma && winter ws checkout gamma feature/foo`"
 
 If the intent is unclear, list the available skills and ask the user to clarify.
 

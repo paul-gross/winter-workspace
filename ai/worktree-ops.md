@@ -70,7 +70,7 @@ git -C "./<name>/<repo-name>" push -u origin <name>:<feature-branch>
 
 **If the recorded feature branch is empty when the user asks to push**, do not guess — ask the user which remote branch they want to push to. Once they provide one, run `winter ws connect` before pushing.
 
-**Before pushing**, ask the user: "Want me to run pre-release checks (lint, format, tests) on the changed repos before pushing?" If they agree, run the checks from the Pre-Release Checklist in [development.md](./project/general/development.md) for each repo with changes. Fix any issues before pushing.
+**Before pushing**, ask the user: "Want me to run pre-release checks (lint, format, tests) on the changed repos before pushing?" If a project repo documents pre-release checks in its `CONTRIBUTING.md` or `ai/`, run them for every repo with changes and fix any issues before pushing.
 
 Pinned repos are skipped during connect/disconnect (no feature branch tracking to set/unset) and excluded from `push` by default. See the [Pinned repos](#pinned-repos) section for how to include them.
 
@@ -102,6 +102,43 @@ winter ws pull <name> --autostash    # stash dirty tree, integrate, then restore
 Each repo pulls from its own tracked upstream: non-pinned worktrees from `origin/<feature-branch>` (set by `connect`), pinned worktrees from `origin/<main-branch>`. Standalone repos can be reached with `winter ws pull --standalone` or `winter ws pull --all`.
 
 `pull` is **ff-only by default** — no silent merge commits, no surprise rewrites. Diverged repos are surfaced in the report and the working tree is left untouched. Use `--merge` or `--rebase` to integrate explicitly, or resolve with raw git in the affected repo.
+
+## Destroying a feature environment
+
+```bash
+winter ws destroy <name>                # standard teardown
+winter ws destroy <name> --dry-run      # print the plan; no side effects
+winter ws destroy <name> --force        # bypass dirty-worktree check; pass --force to git worktree remove
+winter ws destroy <name> --strict       # abort teardown if any on_env_destroy hook exits non-zero
+```
+
+This command:
+
+- Fires every installed extension's `on_env_destroy` hook (mirror of `on_env_init`). Hooks receive the same env-var contract — see [winter-cli/setup.md](./winter-cli/setup.md#extension-hooks).
+- `git worktree remove`s every per-repo worktree under `./<name>/`.
+- Removes the env directory.
+- Strips the matching `# >>> winter-dir/<name>` block from the workspace `.git/info/exclude`.
+
+**Prefer `winter ws destroy` over manual `rm -rf <name>/` + `git worktree remove`.** Manual removal bypasses `on_env_destroy` hooks the same way manual env creation bypasses `on_env_init`, and extensions that need to clean up per-env state (tmux sessions, watchers, provisioned DBs) get skipped.
+
+Raw equivalent, per repo (without firing hooks or stripping the exclude block):
+
+```bash
+git -C ./projects/<repo-name> worktree remove ../../<name>/<repo-name>
+```
+
+`--strict` mode is appropriate when hook failures must surface as a user-actionable error (CI, scripted teardown). The default (non-strict) mode logs hook failures and proceeds with teardown so a broken hook in one extension doesn't trap the env on disk.
+
+## Adopting an existing remote feature branch
+
+```bash
+winter ws checkout <name> <feature-branch>           # all-or-nothing reset across every repo
+winter ws checkout <name> <feature-branch> --force   # bypass dirty / divergent safety checks
+```
+
+**No network** — run `winter ws fetch` first if you need fresh remote-tracking refs.
+
+Phase 1 checks each repo for: dirty working tree, commits not present on `origin/<feature-branch>`, and whether the ref exists locally. If any repo is dirty or divergent (and `--force` is not set), the **whole command refuses with a per-repo report** — no `git reset --hard` runs anywhere. Repos missing the local remote-tracking ref are reported as skipped regardless of `--force`.
 
 ## Pushing completed work
 

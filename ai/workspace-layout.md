@@ -7,25 +7,34 @@ This workspace manages **multiple project repositories** as peers. All repos are
 ```
 ./                              workspace branch - this is where you are
 ├── CLAUDE.md                   # Workspace instructions
+├── CLAUDE.winter.md            # Installed-extension block (@-imported from CLAUDE.md)
 ├── ai/                         # Workspace documentation
 │   ├── workspace-layout.md     # This file
 │   ├── worktree-ops.md         # Git commands for this topology
-│   ├── setup/                  # Guides for creating integration config with the user
-│   └── project/                # Project-specific integration config (branches, setup, workflow)
+│   ├── winter-cli/             # CLI command reference + setup guide
+│   ├── setup-project-setup.md  # Walkthrough for authoring project-setup.md
+│   ├── contributing-setup.md   # Walkthrough for authoring contributing.md
+│   └── project/                # Project-specific integration config (contributing.md, workflow.sh)
 ├── .claude/                    # Workspace-level agents, skills, and settings
 │   ├── agents/                 # Top-level .md files plus <prefix>-* symlinks from extensions
 │   └── skills/                 # Top-level skill dirs plus <prefix>-* symlinks from extensions
+├── .winter/                    # Workspace-level winter config and installed extensions
+│   ├── config.toml             # Repo declarations (project + standalone)
+│   ├── config.local.toml       # Optional local override (gitignored)
+│   └── ext/<short-name>/       # Standalone clones for installed extensions
 ├── tools/                      # Workspace tooling
 │   └── winter-cli/             # The `winter` CLI source
 ├── projects/                   # All project repositories (source checkouts)
 │   ├── <repo-1>/               # Project repo (main branch)
 │   ├── <repo-2>/               # Project repo (main branch)
 │   └── <repo-n>/               # Project repo (main branch)
-├── <standalone-repo>/          # Standalone repos and winter extensions cloned at workspace root (see Repo Inventory)
+├── <standalone-repo>/          # Standalone repos cloned at workspace root (when no path override; see Repo Inventory)
+├── up / down / status          # Symlinked into every feature env by winter-service-tmux
 └── {greek-letter}/             # Feature environment directories
     ├── <repo-1>/               # Worktree of project repo (feature branch)
     ├── <repo-2>/               # Worktree of project repo (feature branch)
     ├── <repo-n>/               # Worktree of project repo (feature branch)
+    ├── up / down / status      # Symlinks to the extension scripts above (running services from the env dir)
     └── .winter.env             # Per-environment shell env file (WINTER_ENV, WINTER_PORT_BASE, project-specific vars)
 ```
 

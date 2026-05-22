@@ -22,11 +22,17 @@ Examples:
 
 Follow the **Branch resolution** pattern defined in the root CLAUDE.md. Use the result as the base branch for all comparisons and worktree operations.
 
-## Step 1: Read the plan
+## Step 1: Read the work item
 
-Read the plan named `<name>`. If you can't find it directly, search the workspace for a plan whose name or content matches `<name>` and ask the user to confirm the match before proceeding.
+When the `winter-product` extension is installed, work items live under `winter-product:/`:
+
+1. **Promoted work item** → read `winter-product:/work/<name>/00-overview.md` (and any `.tech.md` siblings under that directory).
+2. **Open backlog item** (still being refined) → check `winter-product:/backlog/**/<name>.{idea,todo,work}.md`. If found, tell the user the item is in `backlog/` and ask whether to promote it via `/wp-refine <name>` first, or proceed with the open description.
+3. **Workspace-relative plan files** (legacy) → fall back to a glob over the workspace for a file whose name or content matches `<name>`. Ask the user to confirm the match before proceeding.
 
 Summarize for the user (1–2 sentences from the overview).
+
+The earlier `winter-product:/plans/` and `winter-product:/todos/` layout has been replaced by the single `backlog/` + `work/` model.
 
 ## Step 2: Determine scope
 

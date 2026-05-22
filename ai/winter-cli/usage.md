@@ -27,6 +27,8 @@ Greek letters (`alpha`, `beta`, …) are the suggested convention for feature en
 | Command | Usage | Purpose |
 |---------|-------|---------|
 | `winter ws init` | `winter ws init [TARGET] [--all] [--json]` | Reconcile source checkouts or a feature environment |
+| `winter ws destroy` | `winter ws destroy ENV [--force\|--strict\|--dry-run] [--json]` | Tear down a feature env: fire `on_env_destroy` hooks, then remove every per-repo worktree and the env directory |
+| `winter ws checkout` | `winter ws checkout ENV FEATURE_BRANCH [--force] [--json]` | Adopt a remote feature branch into ENV, all-or-nothing across every repo (no network — run `winter ws fetch` first if needed) |
 | `winter ws list` | `winter ws list [--json]` | List all feature environments |
 | `winter ws status` | `winter ws status [ENV] [--json]` | Git status across all repos in a feature environment |
 | `winter ws sync` | `winter ws sync ENV [--json]` | Fetch all repos, ff-only merge `origin/main` (falls back to merge), then fast-forward source checkouts |
@@ -37,6 +39,7 @@ Greek letters (`alpha`, `beta`, …) are the suggested convention for feature en
 | `winter ws disconnect` | `winter ws disconnect ENV [--json]` | Disconnect a feature environment from its feature branch |
 | `winter ws diff` | `winter ws diff ENV [--staged\|--branch] [--repo REPO] [--json]` | Unified diff across all repos in a feature environment |
 | `winter ws index` | `winter ws index NAME [--json]` | Print the port-offset index for a feature environment name (Greek = 1..24, other = hashed 26..281) |
+| `winter ws prune` | `winter ws prune [--dry-run\|--force] [--json]` | Remove disk state for repos no longer in the workspace config (orphan project clones, orphan standalone clones, broken `.claude/` symlinks). Refuses repos with uncommitted changes or attached worktrees |
 
 ### `fetch` / `pull` / `push` patterns and scope
 
@@ -85,12 +88,43 @@ Pattern syntax: `*` matches any chars within a segment (does not cross `/`); `?`
 
 **`sync` vs `pull`.** `sync` always targets `origin/main` and falls back to a merge commit when ff-only fails (so source checkouts stay aligned even when the env has drifted). `pull` always targets the *tracked* upstream — the feature branch for non-pinned worktrees, main for pinned, custom branches for standalone repos — and is ff-only by default. Use `sync` to bring main into a feature env; use `pull` to grab remote commits made on the feature branch.
 
+### `destroy` — tear down a feature env
+
+`winter ws destroy ENV` is the symmetric counterpart to `winter ws init ENV`:
+
+1. **Safety check** — refuses on missing env path or dirty worktrees (override with `--force`).
+2. **Hooks** — fires every extension's `on_env_destroy` hook (mirror of `on_env_init`). With `--strict`, a non-zero hook exit aborts the teardown; without it, hook failures are logged and teardown proceeds.
+3. **Worktree removal** — `git worktree remove` for every per-repo worktree.
+4. **Env cleanup** — removes the env directory and strips the matching `# >>> winter-dir/<env>` block from the workspace's `.git/info/exclude`.
+
+Use `--dry-run` to preview the plan with no side effects.
+
+**Prefer this over `rm -rf <env>/` + manual `git worktree remove`.** Manual removal bypasses `on_env_destroy` hooks the same way manual env creation bypasses `on_env_init` — extensions that need to clean up per-env state (tmux sessions, watchers, provisioned DBs) get skipped.
+
+### `checkout` — adopt a remote feature branch into an env
+
+`winter ws checkout ENV FEATURE_BRANCH` resets each non-pinned project worktree to the local `origin/FEATURE_BRANCH` ref and wires upstream tracking. **No network** — run `winter ws fetch` first if you need fresh remote-tracking refs.
+
+Phase 1 checks each repo for dirty working tree, commits not present on `origin/FEATURE_BRANCH`, and whether the ref exists locally. **If any repo is dirty or divergent (and `--force` is not set), the whole command refuses with a per-repo report — no `git reset --hard` runs anywhere.** Repos missing the local remote-tracking ref are reported as skipped regardless of `--force`.
+
+### `prune` — remove orphaned disk state
+
+`winter ws prune` finds and removes state for repos no longer in the workspace config:
+
+- Orphan project clones under `projects/`.
+- Orphan standalone clones referenced by stale entries in `.git/info/exclude`.
+- Broken symlinks under `.claude/skills/` and `.claude/agents/`.
+
+Refuses to delete repos with uncommitted changes or attached worktrees. Use `--dry-run` to preview, `--force` to skip the interactive confirmation.
+
 ## Repository commands (`winter repo`)
 
 | Command | Usage | Purpose |
 |---------|-------|---------|
 | `winter repo list` | `winter repo list [--json]` | List all project and standalone repositories and their types |
 | `winter repo status` | `winter repo status ENV REPO [--json]` | Detailed git status for one repo in a feature environment |
+| `winter repo add` | `winter repo add URL [--standalone] [--name N] [--main-branch B] [--git-exclude E] [--cmd C] [--pinned] [--path P] [--prefix P] [--local] [--json]` | Add a repository to the workspace config (writes `.winter/config.toml` unless `--local` writes `.winter/config.local.toml`) |
+| `winter repo remove` | `winter repo remove <project\|standalone>/NAME [--local] [--json]` | Remove a repository entry from the config |
 
 ## Dashboard
 
@@ -99,6 +133,18 @@ winter dashboard
 ```
 
 Interactive TUI showing workspace status, feature environments, and repo details. Navigate with keyboard.
+
+**Useful keys:**
+
+- `L` — open the **Log tab**, which shows captured `RepoError` entries with subcommand, args, cwd, and stderr from failed git operations. Use this to inspect a failure without re-running the command.
+- `c` — clear the Log tab.
+- `ctrl+j` / `ctrl+k` — jump table focus.
+
+**Tracking glyphs** in the repo rows: `[+N, -N]` shows commits ahead/behind upstream; `[+]` marks an unborn upstream ref (the local branch tracks a remote that doesn't exist yet); the pin glyph marks pinned repos.
+
+## Network resilience
+
+Fetch / pull / push silently retry up to 3 times with jittered exponential backoff when git emits a transient error. Recognized transient stderr substrings include `Connection closed by … port 22`, `kex_exchange_identification`, "remote end hung up", and "Connection timed out" — anything else is reported as a hard failure on the first try. You'll see `transient git error (attempt N/3): … — retrying in Xs` lines on stderr while a command is retrying.
 
 ## Drift warnings
 
@@ -167,6 +213,26 @@ winter ws diff alpha --repo my-app     # single repo
 ```bash
 winter ws disconnect alpha
 winter ws connect alpha feature/other-feature
+```
+
+### Adopt an existing remote feature branch
+```bash
+winter ws fetch alpha                              # refresh origin refs first
+winter ws checkout alpha feature/existing-branch   # reset every repo's worktree to origin/feature/existing-branch
+```
+
+### Tear down a feature environment
+```bash
+winter ws destroy alpha --dry-run    # preview: hooks that will fire, worktrees that will be removed
+winter ws destroy alpha              # standard teardown (fires on_env_destroy hooks, then removes)
+winter ws destroy alpha --force      # bypass dirty-worktree check
+winter ws destroy alpha --strict     # abort if any hook exits non-zero
+```
+
+### Clean up orphan disk state
+```bash
+winter ws prune --dry-run    # list orphan project clones, orphan standalone clones, broken .claude/ symlinks
+winter ws prune              # interactive confirm + delete
 ```
 
 ### Propagate a config change

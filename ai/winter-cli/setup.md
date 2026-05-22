@@ -118,6 +118,38 @@ The workspace `.gitignore` is updated with a marker-bracketed block per extensio
 
 Claude Code lets a SKILL.md frontmatter `name` field override the directory name during skill discovery. That defeats the prefix-by-symlink design, so winter requires extension SKILL.md files to **omit the `name` field** — letting the directory name (which winter controls via the symlink) be authoritative. Winter validates this on install and refuses if any SKILL.md sets `name`.
 
+### Extension hooks
+
+Extensions can also declare lifecycle hooks in `winter-ext.toml`:
+
+```toml
+[hooks]
+on_env_init    = "./hooks/init-worktree.sh"
+on_env_destroy = "./hooks/destroy-worktree.sh"
+```
+
+- `on_env_init` fires after `winter ws init <env>` creates every per-repo worktree and seeds `.winter.env`. Use it to provision per-env state (tmux sessions, databases, watchers).
+- `on_env_destroy` fires *before* `winter ws destroy <env>` removes any per-repo worktree or the env directory. Use it to release whatever `on_env_init` provisioned.
+
+Hook scripts must be **relative paths inside the extension directory** (so the extension owns its scripts; winter resolves them against the extension root).
+
+#### Hook env-var contract
+
+Every hook is invoked with:
+
+| Var | Meaning |
+|-----|---------|
+| `WINTER_WORKSPACE_DIR` | Absolute path to the workspace root. |
+| `WINTER_EXT_DIR` | Absolute path to this extension's clone (the dir containing `winter-ext.toml`). |
+| `WINTER_EXT_PREFIX` | The resolved symlink prefix for this extension (`wf`, `wst`, …). |
+| `WINTER_ENV` | The env name (`alpha`, `beta`, …). |
+| `WINTER_ENV_INDEX` | The port-offset index (1..24 for Greek letters, hashed 26..281 otherwise). |
+| `WINTER_PORT_BASE` | `4000 + 100 * WINTER_ENV_INDEX`. |
+
+The hook's **cwd is the env root** (`<workspace>/<env>/`). Hooks should read these env vars rather than parse `argv`.
+
+**Strict vs non-strict on destroy.** By default, a non-zero exit from a destroy hook is logged and the teardown continues so a broken hook doesn't trap an env on disk. Pass `--strict` to `winter ws destroy` (or set it in CI/scripted use) when a hook failure must surface as a user-actionable error before any worktree is removed.
+
 ### `adopt_extensions` modes
 
 The top-level `adopt_extensions` field controls when winter processes a standalone repo's skills and agents:
