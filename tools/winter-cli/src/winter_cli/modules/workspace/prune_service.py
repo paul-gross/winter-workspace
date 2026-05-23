@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import dataclasses
 import re
-import shutil
-import subprocess
 from pathlib import Path
 
 from winter_cli.config.models import WorkspaceConfig
+from winter_cli.core.filesystem import IFilesystemWriter
 from winter_cli.modules.workspace.extensions import ExtensionService
+from winter_cli.modules.workspace.git_repository import IGitRepository
 from winter_cli.modules.workspace.init_reporter import IInitReporter
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
 
@@ -38,10 +38,14 @@ class PruneService:
         config: WorkspaceConfig,
         repo_factory: RepositoryFactory,
         extension_svc: ExtensionService,
+        fs: IFilesystemWriter,
+        git_repo: IGitRepository,
     ) -> None:
         self._config = config
         self._repo_factory = repo_factory
         self._extension_svc = extension_svc
+        self._fs = fs
+        self._git_repo = git_repo
 
     def find_orphans(self) -> list[PruneOrphan]:
         orphans: list[PruneOrphan] = []
@@ -53,12 +57,12 @@ class PruneService:
     def remove_orphan(self, orphan: PruneOrphan) -> None:
         if not orphan.safe_to_remove:
             raise RuntimeError(f"refusing to remove unsafe orphan: {orphan.path} ({orphan.notes})")
-        if orphan.path.is_symlink():
-            orphan.path.unlink()
-        elif orphan.path.is_dir():
-            shutil.rmtree(orphan.path)
-        elif orphan.path.exists():
-            orphan.path.unlink()
+        if self._fs.is_symlink(orphan.path):
+            self._fs.unlink(orphan.path)
+        elif self._fs.is_dir(orphan.path):
+            self._fs.rmtree(orphan.path)
+        elif self._fs.exists(orphan.path):
+            self._fs.unlink(orphan.path)
 
     def reaggregate_excludes(self, reporter: IInitReporter) -> bool:
         return self._extension_svc.finalize_excludes(self._repo_factory.get_standalone_repos(), reporter)
@@ -67,12 +71,12 @@ class PruneService:
 
     def _find_orphan_project_clones(self) -> list[PruneOrphan]:
         projects_dir = self._config.workspace_root / "projects"
-        if not projects_dir.is_dir():
+        if not self._fs.is_dir(projects_dir):
             return []
         declared = {repo.name for repo in self._repo_factory.get_project_repos()}
         orphans: list[PruneOrphan] = []
-        for entry in sorted(projects_dir.iterdir()):
-            if not entry.is_dir() or entry.name in declared:
+        for entry in sorted(self._fs.iterdir(projects_dir)):
+            if not self._fs.is_dir(entry) or entry.name in declared:
                 continue
             safe, notes = self._project_clone_safety(entry)
             orphans.append(
@@ -87,10 +91,10 @@ class PruneService:
 
     def _find_orphan_standalone_clones(self) -> list[PruneOrphan]:
         exclude_path = self._config.workspace_root / ".git" / "info" / "exclude"
-        if not exclude_path.exists():
+        if not self._fs.exists(exclude_path):
             return []
         try:
-            content = exclude_path.read_text()
+            content = self._fs.read_text(exclude_path)
         except OSError:
             return []
 
@@ -111,10 +115,10 @@ class PruneService:
                 if rel == "projects":
                     continue
                 path = (self._config.workspace_root / rel).resolve()
-                if path in seen_paths or not path.exists():
+                if path in seen_paths or not self._fs.exists(path):
                     continue
                 seen_paths.add(path)
-                safe, notes = self._project_clone_safety(path) if (path / ".git").exists() else (True, "")
+                safe, notes = self._project_clone_safety(path) if self._fs.exists(path / ".git") else (True, "")
                 orphans.append(
                     PruneOrphan(
                         kind="standalone_clone",
@@ -132,10 +136,10 @@ class PruneService:
         ]
         orphans: list[PruneOrphan] = []
         for root in roots:
-            if not root.is_dir():
+            if not self._fs.is_dir(root):
                 continue
-            for entry in sorted(root.iterdir()):
-                if entry.is_symlink() and not entry.exists():
+            for entry in sorted(self._fs.iterdir(root)):
+                if self._fs.is_symlink(entry) and not self._fs.exists(entry):
                     orphans.append(
                         PruneOrphan(
                             kind="broken_symlink",
@@ -165,24 +169,12 @@ class PruneService:
             yield name, block_lines
             i = j + 1
 
-    @staticmethod
-    def _project_clone_safety(path: Path) -> tuple[bool, str]:
-        if not (path / ".git").exists():
+    def _project_clone_safety(self, path: Path) -> tuple[bool, str]:
+        if not self._fs.exists(path / ".git"):
             return False, "not a git clone (delete by hand if intentional)"
         worktrees_dir = path / ".git" / "worktrees"
-        if worktrees_dir.is_dir() and any(worktrees_dir.iterdir()):
+        if self._fs.is_dir(worktrees_dir) and self._fs.iterdir(worktrees_dir):
             return False, "has linked worktrees"
-        try:
-            result = subprocess.run(
-                ["git", "-C", str(path), "status", "--porcelain"],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        except OSError:
-            return False, "could not run git status"
-        if result.returncode != 0:
-            return False, "git status failed"
-        if result.stdout.strip():
+        if not self._git_repo.is_worktree_clean(path):
             return False, "uncommitted or untracked changes"
         return True, ""

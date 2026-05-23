@@ -180,9 +180,15 @@ class FakeFilesystem:
     # ── IFilesystemReader ────────────────────────────────────────────────
 
     def exists(self, path: Path) -> bool:
-        return (
-            path in self.files or path in self.binary_files or path in self.directories or path in self.symlinks
-        )
+        # Real `Path.exists()` follows symlinks — a broken symlink reports
+        # False because its target doesn't exist. We mirror that so the
+        # broken-symlink branches in prune/extensions work correctly.
+        if path in self.symlinks:
+            target = self.symlinks[path]
+            if not target.is_absolute():
+                target = (path.parent / target).resolve()
+            return self.exists(target)
+        return path in self.files or path in self.binary_files or path in self.directories
 
     def is_file(self, path: Path) -> bool:
         return path in self.files or path in self.binary_files
@@ -370,6 +376,68 @@ class FakeSubprocessRunner:
             raise AssertionError(f"FakeSubprocessRunner.popen got unexpected command: {key!r}")
         lines, rc = self._popen_responses[key]
         yield FakeStreamingProcess(lines, rc)
+
+
+class FakeGitRepository:
+    """IGitRepository fake — records every mutation, returns canned reads.
+
+    Defaults match the most common happy-path: branch="alpha", worktree is
+    clean, no upstream set. Tests override per-path state by mutating the
+    public dicts directly before constructing the service.
+    """
+
+    def __init__(self) -> None:
+        # Read state (path → value).
+        self.local_branches: dict[Path, list[str]] = {}
+        self.tracking_branches: dict[Path, str | None] = {}
+        self.worktree_paths: dict[Path, list[Path]] = {}
+        self.push_defaults: dict[Path, str | None] = {}
+        self.clean_worktrees: set[Path] = set()  # paths considered clean
+
+        # Mutation log — assertion targets.
+        self.clones: list[tuple[str, Path]] = []
+        self.added_worktrees: list[tuple[Path, Path, str, str | None]] = []
+        self.removed_worktrees: list[tuple[Path, Path, bool]] = []
+        self.identities: list[tuple[Path, str, str]] = []
+        self.upstreams_set: list[tuple[Path, str]] = []
+        self.push_default_set: list[Path] = []
+
+    # ── Reads ────────────────────────────────────────────────────────────
+    def get_local_branches(self, path: Path) -> list[str]:
+        return list(self.local_branches.get(path, []))
+
+    def get_tracking_branch(self, path: Path) -> str | None:
+        return self.tracking_branches.get(path)
+
+    def list_worktrees(self, source: Path) -> list[Path]:
+        return list(self.worktree_paths.get(source, []))
+
+    def get_push_default(self, path: Path) -> str | None:
+        return self.push_defaults.get(path)
+
+    def is_worktree_clean(self, path: Path) -> bool:
+        return path in self.clean_worktrees
+
+    # ── Writes ───────────────────────────────────────────────────────────
+    def clone(self, url: str, dest: Path) -> None:
+        self.clones.append((url, dest))
+
+    def add_worktree(
+        self, source: Path, worktree_path: Path, branch: str, base_branch: str | None = None
+    ) -> None:
+        self.added_worktrees.append((source, worktree_path, branch, base_branch))
+
+    def remove_worktree(self, source: Path, worktree_path: Path, force: bool) -> None:
+        self.removed_worktrees.append((source, worktree_path, force))
+
+    def set_user_identity(self, path: Path, name: str, email: str) -> None:
+        self.identities.append((path, name, email))
+
+    def set_upstream_to(self, path: Path, ref: str) -> None:
+        self.upstreams_set.append((path, ref))
+
+    def set_push_default_upstream(self, path: Path) -> None:
+        self.push_default_set.append(path)
 
 
 def make_git_repo(path: Path, initial_branch: str = "main") -> None:
