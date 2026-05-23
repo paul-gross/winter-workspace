@@ -11,7 +11,11 @@ class IFetchReporter(Protocol):
     def fetch_started(self) -> None: ...
     def fetch_completed(self, success: bool) -> None: ...
     def repo_fetched(
-        self, scope_label: str, repo_name: str, success: bool, error: str | None,
+        self,
+        scope_label: str,
+        repo_name: str,
+        success: bool,
+        error: str | None,
     ) -> None: ...
 
 
@@ -40,7 +44,11 @@ class StreamFetchReporter:
             self._echo("\n✗ fetch had errors", err=True)
 
     def repo_fetched(
-        self, scope_label: str, repo_name: str, success: bool, error: str | None,
+        self,
+        scope_label: str,
+        repo_name: str,
+        success: bool,
+        error: str | None,
     ) -> None:
         prefix = f"[{scope_label}/{repo_name}]"
         if success:
@@ -71,12 +79,18 @@ class JsonFetchReporter:
         self._emit({"type": "fetch_completed", "success": success})
 
     def repo_fetched(
-        self, scope_label: str, repo_name: str, success: bool, error: str | None,
+        self,
+        scope_label: str,
+        repo_name: str,
+        success: bool,
+        error: str | None,
     ) -> None:
-        self._emit({
-            "type": "repo_fetched",
-            "scope": scope_label,
-            "repo": repo_name,
-            "success": success,
-            "error": error,
-        })
+        self._emit(
+            {
+                "type": "repo_fetched",
+                "scope": scope_label,
+                "repo": repo_name,
+                "success": success,
+                "error": error,
+            }
+        )

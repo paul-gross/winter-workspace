@@ -13,7 +13,12 @@ class IPullReporter(Protocol):
     def pull_started(self) -> None: ...
     def pull_completed(self, success: bool) -> None: ...
     def repo_synced(
-        self, scope_label: str, repo_name: str, result: SyncResult, ahead: int, behind: int,
+        self,
+        scope_label: str,
+        repo_name: str,
+        result: SyncResult,
+        ahead: int,
+        behind: int,
     ) -> None: ...
     def env_skipped(self, env: str, reason: str) -> None: ...
 
@@ -43,7 +48,12 @@ class StreamPullReporter:
             self._echo("\n✗ pull had errors", err=True)
 
     def repo_synced(
-        self, scope_label: str, repo_name: str, result: SyncResult, ahead: int, behind: int,
+        self,
+        scope_label: str,
+        repo_name: str,
+        result: SyncResult,
+        ahead: int,
+        behind: int,
     ) -> None:
         prefix = f"[{scope_label}/{repo_name}]"
         if result == SyncResult.diverged:
@@ -83,16 +93,23 @@ class JsonPullReporter:
         self._emit({"type": "pull_completed", "success": success})
 
     def repo_synced(
-        self, scope_label: str, repo_name: str, result: SyncResult, ahead: int, behind: int,
+        self,
+        scope_label: str,
+        repo_name: str,
+        result: SyncResult,
+        ahead: int,
+        behind: int,
     ) -> None:
-        self._emit({
-            "type": "repo_synced",
-            "scope": scope_label,
-            "repo": repo_name,
-            "result": result.value,
-            "ahead": ahead,
-            "behind": behind,
-        })
+        self._emit(
+            {
+                "type": "repo_synced",
+                "scope": scope_label,
+                "repo": repo_name,
+                "result": result.value,
+                "ahead": ahead,
+                "behind": behind,
+            }
+        )
 
     def env_skipped(self, env: str, reason: str) -> None:
         self._emit({"type": "env_skipped", "env": env, "reason": reason})

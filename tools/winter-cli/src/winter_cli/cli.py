@@ -11,7 +11,7 @@ import click
 
 from winter_cli.cli_context import CliContext
 from winter_cli.modules.tui.command import dashboard
-from winter_cli.modules.workspace.command import ws_group, repo_group
+from winter_cli.modules.workspace.command import repo_group, ws_group
 from winter_cli.modules.workspace.models import RepoError
 
 

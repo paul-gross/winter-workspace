@@ -18,7 +18,7 @@ class ReporterFactory:
     keeping the choice (stream vs. JSON, etc.) close to where it's actually made.
     """
 
-    def __init__(self, container: "Container") -> None:
+    def __init__(self, container: Container) -> None:
         self._container = container
 
     def get_init_reporter(self, output_json: bool) -> IInitReporter:

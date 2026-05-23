@@ -11,8 +11,12 @@ from winter_cli.modules.workspace.models import (
 
 
 class IReadWorkspaceRepository(Protocol):
-    def get_environments(self, workspace: Workspace, project_repos: list[ProjectRepository]) -> list[FeatureEnvironment]: ...
+    def get_environments(
+        self, workspace: Workspace, project_repos: list[ProjectRepository]
+    ) -> list[FeatureEnvironment]: ...
     def get_environment(self, workspace: Workspace, name: str) -> FeatureEnvironment: ...
     def get_environment_status(
-        self, env: FeatureEnvironment, project_repos: list[ProjectRepository],
+        self,
+        env: FeatureEnvironment,
+        project_repos: list[ProjectRepository],
     ) -> FeatureEnvironmentStatus: ...

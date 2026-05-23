@@ -3,14 +3,8 @@ from __future__ import annotations
 import click
 
 from winter_cli.cli_context import cli_ctx
-from winter_cli.modules.workspace.models import DiffMode, PinnedScope, PullMode, RepoScope
 from winter_cli.modules.workspace.handlers import (
     DestroyParams,
-    InitParams,
-    RepoAddParams,
-    RepoListParams,
-    RepoRemoveParams,
-    WorkspacePruneParams,
     EnvCheckoutParams,
     EnvConnectParams,
     EnvDiffParams,
@@ -22,7 +16,13 @@ from winter_cli.modules.workspace.handlers import (
     EnvPushParams,
     EnvStatusParams,
     EnvSyncParams,
+    InitParams,
+    RepoAddParams,
+    RepoListParams,
+    RepoRemoveParams,
+    WorkspacePruneParams,
 )
+from winter_cli.modules.workspace.models import DiffMode, PinnedScope, PullMode, RepoScope
 
 
 def _resolve_scope(standalone: bool, all_flag: bool) -> RepoScope:
@@ -60,9 +60,7 @@ def _validate_pattern(pattern: str) -> None:
     if not pattern:
         raise click.ClickException("Empty pattern is not allowed")
     if pattern.count("/") > 1:
-        raise click.ClickException(
-            f"Invalid pattern '{pattern}' — expected <env>/<repo> (one '/' max)"
-        )
+        raise click.ClickException(f"Invalid pattern '{pattern}' — expected <env>/<repo> (one '/' max)")
 
 
 @click.group("ws")
@@ -72,7 +70,13 @@ def ws_group():
 
 @ws_group.command("init")
 @click.argument("target", required=False)
-@click.option("--all", "all_flag", is_flag=True, default=False, help="Reconcile projects/, standalone repos, and every existing feature environment.")
+@click.option(
+    "--all",
+    "all_flag",
+    is_flag=True,
+    default=False,
+    help="Reconcile projects/, standalone repos, and every existing feature environment.",
+)
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
 def ws_init(ctx: click.Context, target: str | None, all_flag: bool, output_json: bool):
@@ -90,9 +94,25 @@ def ws_init(ctx: click.Context, target: str | None, all_flag: bool, output_json:
 
 @ws_group.command("destroy")
 @click.argument("env")
-@click.option("--force", is_flag=True, default=False, help="Bypass dirty-worktree check and pass --force to `git worktree remove`.")
-@click.option("--strict", is_flag=True, default=False, help="Abort teardown if any on_env_destroy hook exits non-zero.")
-@click.option("--dry-run", "dry_run", is_flag=True, default=False, help="Print the plan without running hooks or removing anything.")
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Bypass dirty-worktree check and pass --force to `git worktree remove`.",
+)
+@click.option(
+    "--strict",
+    is_flag=True,
+    default=False,
+    help="Abort teardown if any on_env_destroy hook exits non-zero.",
+)
+@click.option(
+    "--dry-run",
+    "dry_run",
+    is_flag=True,
+    default=False,
+    help="Print the plan without running hooks or removing anything.",
+)
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
 def ws_destroy(ctx: click.Context, env: str, force: bool, strict: bool, dry_run: bool, output_json: bool):
@@ -109,9 +129,15 @@ def ws_destroy(ctx: click.Context, env: str, force: bool, strict: bool, dry_run:
     """
     container = cli_ctx(ctx).container
     handler = container.destroy_handler()
-    handler.run(DestroyParams(
-        env=env, force=force, strict=strict, dry_run=dry_run, output_json=output_json,
-    ))
+    handler.run(
+        DestroyParams(
+            env=env,
+            force=force,
+            strict=strict,
+            dry_run=dry_run,
+            output_json=output_json,
+        )
+    )
 
 
 @ws_group.command("list")
@@ -191,18 +217,40 @@ def ws_checkout(ctx: click.Context, env: str, feature_branch: str, force: bool, 
     """
     container = cli_ctx(ctx).container
     handler = container.workspace_handler()
-    handler.checkout(EnvCheckoutParams(
-        env=env, feature_branch=feature_branch, force=force, output_json=output_json,
-    ))
+    handler.checkout(
+        EnvCheckoutParams(
+            env=env,
+            feature_branch=feature_branch,
+            force=force,
+            output_json=output_json,
+        )
+    )
 
 
 @ws_group.command("fetch")
 @click.argument("patterns", nargs=-1)
-@click.option("--standalone", is_flag=True, default=False, help="Fetch standalone repos only (PATTERNS are not accepted).")
-@click.option("--all", "all_flag", is_flag=True, default=False, help="Also fetch every standalone repo, in addition to pattern-matched project worktrees.")
+@click.option(
+    "--standalone",
+    is_flag=True,
+    default=False,
+    help="Fetch standalone repos only (PATTERNS are not accepted).",
+)
+@click.option(
+    "--all",
+    "all_flag",
+    is_flag=True,
+    default=False,
+    help="Also fetch every standalone repo, in addition to pattern-matched project worktrees.",
+)
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
-def ws_fetch(ctx: click.Context, patterns: tuple[str, ...], standalone: bool, all_flag: bool, output_json: bool):
+def ws_fetch(
+    ctx: click.Context,
+    patterns: tuple[str, ...],
+    standalone: bool,
+    all_flag: bool,
+    output_json: bool,
+):
     """Fetch refs from origin for project worktrees matched by PATTERNS.
 
     Each PATTERN is a segment-aware glob over `<env>/<repo>`. Bare env names
@@ -229,12 +277,44 @@ def ws_fetch(ctx: click.Context, patterns: tuple[str, ...], standalone: bool, al
 
 @ws_group.command("pull")
 @click.argument("patterns", nargs=-1)
-@click.option("--standalone", is_flag=True, default=False, help="Pull standalone repos only (PATTERNS are not accepted).")
-@click.option("--all", "all_flag", is_flag=True, default=False, help="Also pull every standalone repo, in addition to pattern-matched project worktrees.")
-@click.option("--ff-only", "ff_only", is_flag=True, default=False, help="Refuse to integrate diverged branches (default).")
-@click.option("--merge", is_flag=True, default=False, help="Fall back to a 3-way merge commit when ff-only fails.")
-@click.option("--rebase", is_flag=True, default=False, help="Replay local commits on top of upstream instead of merging.")
-@click.option("--autostash", is_flag=True, default=False, help="Stash dirty working tree before pulling, restore after.")
+@click.option(
+    "--standalone",
+    is_flag=True,
+    default=False,
+    help="Pull standalone repos only (PATTERNS are not accepted).",
+)
+@click.option(
+    "--all",
+    "all_flag",
+    is_flag=True,
+    default=False,
+    help="Also pull every standalone repo, in addition to pattern-matched project worktrees.",
+)
+@click.option(
+    "--ff-only",
+    "ff_only",
+    is_flag=True,
+    default=False,
+    help="Refuse to integrate diverged branches (default).",
+)
+@click.option(
+    "--merge",
+    is_flag=True,
+    default=False,
+    help="Fall back to a 3-way merge commit when ff-only fails.",
+)
+@click.option(
+    "--rebase",
+    is_flag=True,
+    default=False,
+    help="Replay local commits on top of upstream instead of merging.",
+)
+@click.option(
+    "--autostash",
+    is_flag=True,
+    default=False,
+    help="Stash dirty working tree before pulling, restore after.",
+)
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
 def ws_pull(
@@ -273,21 +353,46 @@ def ws_pull(
         _validate_pattern(pattern)
     container = cli_ctx(ctx).container
     handler = container.workspace_handler()
-    handler.pull(EnvPullParams(
-        patterns=list(patterns),
-        scope=scope,
-        mode=mode,
-        autostash=autostash,
-        output_json=output_json,
-    ))
+    handler.pull(
+        EnvPullParams(
+            patterns=list(patterns),
+            scope=scope,
+            mode=mode,
+            autostash=autostash,
+            output_json=output_json,
+        )
+    )
 
 
 @ws_group.command("push")
 @click.argument("patterns", nargs=-1)
-@click.option("--standalone", is_flag=True, default=False, help="Push standalone repos only (PATTERNS are not accepted).")
-@click.option("--all", "all_flag", is_flag=True, default=False, help="Also push every standalone repo, in addition to pattern-matched project worktrees.")
-@click.option("--include-pinned", "include_pinned", is_flag=True, default=False, help="Include pinned project worktrees in the push set.")
-@click.option("--only-pinned", "only_pinned", is_flag=True, default=False, help="Push only pinned project worktrees (excludes non-pinned).")
+@click.option(
+    "--standalone",
+    is_flag=True,
+    default=False,
+    help="Push standalone repos only (PATTERNS are not accepted).",
+)
+@click.option(
+    "--all",
+    "all_flag",
+    is_flag=True,
+    default=False,
+    help="Also push every standalone repo, in addition to pattern-matched project worktrees.",
+)
+@click.option(
+    "--include-pinned",
+    "include_pinned",
+    is_flag=True,
+    default=False,
+    help="Include pinned project worktrees in the push set.",
+)
+@click.option(
+    "--only-pinned",
+    "only_pinned",
+    is_flag=True,
+    default=False,
+    help="Push only pinned project worktrees (excludes non-pinned).",
+)
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
 def ws_push(
@@ -329,24 +434,38 @@ def ws_push(
     if standalone and patterns:
         raise click.ClickException("PATTERNS cannot be combined with --standalone")
     if standalone and (include_pinned or only_pinned):
-        raise click.ClickException("--include-pinned / --only-pinned cannot be combined with --standalone (standalone repos aren't pinned)")
+        raise click.ClickException(
+            "--include-pinned / --only-pinned cannot be combined with --standalone (standalone repos aren't pinned)"
+        )
     scope = _resolve_scope(standalone, all_flag)
     pinned_scope = _resolve_pinned_scope(include_pinned, only_pinned)
     for pattern in patterns:
         _validate_pattern(pattern)
     container = cli_ctx(ctx).container
     handler = container.workspace_handler()
-    handler.push(EnvPushParams(
-        patterns=list(patterns),
-        scope=scope,
-        pinned_scope=pinned_scope,
-        output_json=output_json,
-    ))
+    handler.push(
+        EnvPushParams(
+            patterns=list(patterns),
+            scope=scope,
+            pinned_scope=pinned_scope,
+            output_json=output_json,
+        )
+    )
 
 
 @ws_group.command("prune")
-@click.option("--dry-run", is_flag=True, default=False, help="List what would be removed; don't delete anything.")
-@click.option("--force", is_flag=True, default=False, help="Skip confirmation. Still refuses repos with uncommitted work or attached worktrees.")
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="List what would be removed; don't delete anything.",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Skip confirmation. Still refuses repos with uncommitted work or attached worktrees.",
+)
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
 def ws_prune(ctx: click.Context, dry_run: bool, force: bool, output_json: bool):
@@ -385,7 +504,15 @@ def ws_index(ctx: click.Context, name: str, output_json: bool):
 @click.option("--no-headers", is_flag=True, help="Omit repo separator headers.")
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
-def ws_diff(ctx: click.Context, env: str, staged: bool, branch: bool, repo: str | None, no_headers: bool, output_json: bool):
+def ws_diff(
+    ctx: click.Context,
+    env: str,
+    staged: bool,
+    branch: bool,
+    repo: str | None,
+    no_headers: bool,
+    output_json: bool,
+):
     """Show unified diff across all repos in a feature environment."""
     if staged and branch:
         raise click.ClickException("--staged and --branch are mutually exclusive")
@@ -399,13 +526,15 @@ def ws_diff(ctx: click.Context, env: str, staged: bool, branch: bool, repo: str 
 
     container = cli_ctx(ctx).container
     handler = container.workspace_handler()
-    handler.diff(EnvDiffParams(
-        env=env,
-        mode=mode,
-        repo_filter=repo,
-        no_headers=no_headers,
-        output_json=output_json,
-    ))
+    handler.diff(
+        EnvDiffParams(
+            env=env,
+            mode=mode,
+            repo_filter=repo,
+            no_headers=no_headers,
+            output_json=output_json,
+        )
+    )
 
 
 @click.group("repo")
@@ -425,15 +554,34 @@ def repo_list(ctx: click.Context, output_json: bool):
 
 @repo_group.command("add")
 @click.argument("url")
-@click.option("--standalone", is_flag=True, default=False, help="Add as a standalone repository instead of a project repository.")
+@click.option(
+    "--standalone",
+    is_flag=True,
+    default=False,
+    help="Add as a standalone repository instead of a project repository.",
+)
 @click.option("--name", default=None, help="Override URL-derived name.")
 @click.option("--main-branch", default=None, help="Per-repo main branch (overrides workspace default).")
-@click.option("--git-exclude", "git_excludes", multiple=True, help="Add a .git/info/exclude entry (repeatable).")
+@click.option(
+    "--git-exclude",
+    "git_excludes",
+    multiple=True,
+    help="Add a .git/info/exclude entry (repeatable).",
+)
 @click.option("--cmd", "cmds", multiple=True, help="Post-clone command to run (repeatable).")
 @click.option("--pinned", is_flag=True, default=False, help="Pin the repo to its main branch (project only).")
-@click.option("--path", default=None, help="Override clone path (standalone only, relative to workspace root).")
+@click.option(
+    "--path",
+    default=None,
+    help="Override clone path (standalone only, relative to workspace root).",
+)
 @click.option("--prefix", default=None, help="Extension symlink prefix (standalone only).")
-@click.option("--local", is_flag=True, default=False, help="Write to config.local.toml instead of the shared config.toml.")
+@click.option(
+    "--local",
+    is_flag=True,
+    default=False,
+    help="Write to config.local.toml instead of the shared config.toml.",
+)
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
 def repo_add(
@@ -459,24 +607,31 @@ def repo_add(
     """
     container = cli_ctx(ctx).container
     handler = container.repo_handler()
-    handler.add(RepoAddParams(
-        url=url,
-        standalone=standalone,
-        name=name,
-        main_branch=main_branch,
-        git_excludes=list(git_excludes),
-        cmd=list(cmds),
-        pinned=pinned,
-        path=path,
-        prefix=prefix,
-        local=local,
-        output_json=output_json,
-    ))
+    handler.add(
+        RepoAddParams(
+            url=url,
+            standalone=standalone,
+            name=name,
+            main_branch=main_branch,
+            git_excludes=list(git_excludes),
+            cmd=list(cmds),
+            pinned=pinned,
+            path=path,
+            prefix=prefix,
+            local=local,
+            output_json=output_json,
+        )
+    )
 
 
 @repo_group.command("remove")
 @click.argument("target")
-@click.option("--local", is_flag=True, default=False, help="Remove from config.local.toml instead of the shared config.toml.")
+@click.option(
+    "--local",
+    is_flag=True,
+    default=False,
+    help="Remove from config.local.toml instead of the shared config.toml.",
+)
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
 def repo_remove(ctx: click.Context, target: str, local: bool, output_json: bool):
@@ -489,8 +644,7 @@ def repo_remove(ctx: click.Context, target: str, local: bool, output_json: bool)
     """
     if "/" not in target:
         raise click.ClickException(
-            "Argument must be in the form '<type>/<name>' "
-            "(e.g. project/winter, standalone/winter-harness)"
+            "Argument must be in the form '<type>/<name>' (e.g. project/winter, standalone/winter-harness)"
         )
     kind, _, name = target.partition("/")
     container = cli_ctx(ctx).container

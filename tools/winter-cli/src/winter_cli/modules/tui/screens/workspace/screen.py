@@ -1,14 +1,19 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import contextlib
+from typing import TYPE_CHECKING, ClassVar
 
 from textual import work
 from textual.binding import Binding
-from textual.screen import Screen
 from textual.containers import Center, Horizontal, Middle
+from textual.screen import Screen
 from textual.widgets import Footer, Header, LoadingIndicator, Static
 
 from winter_cli.modules.tui.error_log import ErrorLogService
+from winter_cli.modules.tui.screens.workspace.feature_worktrees import FeatureWorktreesGrid
+from winter_cli.modules.tui.screens.workspace.standalone_repos import StandaloneReposTable
+from winter_cli.modules.tui.widgets.refresh_status import RefreshStatus
+from winter_cli.modules.tui.widgets.service_panel import ServicePanel
 from winter_cli.modules.workspace.models import (
     FeatureEnvironmentOverview,
     FeatureEnvironmentWorktrees,
@@ -17,8 +22,8 @@ from winter_cli.modules.workspace.models import (
     Workspace,
 )
 from winter_cli.modules.workspace.repo_repository import IReadRepoRepository
-from winter_cli.modules.workspace.workspace_repository import IReadWorkspaceRepository
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
+from winter_cli.modules.workspace.workspace_repository import IReadWorkspaceRepository
 from winter_cli.modules.workspace.workspace_service import WorkspaceService
 from winter_cli.plugins.loader import PluginRegistry
 from winter_cli.plugins.types import (
@@ -27,18 +32,13 @@ from winter_cli.plugins.types import (
     FeatureWorktreeContext,
     WorkspaceContext,
 )
-from winter_cli.modules.tui.widgets.refresh_status import RefreshStatus
-from winter_cli.modules.tui.widgets.service_panel import ServicePanel
-from winter_cli.modules.tui.screens.workspace.standalone_repos import StandaloneReposTable
-from winter_cli.modules.tui.screens.workspace.feature_worktrees import FeatureWorktreesGrid
 
 if TYPE_CHECKING:
     from winter_cli.modules.tui.app import WinterDashboardApp
 
 
 class WorkspaceScreen(Screen):
-
-    BINDINGS = [
+    BINDINGS: ClassVar[list[Binding]] = [
         Binding("r", "refresh", "Refresh"),
         Binding("s", "sync", "Sync"),
         Binding("L", "open_log", "Log"),
@@ -132,11 +132,15 @@ class WorkspaceScreen(Screen):
         env_worktrees_map: dict[str, FeatureEnvironmentWorktrees] = {}
         overviews: list[FeatureEnvironmentOverview] = []
         for env in environments:
+
             def _on_repo_error(wt, exc, env_name=env.name):
                 self._capture_error(f"WorkspaceScreen.refresh({env_name}/{wt.repository.name})", exc)
+
             try:
                 env_status = self._workspace_svc.get_environment_status(
-                    env, project_repos, environment_decorators or None,
+                    env,
+                    project_repos,
+                    environment_decorators or None,
                 )
                 env_worktrees = self._workspace_svc.get_feature_environment_worktrees(env, project_repos)
                 env_worktrees_map[env.name] = env_worktrees
@@ -150,7 +154,10 @@ class WorkspaceScreen(Screen):
                 self._capture_error(f"WorkspaceScreen.refresh({env.name})", exc)
 
         singleton_statuses: list[StandaloneRepoStatus] = []
-        for r in [*self._repo_factory.get_singleton_repos(), *self._repo_factory.get_standalone_repos()]:
+        for r in [
+            *self._repo_factory.get_singleton_repos(),
+            *self._repo_factory.get_standalone_repos(),
+        ]:
             try:
                 singleton_statuses.append(self._repo_repo.get_standalone_status(r))
             except RepoError as exc:
@@ -175,10 +182,8 @@ class WorkspaceScreen(Screen):
         app.push_screen(app.screen_factory.error_log_screen())
 
     def _on_refresh_start(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self.query_one("#refresh-status", RefreshStatus).start_refresh()
-        except Exception:
-            pass
 
     def _update_widgets(
         self,
@@ -243,7 +248,6 @@ class WorkspaceScreen(Screen):
             app: WinterDashboardApp = self.app
             app.push_screen(app.screen_factory.worktree_detail_screen(name))
 
-
     def _run_plugin_action(self, action_name: str) -> None:
         action = next(
             (a for a in self._plugin_registry.tui_actions if a.name == action_name),
@@ -299,9 +303,10 @@ class WorkspaceScreen(Screen):
 
     def __getattr__(self, name: str):
         if name.startswith("action_plugin_"):
-            action_name = name[len("action_plugin_"):]
+            action_name = name[len("action_plugin_") :]
+
             def handler() -> None:
                 self._run_plugin_action(action_name)
+
             return handler
         raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
-

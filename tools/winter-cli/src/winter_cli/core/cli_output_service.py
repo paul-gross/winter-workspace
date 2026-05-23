@@ -18,11 +18,11 @@ class Cell:
     segments: tuple[tuple[str, str | None], ...]
 
     @classmethod
-    def of(cls, text: str, style: str | None = None) -> "Cell":
+    def of(cls, text: str, style: str | None = None) -> Cell:
         return cls(((text, style),))
 
     @classmethod
-    def compose(cls, segments: Iterable[tuple[str, str | None]]) -> "Cell":
+    def compose(cls, segments: Iterable[tuple[str, str | None]]) -> Cell:
         return cls(tuple(segments))
 
     @property

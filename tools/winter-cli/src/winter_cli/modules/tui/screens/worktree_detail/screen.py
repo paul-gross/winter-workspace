@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import contextlib
+from typing import ClassVar
+
 from rich.text import Text
 from textual import work
 from textual.binding import Binding
@@ -9,7 +12,6 @@ from textual.widgets import DataTable, Footer, Header, Static
 
 from winter_cli.modules.tui.error_log import ErrorLogService
 from winter_cli.modules.tui.widgets.refresh_status import RefreshStatus
-
 from winter_cli.modules.workspace.models import (
     FeatureEnvironmentStatus,
     RepoError,
@@ -18,8 +20,8 @@ from winter_cli.modules.workspace.models import (
     WorktreeRepoStatus,
 )
 from winter_cli.modules.workspace.repo_repository import IReadRepoRepository
-from winter_cli.modules.workspace.workspace_repository import IReadWorkspaceRepository
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
+from winter_cli.modules.workspace.workspace_repository import IReadWorkspaceRepository
 from winter_cli.modules.workspace.workspace_service import WorkspaceService
 from winter_cli.plugins.loader import PluginRegistry
 from winter_cli.plugins.types import (
@@ -31,8 +33,7 @@ from winter_cli.plugins.types import (
 
 
 class WorktreeDetailScreen(Screen):
-
-    BINDINGS = [
+    BINDINGS: ClassVar[list[Binding]] = [
         Binding("r", "refresh", "Refresh"),
         Binding("s", "sync", "Sync"),
         Binding("L", "open_log", "Log"),
@@ -108,8 +109,10 @@ class WorktreeDetailScreen(Screen):
 
         def _on_repo_error(wt, exc):
             self._capture_error(
-                f"WorktreeDetailScreen({self.worktree_name}).refresh({wt.repository.name})", exc,
+                f"WorktreeDetailScreen({self.worktree_name}).refresh({wt.repository.name})",
+                exc,
             )
+
         repo_statuses = self._workspace_svc.get_worktree_repo_statuses(
             env_worktrees,
             worktree_repo_decorators or None,
@@ -130,21 +133,18 @@ class WorktreeDetailScreen(Screen):
             )
 
     def _on_refresh_finished(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self.query_one("#refresh-status", RefreshStatus).finish_refresh()
-        except Exception:
-            pass
 
     def action_open_log(self) -> None:
         from winter_cli.modules.tui.app import WinterDashboardApp
+
         app: WinterDashboardApp = self.app
         app.push_screen(app.screen_factory.error_log_screen())
 
     def _on_refresh_start(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self.query_one("#refresh-status", RefreshStatus).start_refresh()
-        except Exception:
-            pass
 
     def _update_widgets(
         self,
@@ -245,7 +245,8 @@ class WorktreeDetailScreen(Screen):
             detail = self._repo_repo.get_worktree_status(wt)
         except RepoError as exc:
             self._capture_error(
-                f"WorktreeDetailScreen({self.worktree_name}).load_repo_detail({repo_name})", exc,
+                f"WorktreeDetailScreen({self.worktree_name}).load_repo_detail({repo_name})",
+                exc,
             )
             return
         self.app.call_from_thread(self._update_repo_info, detail)
@@ -321,9 +322,8 @@ class WorktreeDetailScreen(Screen):
             self._execute_workspace_action(action_name)
         elif action.scope == ActionScope.feature_environment:
             self._execute_environment_action(action_name)
-        elif action.scope == ActionScope.feature_worktree:
-            if self._focused_repo is not None:
-                self._execute_worktree_action(action_name, self._focused_repo)
+        elif action.scope == ActionScope.feature_worktree and self._focused_repo is not None:
+            self._execute_worktree_action(action_name, self._focused_repo)
 
     @work(thread=True)
     def _execute_workspace_action(self, action_name: str) -> None:
@@ -356,9 +356,11 @@ class WorktreeDetailScreen(Screen):
 
     def __getattr__(self, name: str):
         if name.startswith("action_plugin_"):
-            action_name = name[len("action_plugin_"):]
+            action_name = name[len("action_plugin_") :]
+
             def handler() -> None:
                 self._run_plugin_action(action_name)
+
             return handler
         raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
 

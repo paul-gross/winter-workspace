@@ -19,7 +19,6 @@ _SINGLETON_PATHS: dict[SingletonType, tuple[str, ...]] = {
 
 
 class RepositoryFactory:
-
     def __init__(self, config: WorkspaceConfig) -> None:
         self._config = config
 
@@ -27,15 +26,17 @@ class RepositoryFactory:
         result: list[ProjectRepository] = []
         for r in self._config.project_repos:
             name = self._resolve_project_name(r)
-            result.append(ProjectRepository(
-                name=name,
-                main_path=self._config.workspace_root / "projects" / name,
-                main_branch=r.main_branch or self._config.main_branch,
-                pinned=r.pinned,
-                url=r.url,
-                git_excludes=list(r.git_excludes),
-                cmd=list(r.cmd),
-            ))
+            result.append(
+                ProjectRepository(
+                    name=name,
+                    main_path=self._config.workspace_root / "projects" / name,
+                    main_branch=r.main_branch or self._config.main_branch,
+                    pinned=r.pinned,
+                    url=r.url,
+                    git_excludes=list(r.git_excludes),
+                    cmd=list(r.cmd),
+                )
+            )
         return result
 
     def get_singleton_repos(self) -> list[StandaloneRepository]:
@@ -58,15 +59,17 @@ class RepositoryFactory:
         for r in self._config.standalone_repos:
             name = self._resolve_standalone_name(r)
             relative_path = r.path or name
-            result.append(StandaloneRepository(
-                name=name,
-                path=self._config.workspace_root / relative_path,
-                main_branch=r.main_branch or self._config.main_branch,
-                url=r.url,
-                git_excludes=list(r.git_excludes),
-                cmd=list(r.cmd),
-                prefix=r.prefix,
-            ))
+            result.append(
+                StandaloneRepository(
+                    name=name,
+                    path=self._config.workspace_root / relative_path,
+                    main_branch=r.main_branch or self._config.main_branch,
+                    url=r.url,
+                    git_excludes=list(r.git_excludes),
+                    cmd=list(r.cmd),
+                    prefix=r.prefix,
+                )
+            )
         return result
 
     def _resolve_project_name(self, repo: ProjectRepositoryConfig) -> str:
@@ -95,5 +98,5 @@ class RepositoryFactory:
         """
         stripped = url.rstrip("/")
         cut = max(stripped.rfind("/"), stripped.rfind(":"))
-        candidate = stripped[cut + 1:] if cut != -1 else stripped
+        candidate = stripped[cut + 1 :] if cut != -1 else stripped
         return candidate.removesuffix(".git")

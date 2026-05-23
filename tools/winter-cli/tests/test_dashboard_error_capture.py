@@ -4,6 +4,7 @@ Issue/7 acceptance: "Dashboard captures RepoError as notifications and Log
 entries without crashing" and "Log tab displays all required fields; entries
 persist across screen switches."
 """
+
 from __future__ import annotations
 
 import pytest
@@ -16,13 +17,13 @@ from winter_cli.modules.workspace.models import RepoError
 
 
 def _err(message: str = "boom", **overrides) -> RepoError:
-    defaults = dict(
-        subcommand="fetch",
-        args=("origin",),
-        cwd="/tmp/r",
-        exit_code=128,
-        stderr="connection closed",
-    )
+    defaults = {
+        "subcommand": "fetch",
+        "args": ("origin",),
+        "cwd": "/tmp/r",
+        "exit_code": 128,
+        "stderr": "connection closed",
+    }
     defaults.update(overrides)
     return RepoError(message, **defaults)
 
@@ -96,6 +97,7 @@ async def test_refresh_swallows_repo_error_into_log():
         # RepoError via the wrapper added in issue/7.
         def boom(*args, **kwargs):
             raise _err("synthetic refresh failure", subcommand="status", args=())
+
         screen._workspace_repo.get_environments = boom  # type: ignore[assignment]
 
         screen.action_refresh()

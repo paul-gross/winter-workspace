@@ -6,8 +6,9 @@ import logging
 import random
 import re
 import time
+from collections.abc import Callable, Iterator
 from pathlib import Path
-from typing import Callable, Iterator, TypeVar
+from typing import TypeVar
 
 import git
 
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 # Codeberg.org (and most SSH-based git hosts) throttle simultaneous SSH
 # connections per source IP. Empirically the cap is around 5; staying at 4
-# keeps a comfortable margin while still parallelizing 4× over serial git ops.
+# keeps a comfortable margin while still parallelizing 4x over serial git ops.
 PARALLELISM: int = 4
 
 # Retry policy for transient network errors. Gentle defaults — these absorb

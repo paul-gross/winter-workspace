@@ -15,6 +15,7 @@ class ErrorLogEntry:
     screen/action that triggered the call, plus the structured fields from
     the underlying git failure (subcommand, args, cwd, exit code, stderr).
     """
+
     timestamp: datetime
     location: str
     message: str

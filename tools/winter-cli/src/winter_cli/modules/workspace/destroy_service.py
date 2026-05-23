@@ -57,9 +57,7 @@ class DestroyService:
 
         project_repos = self._repo_factory.get_project_repos()
         existing_worktrees: list[tuple[ProjectRepository, Path]] = [
-            (repo, env_root / repo.name)
-            for repo in project_repos
-            if (env_root / repo.name).is_dir()
+            (repo, env_root / repo.name) for repo in project_repos if (env_root / repo.name).is_dir()
         ]
 
         # Phase 1: safety check — refuse if any worktree is dirty unless --force.
@@ -71,9 +69,7 @@ class DestroyService:
             if dirty:
                 reporter.repo_error(
                     name,
-                    "refusing to destroy — dirty worktrees: "
-                    + ", ".join(dirty)
-                    + ". Re-run with --force to bypass.",
+                    "refusing to destroy — dirty worktrees: " + ", ".join(dirty) + ". Re-run with --force to bypass.",
                 )
                 reporter.target_completed(name, False)
                 return False
@@ -83,22 +79,31 @@ class DestroyService:
         if dry_run:
             for repo, wt_path in existing_worktrees:
                 reporter.repo_action(
-                    repo.name, str(wt_path), "would_remove_worktree",
+                    repo.name,
+                    str(wt_path),
+                    "would_remove_worktree",
                 )
             reporter.repo_action(
-                name, str(env_root), "would_remove_env",
+                name,
+                str(env_root),
+                "would_remove_env",
             )
             exclude_path = self._config.workspace_root / ".git" / "info" / "exclude"
             if self._self_exclude_present(env_name=name, exclude_path=exclude_path):
                 reporter.repo_action(
-                    name, str(exclude_path), "would_remove_workspace_exclude",
+                    name,
+                    str(exclude_path),
+                    "would_remove_workspace_exclude",
                     f"/{name}/",
                 )
             reporter.target_completed(name, True)
             return True
 
         hooks_ok = self._extension_svc.run_env_destroy_hooks(
-            standalones, env_root, name, reporter,
+            standalones,
+            env_root,
+            name,
+            reporter,
         )
         if not hooks_ok and strict:
             reporter.repo_error(

@@ -11,8 +11,8 @@ from winter_cli.modules.workspace.models import (
     RepoDiffResult,
     RepoStatus,
     RepoSyncOutcome,
-    StandaloneRepoStatus,
     StandaloneRepository,
+    StandaloneRepoStatus,
     Workspace,
 )
 

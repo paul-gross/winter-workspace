@@ -14,6 +14,7 @@ class IWorkspaceRepository(Protocol):
     that don't care which kind of repo they're working with (writing git-excludes,
     running post-clone `cmd` lists, surfacing errors in the reporter).
     """
+
     name: str
     url: str | None
     git_excludes: list[str]
@@ -23,6 +24,7 @@ class IWorkspaceRepository(Protocol):
 @dataclasses.dataclass
 class Workspace:
     """The workspace as a whole — high-level attributes that span all environments and repositories."""
+
     root_path: Path
     session_prefix: str
     main_branch: str
@@ -37,6 +39,7 @@ class ProjectRepository:
     explicitly set in the config, and can be overridden to give a clone a friendlier
     handle than its canonical repo name.
     """
+
     name: str
     main_path: Path
     main_branch: str
@@ -57,6 +60,7 @@ class StandaloneRepository:
     and additionally carry `url`, `main_branch`, `git_excludes`, `cmd`, and an
     optional `prefix` that overrides the extension symlink prefix.
     """
+
     name: str
     path: Path
     main_branch: str | None = None
@@ -79,6 +83,7 @@ class RepoScope(enum.Enum):
     `standalone` is just the user-declared standalone repos (unaffected by
     feature envs). `all` is both.
     """
+
     project = "project"
     standalone = "standalone"
     all = "all"
@@ -99,6 +104,7 @@ class PullMode(enum.Enum):
     no merge commits, no rewrites. `merge` falls back to a 3-way merge that
     creates a merge commit. `rebase` replays local commits onto the upstream.
     """
+
     ff_only = "ff_only"
     merge = "merge"
     rebase = "rebase"
@@ -112,6 +118,7 @@ class PinnedScope(enum.Enum):
     both pinned and non-pinned. `only` pushes pinned alone (useful when you've
     landed commits on a pinned repo's main branch and want to ship them).
     """
+
     exclude = "exclude"
     include = "include"
     only = "only"
@@ -171,6 +178,7 @@ class RepoError(Exception):
 @dataclasses.dataclass
 class FeatureEnvironment:
     """A named environment (alpha, beta, gamma) for feature development."""
+
     workspace: Workspace
     name: str
     index: int
@@ -180,6 +188,7 @@ class FeatureEnvironment:
 @dataclasses.dataclass
 class FeatureEnvironmentWorktrees:
     """All feature worktrees within an environment — used for bulk operations across repos."""
+
     environment: FeatureEnvironment
     worktrees: list[FeatureWorktree]
 
@@ -187,6 +196,7 @@ class FeatureEnvironmentWorktrees:
 @dataclasses.dataclass
 class FeatureWorktree:
     """A feature worktree — the intersection of an environment and a project repository."""
+
     workspace: Workspace
     environment: FeatureEnvironment
     repository: ProjectRepository

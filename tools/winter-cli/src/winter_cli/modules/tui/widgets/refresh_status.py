@@ -9,7 +9,6 @@ REFRESH_INTERVAL = 30
 
 
 class RefreshStatus(Static):
-
     refreshing: reactive[bool] = reactive(False)
 
     def __init__(self, interval: int = REFRESH_INTERVAL, **kwargs) -> None:

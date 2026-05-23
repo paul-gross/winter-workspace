@@ -7,7 +7,6 @@ if TYPE_CHECKING:
 
 
 class ScreenFactory:
-
     def __init__(self, container: Container) -> None:
         self._container = container
 
@@ -19,4 +18,3 @@ class ScreenFactory:
 
     def error_log_screen(self):
         return self._container.error_log_screen()
-

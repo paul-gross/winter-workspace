@@ -13,9 +13,30 @@ from winter_cli.modules.workspace.models import (
 )
 
 GREEK_LETTERS = [
-    "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta",
-    "iota", "kappa", "lambda", "mu", "nu", "xi", "omicron", "pi",
-    "rho", "sigma", "tau", "upsilon", "phi", "chi", "psi", "omega",
+    "alpha",
+    "beta",
+    "gamma",
+    "delta",
+    "epsilon",
+    "zeta",
+    "eta",
+    "theta",
+    "iota",
+    "kappa",
+    "lambda",
+    "mu",
+    "nu",
+    "xi",
+    "omicron",
+    "pi",
+    "rho",
+    "sigma",
+    "tau",
+    "upsilon",
+    "phi",
+    "chi",
+    "psi",
+    "omega",
 ]
 
 _GREEK_INDEX = {name: i + 1 for i, name in enumerate(GREEK_LETTERS)}
@@ -54,7 +75,9 @@ class ReadWorkspaceRepository:
     def __init__(self, error_factory: RepoErrorFactory) -> None:
         self._error_factory = error_factory
 
-    def get_environments(self, workspace: Workspace, project_repos: list[ProjectRepository]) -> list[FeatureEnvironment]:
+    def get_environments(
+        self, workspace: Workspace, project_repos: list[ProjectRepository]
+    ) -> list[FeatureEnvironment]:
         return [self._build_environment(workspace, name) for name in self._discover_env_names(workspace, project_repos)]
 
     def get_environment(self, workspace: Workspace, name: str) -> FeatureEnvironment:
@@ -139,5 +162,5 @@ class ReadWorkspaceRepository:
                 ) from exc
             if remote != "origin" or not merge.startswith("refs/heads/"):
                 return None
-            return merge[len("refs/heads/"):]
+            return merge[len("refs/heads/") :]
         return None

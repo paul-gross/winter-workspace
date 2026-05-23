@@ -22,5 +22,3 @@ def deep_merge(base: dict, overlay: dict) -> dict:
         else:
             result[key] = value
     return result
-
-

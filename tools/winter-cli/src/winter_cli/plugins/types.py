@@ -3,7 +3,8 @@ from __future__ import annotations
 import contextlib
 import dataclasses
 import enum
-from typing import Any, Callable, Protocol, runtime_checkable
+from collections.abc import Callable
+from typing import Any, Protocol, runtime_checkable
 
 import click
 
@@ -21,8 +22,8 @@ class WorktreeRepoDecorator(Protocol):
     Called once per repo per refresh; populate `repo_status.extensions[<key>] = <value>`
     to surface a badge in the dashboard's repo row.
     """
-    def __call__(self, repo_status: object, repo_path: object) -> None:
-        ...
+
+    def __call__(self, repo_status: object, repo_path: object) -> None: ...
 
 
 @runtime_checkable
@@ -35,8 +36,8 @@ class EnvironmentDecorator(Protocol):
     rendering decision — anything you put in `extensions.values()` is appended
     to the cell verbatim, joined by spaces.
     """
-    def __call__(self, env_status: object, env_path: object) -> None:
-        ...
+
+    def __call__(self, env_status: object, env_path: object) -> None: ...
 
 
 class ActionScope(enum.Enum):
@@ -108,5 +109,4 @@ class PluginRegistration:
 class WinterPlugin(Protocol):
     name: str
 
-    def register(self, config: object) -> PluginRegistration:
-        ...
+    def register(self, config: object) -> PluginRegistration: ...

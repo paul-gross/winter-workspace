@@ -8,7 +8,6 @@ from winter_cli.modules.workspace.models import FeatureEnvironmentStatus
 
 
 class ServicePanel(Static):
-
     statuses: reactive[list[FeatureEnvironmentStatus]] = reactive(list, always_update=True)
 
     def render(self) -> Text:

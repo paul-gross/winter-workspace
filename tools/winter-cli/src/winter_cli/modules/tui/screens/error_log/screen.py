@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import ClassVar
+
 from rich.text import Text
 from textual.binding import Binding
 from textual.containers import Vertical
@@ -18,7 +20,7 @@ class ErrorLogScreen(Screen):
     the session.
     """
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[Binding]] = [
         Binding("q", "back", "Back"),
         Binding("c", "clear", "Clear"),
         Binding("r", "refresh", "Refresh"),

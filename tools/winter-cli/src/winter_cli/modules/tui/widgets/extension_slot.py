@@ -6,7 +6,6 @@ from textual.widgets import Static
 
 
 class ExtensionSlot(Widget):
-
     extensions: reactive[dict[str, dict]] = reactive({})
 
     def __init__(self, extensions: dict[str, dict] | None = None, **kwargs) -> None:

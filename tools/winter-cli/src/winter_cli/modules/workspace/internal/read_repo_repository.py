@@ -7,14 +7,14 @@ import git
 
 from winter_cli.modules.workspace.internal.repo_error_factory import RepoErrorFactory
 from winter_cli.modules.workspace.models import (
-    RepoCommit,
     DiffMode,
+    FeatureWorktree,
     ProjectRepository,
+    RepoCommit,
     RepoDiffResult,
     RepoStatus,
-    StandaloneRepoStatus,
     StandaloneRepository,
-    FeatureWorktree,
+    StandaloneRepoStatus,
     Workspace,
 )
 
@@ -52,7 +52,9 @@ class ReadRepoRepository:
             dirty_count = len(r.index.diff(None)) + len(r.untracked_files)
         except git.GitCommandError as exc:
             raise self._error_factory.from_git(
-                exc, message=f"dirty-count probe failed for {repo.name}", cwd=repo.path,
+                exc,
+                message=f"dirty-count probe failed for {repo.name}",
+                cwd=repo.path,
             ) from exc
 
         ahead = 0
@@ -115,7 +117,9 @@ class ReadRepoRepository:
                 numstat = r.git.diff(ref, "--numstat")
         except git.GitCommandError as exc:
             raise self._error_factory.from_git(
-                exc, message=f"diff failed for {name}", cwd=worktree.path,
+                exc,
+                message=f"diff failed for {name}",
+                cwd=worktree.path,
             ) from exc
 
         files_changed = 0
@@ -246,7 +250,9 @@ class ReadRepoRepository:
             dirty_files += r.untracked_files
         except git.GitCommandError as exc:
             raise self._error_factory.from_git(
-                exc, message=f"dirty-files probe failed for {name}", cwd=repo_path,
+                exc,
+                message=f"dirty-files probe failed for {name}",
+                cwd=repo_path,
             ) from exc
 
         recent_commits: list[RepoCommit] = []

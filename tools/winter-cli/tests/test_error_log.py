@@ -4,7 +4,13 @@ from winter_cli.modules.tui.error_log import ErrorLogService
 from winter_cli.modules.workspace.models import RepoError
 
 
-def _err(message: str = "boom", *, subcommand: str = "fetch", args: tuple[str, ...] = ("origin",), cwd: str = "/tmp") -> RepoError:
+def _err(
+    message: str = "boom",
+    *,
+    subcommand: str = "fetch",
+    args: tuple[str, ...] = ("origin",),
+    cwd: str = "/tmp",
+) -> RepoError:
     return RepoError(message, subcommand=subcommand, args=args, cwd=cwd, exit_code=128, stderr="oops")
 
 

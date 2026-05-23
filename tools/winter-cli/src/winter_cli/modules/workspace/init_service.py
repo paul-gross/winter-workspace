@@ -18,7 +18,11 @@ from winter_cli.modules.workspace.internal.managed_block import (
 )
 from winter_cli.modules.workspace.internal.read_workspace_repository import resolve_env_index
 from winter_cli.modules.workspace.internal.repo_error_factory import RepoErrorFactory
-from winter_cli.modules.workspace.models import ProjectRepository, IWorkspaceRepository, StandaloneRepository
+from winter_cli.modules.workspace.models import (
+    IWorkspaceRepository,
+    ProjectRepository,
+    StandaloneRepository,
+)
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
 
 logger = logging.getLogger(__name__)
@@ -77,9 +81,7 @@ class InitService:
         success = self._write_workspace_self_exclude("projects", reporter)
 
         repos = self._repo_factory.get_project_repos()
-        if not self._run_per_repo(
-            repos, lambda r: self._reconcile_source_checkout(r, reporter)
-        ):
+        if not self._run_per_repo(repos, lambda r: self._reconcile_source_checkout(r, reporter)):
             success = False
 
         reporter.target_completed(target, success)
@@ -93,9 +95,7 @@ class InitService:
         target = "standalone/"
         reporter.target_started(target)
 
-        success = self._run_per_repo(
-            repos, lambda r: self._reconcile_standalone(r, reporter)
-        )
+        success = self._run_per_repo(repos, lambda r: self._reconcile_standalone(r, reporter))
 
         # Aggregate-update workspace CLAUDE.md and `.git/info/exclude` from all
         # standalones that were successfully reconciled (i.e. exist on disk now).
@@ -125,8 +125,7 @@ class InitService:
             if not repo.main_path.exists():
                 reporter.repo_error(
                     repo.name,
-                    f"source checkout missing at {repo.main_path}. "
-                    f"Run `winter ws init` first.",
+                    f"source checkout missing at {repo.main_path}. Run `winter ws init` first.",
                 )
                 success = False
                 continue
@@ -143,7 +142,10 @@ class InitService:
 
         standalones = self._repo_factory.get_standalone_repos()
         if not self._extension_svc.run_env_init_hooks(
-            standalones, env_root, name, reporter,
+            standalones,
+            env_root,
+            name,
+            reporter,
         ):
             success = False
 
@@ -208,7 +210,7 @@ class InitService:
         for line in lines:
             if not line.startswith("worktree "):
                 continue
-            worktree_path = Path(line[len("worktree "):]).resolve()
+            worktree_path = Path(line[len("worktree ") :]).resolve()
             if worktree_path == source_main:
                 continue
             # worktree path is <workspace>/<name>/<repo_name>; we want <name>
@@ -242,9 +244,7 @@ class InitService:
             return False
         if not self._write_excludes(repo_path, repo, reporter, str(repo_path)):
             return False
-        if not self._run_cmds(repo_path, repo, reporter):
-            return False
-        return True
+        return self._run_cmds(repo_path, repo, reporter)
 
     # ── Standalone repo ───────────────────────────────────────────────────
 
@@ -274,9 +274,7 @@ class InitService:
         if not self._run_cmds(repo_path, repo, reporter):
             return False
 
-        if not self._extension_svc.process(repo, reporter):
-            return False
-        return True
+        return self._extension_svc.process(repo, reporter)
 
     def _clone(
         self,
@@ -318,9 +316,7 @@ class InitService:
             return False
         if not self._configure_pinned_tracking(repo, worktree_path, reporter):
             return False
-        if not self._run_cmds(worktree_path, repo, reporter):
-            return False
-        return True
+        return self._run_cmds(worktree_path, repo, reporter)
 
     def _configure_pinned_tracking(
         self,
@@ -362,7 +358,10 @@ class InitService:
 
         if changes:
             reporter.repo_action(
-                repo.name, str(worktree_path), "pinned_tracking_set", ", ".join(changes),
+                repo.name,
+                str(worktree_path),
+                "pinned_tracking_set",
+                ", ".join(changes),
             )
         return True
 
@@ -381,7 +380,11 @@ class InitService:
                 source.git.worktree("add", str(worktree_path), branch_name)
             else:
                 source.git.worktree(
-                    "add", str(worktree_path), "-b", branch_name, repo.main_branch,
+                    "add",
+                    str(worktree_path),
+                    "-b",
+                    branch_name,
+                    repo.main_branch,
                 )
             return True
         except git.GitCommandError as exc:
@@ -473,7 +476,10 @@ class InitService:
                 return False
 
         new_content = self._replace_or_prepend_block(
-            existing, WINTER_ENV_BEGIN, WINTER_ENV_END, block_lines,
+            existing,
+            WINTER_ENV_BEGIN,
+            WINTER_ENV_END,
+            block_lines,
         )
         if new_content == existing:
             return True
@@ -513,7 +519,7 @@ class InitService:
                 end_idx = len(lines) - 1
             else:
                 end_idx = begin_idx + end_offset
-            new_lines = lines[:begin_idx] + desired_lines + lines[end_idx + 1:]
+            new_lines = lines[:begin_idx] + desired_lines + lines[end_idx + 1 :]
         else:
             new_lines = list(desired_lines)
             if lines:
@@ -591,9 +597,7 @@ class InitService:
             for entry in appended:
                 f.write(entry + "\n")
 
-        reporter.repo_action(
-            repo.name, location, "excludes_updated", ", ".join(appended)
-        )
+        reporter.repo_action(repo.name, location, "excludes_updated", ", ".join(appended))
         return True
 
     @staticmethod

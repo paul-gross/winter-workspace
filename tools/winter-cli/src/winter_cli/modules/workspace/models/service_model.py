@@ -16,6 +16,7 @@ from winter_cli.modules.workspace.models.domain_model import (
 class IRepoStatus(Protocol):
     @property
     def name(self) -> str: ...
+
     branch: str | None
     ahead: int
     behind: int
@@ -27,6 +28,7 @@ class IRepoStatus(Protocol):
 @dataclasses.dataclass
 class RepoCommit:
     """A single commit on a branch — abbreviated hash and first line of the message."""
+
     short_hash: str
     message: str
 
@@ -34,6 +36,7 @@ class RepoCommit:
 @dataclasses.dataclass
 class RepoStatus:
     """Detailed git status of a single repository — branch, ahead/behind, dirty files, and recent commits."""
+
     name: str
     path: str
     main_branch: str | None
@@ -58,6 +61,7 @@ class RepoStatus:
 @dataclasses.dataclass
 class StandaloneRepoStatus:
     """Lightweight status for standalone repositories (workspace, product, harness)."""
+
     repository: StandaloneRepository
     branch: str | None = None
     ahead: int = 0
@@ -80,6 +84,7 @@ class FeatureEnvironmentStatus:
     is a short badge string an `EnvironmentDecorator` plugin contributed for this env. Renderers
     append the values to the env header so each plugin can advertise whatever it wants.
     """
+
     environment: FeatureEnvironment
     feature_branch: str | None
     extensions: dict[str, str] = dataclasses.field(default_factory=dict)
@@ -88,6 +93,7 @@ class FeatureEnvironmentStatus:
 @dataclasses.dataclass
 class FeatureEnvironmentOverview:
     """Full picture of a feature environment — its status plus per-repo statuses."""
+
     status: FeatureEnvironmentStatus
     repo_statuses: list[WorktreeRepoStatus]
 
@@ -104,6 +110,7 @@ class SyncResult(enum.Enum):
 @dataclasses.dataclass
 class RepoSyncOutcome:
     """Result of syncing a single repo — whether it fast-forwarded, merged, or diverged."""
+
     repo_name: str
     sync_result: SyncResult
     ahead: int = 0
@@ -113,6 +120,7 @@ class RepoSyncOutcome:
 @dataclasses.dataclass
 class RepoDiffResult:
     """Diff output for a single repo — the raw diff text and summary statistics."""
+
     repo_name: str
     diff_text: str
     ahead: int
@@ -124,6 +132,7 @@ class RepoDiffResult:
 @dataclasses.dataclass
 class WorktreeRepoStatus:
     """Summary status of one repo within a feature worktree — used in worktree-level views."""
+
     worktree: FeatureWorktree
     branch: str | None
     ahead: int
@@ -139,6 +148,7 @@ class WorktreeRepoStatus:
 @dataclasses.dataclass
 class EnvSyncReport:
     """Report from syncing every repo in a feature environment — per-repo outcomes and overall success."""
+
     env: str
     repos: list[RepoSyncOutcome]
     success: bool
@@ -146,6 +156,7 @@ class EnvSyncReport:
 
 class CheckoutResult(enum.Enum):
     """Per-repo outcome of `winter ws checkout`."""
+
     reset = "reset"
     skip_missing_ref = "skip-missing-ref"
     refused_dirty = "refused-dirty"
@@ -155,6 +166,7 @@ class CheckoutResult(enum.Enum):
 @dataclasses.dataclass
 class RepoCheckoutOutcome:
     """Result of attempting to adopt a feature branch into one worktree repo."""
+
     repo_name: str
     result: CheckoutResult
 
@@ -169,6 +181,7 @@ class EnvCheckoutReport:
     listed because nothing happened to them). When `aborted` is False, every
     non-pinned repo has a `reset` or `skip-missing-ref` outcome.
     """
+
     env: str
     feature_branch: str
     aborted: bool
@@ -178,6 +191,7 @@ class EnvCheckoutReport:
 @dataclasses.dataclass
 class EnvDiffResult:
     """Combined diff results across every repo in a feature environment."""
+
     env: str
     mode: DiffMode
     repos: list[RepoDiffResult]
@@ -186,6 +200,7 @@ class EnvDiffResult:
 @dataclasses.dataclass
 class RepoFetchOutcome:
     """Result of fetching one repo — name and whether the fetch succeeded."""
+
     repo_name: str
     success: bool
     error: str | None = None
@@ -200,6 +215,7 @@ class FetchReport:
     once even when multiple env worktrees match the user's pattern. Standalone
     clones are independent and fetched per-repo.
     """
+
     projects: list[RepoFetchOutcome]
     standalone: list[RepoFetchOutcome]
 
@@ -207,14 +223,13 @@ class FetchReport:
     def success(self) -> bool:
         if any(not r.success for r in self.projects):
             return False
-        if any(not r.success for r in self.standalone):
-            return False
-        return True
+        return not any(not r.success for r in self.standalone)
 
 
 @dataclasses.dataclass
 class EnvSkipped:
     """An env skipped by a multi-repo op (typically: not connected to a feature branch)."""
+
     env: str
     reason: str
 
@@ -222,6 +237,7 @@ class EnvSkipped:
 @dataclasses.dataclass
 class PullReport:
     """Top-level pull report — per-env sync results plus standalone outcomes."""
+
     envs: list[EnvSyncReport]
     standalone: list[RepoSyncOutcome]
     skipped: list[EnvSkipped] = dataclasses.field(default_factory=list)
@@ -232,14 +248,13 @@ class PullReport:
             return False
         if any(o.sync_result in (SyncResult.diverged, SyncResult.no_upstream) for o in self.standalone):
             return False
-        if self.skipped:
-            return False
-        return True
+        return not self.skipped
 
 
 @dataclasses.dataclass
 class RepoPushOutcome:
     """Result of pushing one repo — name, push status, commits delivered, error if any."""
+
     repo_name: str
     pushed: bool
     commits: int = 0
@@ -249,6 +264,7 @@ class RepoPushOutcome:
 @dataclasses.dataclass
 class EnvPushReport:
     """Per-env push outcomes."""
+
     env: str
     repos: list[RepoPushOutcome]
 
@@ -256,6 +272,7 @@ class EnvPushReport:
 @dataclasses.dataclass
 class PushReport:
     """Top-level push report — per-env outcomes plus standalone outcomes."""
+
     envs: list[EnvPushReport]
     standalone: list[RepoPushOutcome]
     skipped: list[EnvSkipped] = dataclasses.field(default_factory=list)
@@ -266,6 +283,4 @@ class PushReport:
             return False
         if any(not r.pushed for r in self.standalone):
             return False
-        if self.skipped:
-            return False
-        return True
+        return not self.skipped

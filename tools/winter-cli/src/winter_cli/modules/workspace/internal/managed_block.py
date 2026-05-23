@@ -3,6 +3,7 @@
 A managed block is a marker-bracketed range in a text file (e.g. `.git/info/exclude`)
 that winter rewrites on every run. Lines outside the markers are preserved.
 """
+
 from __future__ import annotations
 
 GITIGNORE_BEGIN = "# >>> {name} (managed by winter)"
@@ -36,7 +37,7 @@ def replace_or_append_block(
             end_idx = len(lines) - 1
         else:
             end_idx = begin_idx + end_offset
-        new_lines = lines[:begin_idx] + desired_lines + lines[end_idx + 1:]
+        new_lines = lines[:begin_idx] + desired_lines + lines[end_idx + 1 :]
     else:
         new_lines = list(lines)
         # Ensure separation from preceding content.
@@ -72,7 +73,7 @@ def strip_block(content: str, begin: str, end: str) -> str:
     drop_from = begin_idx
     if drop_from > 0 and lines[drop_from - 1].strip() == "":
         drop_from -= 1
-    new_lines = lines[:drop_from] + lines[end_idx + 1:]
+    new_lines = lines[:drop_from] + lines[end_idx + 1 :]
     result = "\n".join(new_lines)
     if result and not result.endswith("\n"):
         result += "\n"

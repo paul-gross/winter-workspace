@@ -6,16 +6,16 @@ from pathlib import Path
 
 import click
 
+from winter_cli.config.models import ProjectRepositoryConfig, StandaloneRepositoryConfig
+from winter_cli.config.winter_configuration_repository import IWriteWinterConfigurationRepository
+from winter_cli.core.cli_input_validation_service import ICliInputValidationService
+from winter_cli.core.cli_output_service import ICliOutputService
+from winter_cli.modules.workspace.drift import DriftWarningService
 from winter_cli.modules.workspace.models import (
     ProjectRepository,
     StandaloneRepository,
     Workspace,
 )
-from winter_cli.core.cli_input_validation_service import ICliInputValidationService
-from winter_cli.core.cli_output_service import ICliOutputService
-from winter_cli.config.models import ProjectRepositoryConfig, StandaloneRepositoryConfig
-from winter_cli.config.winter_configuration_repository import IWriteWinterConfigurationRepository
-from winter_cli.modules.workspace.drift import DriftWarningService
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
 
 
@@ -48,7 +48,6 @@ class RepoRemoveParams:
 
 
 class RepoHandler:
-
     def __init__(
         self,
         repo_factory: RepositoryFactory,
@@ -68,10 +67,7 @@ class RepoHandler:
     def list(self, params: RepoListParams) -> None:
         project_repos = self._repo_factory.get_project_repos()
         standalone_repos = self._repo_factory.get_standalone_repos()
-        singleton_repos = [
-            r for r in self._repo_factory.get_singleton_repos()
-            if r.path != self._workspace.root_path
-        ]
+        singleton_repos = [r for r in self._repo_factory.get_singleton_repos() if r.path != self._workspace.root_path]
         self._drift_warning_svc.raise_warning()
 
         if params.output_json:
@@ -89,7 +85,14 @@ class RepoHandler:
         for r in standalone_repos:
             rows.append([r.url or "-", "standalone", self._relative(r.path)])
         for r in project_repos:
-            rows.append([r.url or "-", "project", self._relative(r.main_path), "[pinned]" if r.pinned else ""])
+            rows.append(
+                [
+                    r.url or "-",
+                    "project",
+                    self._relative(r.main_path),
+                    "[pinned]" if r.pinned else "",
+                ]
+            )
 
         for line in self._cli_output_svc.render_table(rows):
             click.echo(line)
@@ -109,9 +112,7 @@ class RepoHandler:
         if params.path is not None:
             candidate = Path(params.path)
             if candidate.is_absolute() or ".." in candidate.parts:
-                raise click.ClickException(
-                    f"--path must be relative and free of '..' segments: {params.path!r}"
-                )
+                raise click.ClickException(f"--path must be relative and free of '..' segments: {params.path!r}")
 
         kind = "standalone" if params.standalone else "project"
         new_name = params.name or self._repo_factory.name_from_url(params.url)
@@ -128,7 +129,9 @@ class RepoHandler:
             new_path = (self._workspace.root_path / (params.path or new_name)).resolve()
             for r in self._repo_factory.get_standalone_repos():
                 if r.path.resolve() == new_path:
-                    raise click.ClickException(f"standalone repo with path {params.path or new_name!r} already declared")
+                    raise click.ClickException(
+                        f"standalone repo with path {params.path or new_name!r} already declared"
+                    )
 
         if params.standalone:
             self._write_winter_config_repo.append_standalone_repository(
@@ -157,11 +160,16 @@ class RepoHandler:
             )
 
         if params.output_json:
-            click.echo(json.dumps({
-                "added": True,
-                "kind": kind,
-                "url": params.url,
-            }, indent=2))
+            click.echo(
+                json.dumps(
+                    {
+                        "added": True,
+                        "kind": kind,
+                        "url": params.url,
+                    },
+                    indent=2,
+                )
+            )
             return
 
         click.echo(f"Added {kind} repo: {params.url}")
@@ -172,19 +180,22 @@ class RepoHandler:
         elif params.kind == "standalone":
             removed = self._write_winter_config_repo.remove_standalone_repository(params.name, local=params.local)
         else:
-            raise click.ClickException(
-                f"Type must be 'project' or 'standalone', got {params.kind!r}"
-            )
+            raise click.ClickException(f"Type must be 'project' or 'standalone', got {params.kind!r}")
 
         if not removed:
             raise click.ClickException(f"{params.kind} repo {params.name!r} not found")
 
         if params.output_json:
-            click.echo(json.dumps({
-                "removed": True,
-                "kind": params.kind,
-                "name": params.name,
-            }, indent=2))
+            click.echo(
+                json.dumps(
+                    {
+                        "removed": True,
+                        "kind": params.kind,
+                        "name": params.name,
+                    },
+                    indent=2,
+                )
+            )
             return
 
         click.echo(f"Removed {params.kind} repo: {params.name}")

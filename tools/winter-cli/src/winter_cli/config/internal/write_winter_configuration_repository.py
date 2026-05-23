@@ -32,7 +32,11 @@ class WriteWinterConfigurationRepository:
         self._append_block("project_repository", config.model_dump(exclude_defaults=True, exclude_none=True), local)
 
     def append_standalone_repository(self, config: StandaloneRepositoryConfig, local: bool = False) -> None:
-        self._append_block("standalone_repository", config.model_dump(exclude_defaults=True, exclude_none=True), local)
+        self._append_block(
+            "standalone_repository",
+            config.model_dump(exclude_defaults=True, exclude_none=True),
+            local,
+        )
 
     def remove_project_repository(self, name: str, local: bool = False) -> bool:
         return self._remove_block("project_repository", name, local)
@@ -88,5 +92,5 @@ class WriteWinterConfigurationRepository:
     def _name_from_url(url: str) -> str:
         stripped = url.rstrip("/")
         cut = max(stripped.rfind("/"), stripped.rfind(":"))
-        candidate = stripped[cut + 1:] if cut != -1 else stripped
+        candidate = stripped[cut + 1 :] if cut != -1 else stripped
         return candidate.removesuffix(".git")

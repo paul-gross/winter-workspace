@@ -3,33 +3,37 @@ from __future__ import annotations
 import click
 from dependency_injector import containers, providers
 
+from winter_cli.config.internal.write_winter_configuration_repository import (
+    WriteWinterConfigurationRepository,
+)
 from winter_cli.config.workspace import WorkspaceConfigService
-from winter_cli.config.internal.write_winter_configuration_repository import WriteWinterConfigurationRepository
-from winter_cli.modules.workspace.internal.git_ops_service import GitOpsService
-from winter_cli.modules.workspace.internal.read_workspace_repository import ReadWorkspaceRepository
-from winter_cli.modules.workspace.internal.repo_error_factory import RepoErrorFactory
-from winter_cli.modules.workspace.internal.write_repo_repository import WriteRepoRepository
-from winter_cli.modules.workspace.drift import DriftWarningService
-from winter_cli.modules.workspace.extensions import ExtensionService
-from winter_cli.modules.workspace.destroy_service import DestroyService
-from winter_cli.modules.workspace.handlers.destroy_handler import DestroyHandler
-from winter_cli.modules.workspace.handlers.init_handler import InitHandler
-from winter_cli.modules.workspace.handlers.repo_handler import RepoHandler
-from winter_cli.modules.workspace.handlers.workspace_handler import WorkspaceHandler
-from winter_cli.modules.workspace.fetch_reporter import JsonFetchReporter, StreamFetchReporter
-from winter_cli.modules.workspace.init_reporter import JsonReporter, StreamReporter
-from winter_cli.modules.workspace.init_service import InitService
-from winter_cli.modules.workspace.pull_reporter import JsonPullReporter, StreamPullReporter
-from winter_cli.modules.workspace.prune_service import PruneService
-from winter_cli.modules.workspace.reporter_factory import ReporterFactory
-from winter_cli.modules.workspace.repository_factory import RepositoryFactory
-from winter_cli.modules.workspace.workspace_service import WorkspaceService
-from winter_cli.core.internal.click_cli_input_validation_service import ClickCliInputValidationService
+from winter_cli.core.internal.click_cli_input_validation_service import (
+    ClickCliInputValidationService,
+)
 from winter_cli.core.internal.click_cli_output_service import ClickCliOutputService
 from winter_cli.modules.tui.error_log import ErrorLogService
 from winter_cli.modules.tui.screens.error_log import ErrorLogScreen
 from winter_cli.modules.tui.screens.workspace import WorkspaceScreen
 from winter_cli.modules.tui.screens.worktree_detail import WorktreeDetailScreen
+from winter_cli.modules.workspace.destroy_service import DestroyService
+from winter_cli.modules.workspace.drift import DriftWarningService
+from winter_cli.modules.workspace.extensions import ExtensionService
+from winter_cli.modules.workspace.fetch_reporter import JsonFetchReporter, StreamFetchReporter
+from winter_cli.modules.workspace.handlers.destroy_handler import DestroyHandler
+from winter_cli.modules.workspace.handlers.init_handler import InitHandler
+from winter_cli.modules.workspace.handlers.repo_handler import RepoHandler
+from winter_cli.modules.workspace.handlers.workspace_handler import WorkspaceHandler
+from winter_cli.modules.workspace.init_reporter import JsonReporter, StreamReporter
+from winter_cli.modules.workspace.init_service import InitService
+from winter_cli.modules.workspace.internal.git_ops_service import GitOpsService
+from winter_cli.modules.workspace.internal.read_workspace_repository import ReadWorkspaceRepository
+from winter_cli.modules.workspace.internal.repo_error_factory import RepoErrorFactory
+from winter_cli.modules.workspace.internal.write_repo_repository import WriteRepoRepository
+from winter_cli.modules.workspace.prune_service import PruneService
+from winter_cli.modules.workspace.pull_reporter import JsonPullReporter, StreamPullReporter
+from winter_cli.modules.workspace.reporter_factory import ReporterFactory
+from winter_cli.modules.workspace.repository_factory import RepositoryFactory
+from winter_cli.modules.workspace.workspace_service import WorkspaceService
 from winter_cli.plugins.loader import PluginRegistry
 
 

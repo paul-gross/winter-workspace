@@ -25,7 +25,6 @@ LOCAL_CONFIG_FILE = "config.local.toml"
 
 
 class WorkspaceConfigService:
-
     def load(self) -> WorkspaceConfig:
         workspace_root = self._find_workspace_root()
         raw = self._read_config(workspace_root / WINTER_DIR / CONFIG_FILE)
@@ -48,14 +47,16 @@ class WorkspaceConfigService:
             url = entry.get("url")
             if not name and not url:
                 continue
-            project_repos.append(ProjectRepositoryConfig(
-                name=name,
-                url=url,
-                main_branch=entry.get("main_branch"),
-                pinned=bool(entry.get("pinned", False)),
-                git_excludes=list(entry.get("git_excludes", []) or []),
-                cmd=list(entry.get("cmd", []) or []),
-            ))
+            project_repos.append(
+                ProjectRepositoryConfig(
+                    name=name,
+                    url=url,
+                    main_branch=entry.get("main_branch"),
+                    pinned=bool(entry.get("pinned", False)),
+                    git_excludes=list(entry.get("git_excludes", []) or []),
+                    cmd=list(entry.get("cmd", []) or []),
+                )
+            )
 
         standalone_repos: list[StandaloneRepositoryConfig] = []
         for entry in merged.get("standalone_repository", []) or []:
@@ -68,21 +69,21 @@ class WorkspaceConfigService:
             path_value = entry.get("path")
             if path_value is not None:
                 self._validate_relative_path(path_value, name or url)
-            standalone_repos.append(StandaloneRepositoryConfig(
-                name=name,
-                url=url,
-                main_branch=entry.get("main_branch"),
-                path=path_value,
-                prefix=entry.get("prefix"),
-                git_excludes=list(entry.get("git_excludes", []) or []),
-                cmd=list(entry.get("cmd", []) or []),
-            ))
+            standalone_repos.append(
+                StandaloneRepositoryConfig(
+                    name=name,
+                    url=url,
+                    main_branch=entry.get("main_branch"),
+                    path=path_value,
+                    prefix=entry.get("prefix"),
+                    git_excludes=list(entry.get("git_excludes", []) or []),
+                    cmd=list(entry.get("cmd", []) or []),
+                )
+            )
 
         user = ((merged.get("git") or {}).get("user")) or {}
         git_identity = (
-            GitIdentity(name=user["name"], email=user["email"])
-            if user.get("name") and user.get("email")
-            else None
+            GitIdentity(name=user["name"], email=user["email"]) if user.get("name") and user.get("email") else None
         )
 
         main_branch = merged.get("main_branch") or "main"
@@ -90,11 +91,10 @@ class WorkspaceConfigService:
         adopt_value = merged.get("adopt_extensions", "winter")
         try:
             adopt_extensions = AdoptExtensions(adopt_value)
-        except ValueError:
+        except ValueError as exc:
             raise RuntimeError(
-                f"Invalid adopt_extensions value: {adopt_value!r}. "
-                f"Must be one of: 'none', 'winter', 'all'."
-            )
+                f"Invalid adopt_extensions value: {adopt_value!r}. Must be one of: 'none', 'winter', 'all'."
+            ) from exc
 
         return WorkspaceConfig(
             workspace_root=workspace_root,
@@ -114,8 +114,7 @@ class WorkspaceConfigService:
             if (directory / WINTER_DIR).is_dir():
                 return directory
         raise RuntimeError(
-            f"Could not find workspace root from {current}. "
-            f"Expected to find a {WINTER_DIR}/ directory in a parent."
+            f"Could not find workspace root from {current}. Expected to find a {WINTER_DIR}/ directory in a parent."
         )
 
     def _read_config(self, path: Path) -> dict:

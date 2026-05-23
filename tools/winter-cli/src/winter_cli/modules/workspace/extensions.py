@@ -60,6 +60,7 @@ class ExtensionManifest:
     setup steps that don't fit the symlink-skills/agents model — for example,
     dropping additional files into a worktree or running provisioning commands.
     """
+
     prefix: str
     skills_dirs: tuple[str, ...]
     agents_dirs: tuple[str, ...]
@@ -159,7 +160,11 @@ class ExtensionService:
         and the feature env.
         """
         return self._run_env_hooks(
-            repos, env_root, env_name, HOOK_ON_ENV_INIT, reporter,
+            repos,
+            env_root,
+            env_name,
+            HOOK_ON_ENV_INIT,
+            reporter,
         )
 
     def run_env_destroy_hooks(
@@ -181,7 +186,11 @@ class ExtensionService:
         log and continue.
         """
         return self._run_env_hooks(
-            repos, env_root, env_name, HOOK_ON_ENV_DESTROY, reporter,
+            repos,
+            env_root,
+            env_name,
+            HOOK_ON_ENV_DESTROY,
+            reporter,
         )
 
     def _run_env_hooks(
@@ -241,14 +250,16 @@ class ExtensionService:
 
         index = resolve_env_index(env_name)
         env = os.environ.copy()
-        env.update({
-            "WINTER_WORKSPACE_DIR": str(self._config.workspace_root),
-            "WINTER_EXT_DIR": str(repo.path),
-            "WINTER_EXT_PREFIX": manifest.prefix,
-            "WINTER_ENV": env_name,
-            "WINTER_ENV_INDEX": str(index),
-            "WINTER_PORT_BASE": str(PORT_BASE + index * PORT_STEP),
-        })
+        env.update(
+            {
+                "WINTER_WORKSPACE_DIR": str(self._config.workspace_root),
+                "WINTER_EXT_DIR": str(repo.path),
+                "WINTER_EXT_PREFIX": manifest.prefix,
+                "WINTER_ENV": env_name,
+                "WINTER_ENV_INDEX": str(index),
+                "WINTER_PORT_BASE": str(PORT_BASE + index * PORT_STEP),
+            }
+        )
 
         label = f"hook {hook_name}"
         reporter.cmd_started(repo.name, label)
@@ -276,9 +287,7 @@ class ExtensionService:
                 f"hook {hook_name} exited with code {returncode}",
             )
             return False
-        reporter.repo_action(
-            repo.name, str(env_root), "hook_ran", hook_name
-        )
+        reporter.repo_action(repo.name, str(env_root), "hook_ran", hook_name)
         return True
 
     # ── Manifest ──────────────────────────────────────────────────────────
@@ -535,10 +544,12 @@ class ExtensionService:
             end = GITIGNORE_END.format(name=repo.name)
             lines = [begin, f"/{relative}/"]
             if prefix is not None:
-                lines.extend([
-                    f".claude/skills/{prefix}-*",
-                    f".claude/agents/{prefix}-*",
-                ])
+                lines.extend(
+                    [
+                        f".claude/skills/{prefix}-*",
+                        f".claude/agents/{prefix}-*",
+                    ]
+                )
             lines.append(end)
             eligible.append((repo.name, lines))
 
@@ -596,10 +607,7 @@ class ExtensionService:
         mode = self._config.adopt_extensions
         manifest_path = repo.path / EXT_MANIFEST
         manifest_present = manifest_path.is_file()
-        extension_eligible = (
-            mode != AdoptExtensions.none
-            and (manifest_present or mode == AdoptExtensions.all)
-        )
+        extension_eligible = mode != AdoptExtensions.none and (manifest_present or mode == AdoptExtensions.all)
         if not extension_eligible:
             return relative, None
         data: dict = {}
@@ -622,7 +630,7 @@ class ExtensionService:
         """
         pattern = re.compile(r"^# >>> ([^/]+?) \(managed by winter\)$")
         orphan_names: set[str] = set()
-        for line in (content.split("\n") if content else []):
+        for line in content.split("\n") if content else []:
             m = pattern.match(line)
             if m:
                 name = m.group(1)
@@ -679,9 +687,7 @@ class ExtensionService:
             try:
                 winter_path.unlink()
             except OSError as exc:
-                reporter.repo_error(
-                    CLAUDEMD_BLOCK_NAME, f"removing {CLAUDEMD_WINTER_FILENAME} — {exc}"
-                )
+                reporter.repo_error(CLAUDEMD_BLOCK_NAME, f"removing {CLAUDEMD_WINTER_FILENAME} — {exc}")
                 return False
             reporter.repo_action(
                 CLAUDEMD_BLOCK_NAME,
@@ -702,9 +708,7 @@ class ExtensionService:
             try:
                 existing_winter = winter_path.read_text()
             except OSError as exc:
-                reporter.repo_error(
-                    CLAUDEMD_BLOCK_NAME, f"reading {CLAUDEMD_WINTER_FILENAME} — {exc}"
-                )
+                reporter.repo_error(CLAUDEMD_BLOCK_NAME, f"reading {CLAUDEMD_WINTER_FILENAME} — {exc}")
                 return False
 
         if new_winter == existing_winter:
@@ -713,9 +717,7 @@ class ExtensionService:
         try:
             winter_path.write_text(new_winter)
         except OSError as exc:
-            reporter.repo_error(
-                CLAUDEMD_BLOCK_NAME, f"writing {CLAUDEMD_WINTER_FILENAME} — {exc}"
-            )
+            reporter.repo_error(CLAUDEMD_BLOCK_NAME, f"writing {CLAUDEMD_WINTER_FILENAME} — {exc}")
             return False
 
         detail = ", ".join(name for name, _ in sorted(eligible))

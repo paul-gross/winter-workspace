@@ -1,22 +1,22 @@
 from __future__ import annotations
 
+from typing import ClassVar
+
 from textual.app import App
 from textual.binding import Binding
 
 from winter_cli.container import Container
 from winter_cli.modules.tui.screen_factory import ScreenFactory
-from winter_cli.plugins.loader import PluginRegistry
 
 
 class WinterDashboardApp(App):
-
     ENABLE_COMMAND_PALETTE = False
 
     CSS_PATH = "styles/app.tcss"
 
     TITLE = "Winter Dashboard"
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[Binding]] = [
         Binding("q", "quit", "Quit"),
     ]
 

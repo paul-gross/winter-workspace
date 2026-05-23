@@ -11,7 +11,6 @@ from winter_cli.modules.workspace.extensions import ExtensionService
 from winter_cli.modules.workspace.init_reporter import IInitReporter
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
 
-
 _BLOCK_BEGIN_RE = re.compile(r"^# >>> ([^/]+?) \(managed by winter\)$")
 _BLOCK_PATH_RE = re.compile(r"^/(.+?)/?$")
 
@@ -76,12 +75,14 @@ class PruneService:
             if not entry.is_dir() or entry.name in declared:
                 continue
             safe, notes = self._project_clone_safety(entry)
-            orphans.append(PruneOrphan(
-                kind="project_clone",
-                path=entry,
-                safe_to_remove=safe,
-                notes=notes,
-            ))
+            orphans.append(
+                PruneOrphan(
+                    kind="project_clone",
+                    path=entry,
+                    safe_to_remove=safe,
+                    notes=notes,
+                )
+            )
         return orphans
 
     def _find_orphan_standalone_clones(self) -> list[PruneOrphan]:
@@ -114,12 +115,14 @@ class PruneService:
                     continue
                 seen_paths.add(path)
                 safe, notes = self._project_clone_safety(path) if (path / ".git").exists() else (True, "")
-                orphans.append(PruneOrphan(
-                    kind="standalone_clone",
-                    path=path,
-                    safe_to_remove=safe,
-                    notes=notes,
-                ))
+                orphans.append(
+                    PruneOrphan(
+                        kind="standalone_clone",
+                        path=path,
+                        safe_to_remove=safe,
+                        notes=notes,
+                    )
+                )
         return orphans
 
     def _find_broken_symlinks(self) -> list[PruneOrphan]:
@@ -133,12 +136,14 @@ class PruneService:
                 continue
             for entry in sorted(root.iterdir()):
                 if entry.is_symlink() and not entry.exists():
-                    orphans.append(PruneOrphan(
-                        kind="broken_symlink",
-                        path=entry,
-                        safe_to_remove=True,
-                        notes="",
-                    ))
+                    orphans.append(
+                        PruneOrphan(
+                            kind="broken_symlink",
+                            path=entry,
+                            safe_to_remove=True,
+                            notes="",
+                        )
+                    )
         return orphans
 
     @staticmethod

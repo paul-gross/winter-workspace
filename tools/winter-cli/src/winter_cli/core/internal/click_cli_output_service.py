@@ -65,9 +65,7 @@ class ClickCliOutputService:
 
         normalized_headers: list[Cell] | None = None
         if headers is not None:
-            normalized_headers = [
-                h if isinstance(h, Cell) else Cell.of(h) for h in headers
-            ]
+            normalized_headers = [h if isinstance(h, Cell) else Cell.of(h) for h in headers]
 
         if not normalized and normalized_headers is None:
             return []

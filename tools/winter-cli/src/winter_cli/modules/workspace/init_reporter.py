@@ -115,13 +115,15 @@ class JsonReporter:
         self._emit({"type": "target_completed", "target": target, "success": success})
 
     def repo_action(self, repo: str, location: str, action: str, detail: str = "") -> None:
-        self._emit({
-            "type": "repo_action",
-            "repo": repo,
-            "location": location,
-            "action": action,
-            "detail": detail,
-        })
+        self._emit(
+            {
+                "type": "repo_action",
+                "repo": repo,
+                "location": location,
+                "action": action,
+                "detail": detail,
+            }
+        )
 
     def repo_error(self, repo: str, error: str) -> None:
         self._emit({"type": "repo_error", "repo": repo, "error": error})
@@ -133,9 +135,11 @@ class JsonReporter:
         self._emit({"type": "cmd_output_line", "repo": repo, "line": line})
 
     def cmd_completed(self, repo: str, command: str, returncode: int) -> None:
-        self._emit({
-            "type": "cmd_completed",
-            "repo": repo,
-            "command": command,
-            "returncode": returncode,
-        })
+        self._emit(
+            {
+                "type": "cmd_completed",
+                "repo": repo,
+                "command": command,
+                "returncode": returncode,
+            }
+        )

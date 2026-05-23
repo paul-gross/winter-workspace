@@ -9,9 +9,12 @@ from typing import Any
 import click
 
 from winter_cli.core.cli_output_service import Cell, ICliOutputService
+from winter_cli.modules.workspace.drift import DriftWarningService
+from winter_cli.modules.workspace.internal.read_workspace_repository import resolve_env_index
 from winter_cli.modules.workspace.models import (
     CheckoutResult,
     DiffMode,
+    EnvCheckoutReport,
     FeatureEnvironmentOverview,
     FeatureEnvironmentStatus,
     PinnedScope,
@@ -20,16 +23,13 @@ from winter_cli.modules.workspace.models import (
     RepoScope,
     SyncResult,
     Workspace,
-    EnvCheckoutReport,
     WorktreeRepoStatus,
 )
-from winter_cli.modules.workspace.drift import DriftWarningService
-from winter_cli.modules.workspace.internal.read_workspace_repository import resolve_env_index
 from winter_cli.modules.workspace.prune_service import PruneOrphan, PruneService
-from winter_cli.modules.workspace.reporter_factory import ReporterFactory
-from winter_cli.modules.workspace.workspace_repository import IReadWorkspaceRepository
 from winter_cli.modules.workspace.repo_repository import IReadRepoRepository
+from winter_cli.modules.workspace.reporter_factory import ReporterFactory
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
+from winter_cli.modules.workspace.workspace_repository import IReadWorkspaceRepository
 from winter_cli.modules.workspace.workspace_service import WorkspaceService
 
 
@@ -118,7 +118,6 @@ class WorkspacePruneParams:
 
 
 class WorkspaceHandler:
-
     def __init__(
         self,
         workspace_svc: WorkspaceService,
@@ -158,9 +157,7 @@ class WorkspaceHandler:
             status_text = " ".join(v for v in s.extensions.values() if v) or "-"
             rows.append([s.environment.name, feature_branch, status_text])
 
-        for line in self._cli_output_svc.render_table(
-            rows, headers=["ENV", "FEATURE BRANCH", "STATUS"]
-        ):
+        for line in self._cli_output_svc.render_table(rows, headers=["ENV", "FEATURE BRANCH", "STATUS"]):
             click.echo(line)
 
     def status(self, params: EnvStatusParams) -> None:
@@ -216,9 +213,7 @@ class WorkspaceHandler:
             rows.append([outcome.repo_name, result_val, notes])
             row_styles.append(style)
 
-        for line in self._cli_output_svc.render_table(
-            rows, headers=["REPO", "RESULT", "NOTES"], row_styles=row_styles
-        ):
+        for line in self._cli_output_svc.render_table(rows, headers=["REPO", "RESULT", "NOTES"], row_styles=row_styles):
             click.echo(line)
 
         out = self._cli_output_svc
@@ -236,7 +231,13 @@ class WorkspaceHandler:
         count = self._workspace_svc.connect_env(env_worktrees, params.feature_branch)
 
         if params.output_json:
-            _echo_json({"env": params.env, "feature_branch": params.feature_branch, "repos_configured": count})
+            _echo_json(
+                {
+                    "env": params.env,
+                    "feature_branch": params.feature_branch,
+                    "repos_configured": count,
+                }
+            )
             return
 
         out = self._cli_output_svc
@@ -258,10 +259,7 @@ class WorkspaceHandler:
             return
 
         out = self._cli_output_svc
-        click.echo(
-            f"{out.style('✓', 'green')} Disconnected "
-            f"{out.style(params.env, 'bold')} ({count} repos)"
-        )
+        click.echo(f"{out.style('✓', 'green')} Disconnected {out.style(params.env, 'bold')} ({count} repos)")
 
     def checkout(self, params: EnvCheckoutParams) -> None:
         env = self._workspace_repo.get_environment(self._workspace, params.env)
@@ -269,7 +267,9 @@ class WorkspaceHandler:
         self._drift_warning_svc.raise_warning()
         env_worktrees = self._workspace_svc.get_feature_environment_worktrees(env, project_repos)
         report = self._workspace_svc.checkout_env(
-            env_worktrees, params.feature_branch, params.force,
+            env_worktrees,
+            params.feature_branch,
+            params.force,
         )
 
         if params.output_json:
@@ -296,9 +296,7 @@ class WorkspaceHandler:
             rows.append([outcome.repo_name, outcome.result.value])
             row_styles.append(style)
 
-        for line in out.render_table(
-            rows, headers=["REPO", "RESULT"], row_styles=row_styles
-        ):
+        for line in out.render_table(rows, headers=["REPO", "RESULT"], row_styles=row_styles):
             click.echo(line)
 
         if report.aborted:
@@ -323,7 +321,9 @@ class WorkspaceHandler:
         self._drift_warning_svc.raise_warning()
         reporter = self._reporter_factory.get_fetch_reporter(params.output_json)
         report = self._workspace_svc.fetch_all(
-            scope=params.scope, patterns=params.patterns, reporter=reporter,
+            scope=params.scope,
+            patterns=params.patterns,
+            reporter=reporter,
         )
 
         if params.output_json:
@@ -359,12 +359,9 @@ class WorkspaceHandler:
             return
         if not report.success:
             if params.mode == PullMode.ff_only and any(
-                o.sync_result == SyncResult.diverged
-                for env in report.envs for o in env.repos
+                o.sync_result == SyncResult.diverged for env in report.envs for o in env.repos
             ):
-                click.echo(
-                    out.style("retry with --merge or --rebase, or resolve with raw git", "dim")
-                )
+                click.echo(out.style("retry with --merge or --rebase, or resolve with raw git", "dim"))
             sys.exit(1)
 
     def push(self, params: EnvPushParams) -> None:
@@ -435,13 +432,15 @@ class WorkspaceHandler:
         results = []
         if params.dry_run:
             for o in orphans:
-                results.append({
-                    "kind": o.kind,
-                    "path": str(o.path),
-                    "safe_to_remove": o.safe_to_remove,
-                    "notes": o.notes,
-                    "action": "would_remove" if o.safe_to_remove else "skipped",
-                })
+                results.append(
+                    {
+                        "kind": o.kind,
+                        "path": str(o.path),
+                        "safe_to_remove": o.safe_to_remove,
+                        "notes": o.notes,
+                        "action": "would_remove" if o.safe_to_remove else "skipped",
+                    }
+                )
             _echo_json({"dry_run": True, "orphans": results})
             return
 
@@ -575,9 +574,7 @@ class WorkspaceHandler:
             pushed_cell = Cell.of("yes", "green") if r.pushed else Cell.of("failed", "red")
             commits = str(r.commits) if r.pushed else (r.error or "")
             table_rows.append([r.repo_name, pushed_cell, commits])
-        return self._cli_output_svc.render_table(
-            table_rows, headers=["REPO", "PUSHED", "COMMITS"]
-        )
+        return self._cli_output_svc.render_table(table_rows, headers=["REPO", "PUSHED", "COMMITS"])
 
     def _render_single(
         self,
@@ -645,9 +642,7 @@ class WorkspaceHandler:
             rows.append(row)
             row_styles.append(row_style)
 
-        for line in self._cli_output_svc.render_table(
-            rows, headers=headers, row_styles=row_styles
-        ):
+        for line in self._cli_output_svc.render_table(rows, headers=headers, row_styles=row_styles):
             click.echo(line)
 
     def _render_grid(

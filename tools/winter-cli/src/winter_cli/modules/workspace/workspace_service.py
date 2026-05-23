@@ -4,15 +4,24 @@ import concurrent.futures
 import dataclasses
 import fnmatch
 import logging
-from typing import Callable
+from collections.abc import Callable
 
 import click
 
+from winter_cli.modules.workspace.fetch_reporter import IFetchReporter
+from winter_cli.modules.workspace.internal.git_ops_service import GitOpsService
 from winter_cli.modules.workspace.models import (
     CheckoutResult,
     DiffMode,
+    EnvCheckoutReport,
+    EnvDiffResult,
+    EnvPushReport,
     EnvSkipped,
+    EnvSyncReport,
+    FeatureEnvironment,
     FeatureEnvironmentStatus,
+    FeatureEnvironmentWorktrees,
+    FeatureWorktree,
     FetchReport,
     PinnedScope,
     ProjectRepository,
@@ -25,26 +34,16 @@ from winter_cli.modules.workspace.models import (
     RepoFetchOutcome,
     RepoPushOutcome,
     RepoScope,
-    RepoStatus,
     RepoSyncOutcome,
     StandaloneRepository,
     SyncResult,
-    FeatureEnvironment,
-    FeatureEnvironmentWorktrees,
-    FeatureWorktree,
     Workspace,
-    EnvCheckoutReport,
-    EnvDiffResult,
-    EnvPushReport,
     WorktreeRepoStatus,
-    EnvSyncReport,
 )
-from winter_cli.modules.workspace.fetch_reporter import IFetchReporter
-from winter_cli.modules.workspace.internal.git_ops_service import GitOpsService
 from winter_cli.modules.workspace.pull_reporter import IPullReporter
+from winter_cli.modules.workspace.repo_repository import IWriteRepoRepository
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
 from winter_cli.modules.workspace.workspace_repository import IReadWorkspaceRepository
-from winter_cli.modules.workspace.repo_repository import IWriteRepoRepository
 from winter_cli.plugins.types import EnvironmentDecorator, WorktreeRepoDecorator
 
 logger = logging.getLogger(__name__)
@@ -53,6 +52,7 @@ logger = logging.getLogger(__name__)
 @dataclasses.dataclass
 class _PullTarget:
     """Per-worktree integration target resolved up-front for fan-out."""
+
     env_name: str
     worktree: FeatureWorktree
     target_ref: str
@@ -117,7 +117,7 @@ class WorkspaceService:
         self,
         env_worktrees: FeatureEnvironmentWorktrees,
         worktree_repo_decorators: list[WorktreeRepoDecorator] | None = None,
-        on_repo_error: "Callable[[FeatureWorktree, RepoError], None] | None" = None,
+        on_repo_error: Callable[[FeatureWorktree, RepoError], None] | None = None,
     ) -> list[WorktreeRepoStatus]:
         """Read one row per worktree, optionally tolerating per-worktree failures.
 
@@ -138,17 +138,19 @@ class WorkspaceService:
                     raise
                 on_repo_error(wt, exc)
                 continue
-            wt_repo_statuses.append(WorktreeRepoStatus(
-                worktree=wt,
-                branch=rs.branch,
-                ahead=rs.ahead,
-                behind=rs.behind,
-                dirty_count=len(rs.dirty_files),
-                tracking_branch=rs.tracking_branch,
-                tracking_ahead=rs.tracking_ahead,
-                tracking_behind=rs.tracking_behind,
-                tracking_ref_present=rs.tracking_ref_present,
-            ))
+            wt_repo_statuses.append(
+                WorktreeRepoStatus(
+                    worktree=wt,
+                    branch=rs.branch,
+                    ahead=rs.ahead,
+                    behind=rs.behind,
+                    dirty_count=len(rs.dirty_files),
+                    tracking_branch=rs.tracking_branch,
+                    tracking_ahead=rs.tracking_ahead,
+                    tracking_behind=rs.tracking_behind,
+                    tracking_ref_present=rs.tracking_ref_present,
+                )
+            )
 
         if worktree_repo_decorators:
             for decorator in worktree_repo_decorators:
@@ -169,9 +171,11 @@ class WorkspaceService:
         worktrees = env_worktrees.worktrees
         self._fetch_in_parallel(worktrees)
 
-        outcomes = self._integrate_in_parallel([
-            (wt, f"origin/{wt.repository.main_branch}") for wt in worktrees
-        ], mode=PullMode.merge, autostash=False)
+        outcomes = self._integrate_in_parallel(
+            [(wt, f"origin/{wt.repository.main_branch}") for wt in worktrees],
+            mode=PullMode.merge,
+            autostash=False,
+        )
         outcomes = self._sort_outcomes(outcomes, [wt.repository.name for wt in worktrees])
 
         project_repos = [wt.repository for wt in worktrees]
@@ -222,20 +226,29 @@ class WorkspaceService:
         skipped: list[RepoCheckoutOutcome] = []
         for wt in targets:
             if not self._repo_repo.has_local_ref(wt, remote_ref):
-                skipped.append(RepoCheckoutOutcome(
-                    repo_name=wt.repository.name, result=CheckoutResult.skip_missing_ref,
-                ))
+                skipped.append(
+                    RepoCheckoutOutcome(
+                        repo_name=wt.repository.name,
+                        result=CheckoutResult.skip_missing_ref,
+                    )
+                )
                 continue
             if not force:
                 if self._repo_repo.is_worktree_dirty(wt):
-                    refused.append(RepoCheckoutOutcome(
-                        repo_name=wt.repository.name, result=CheckoutResult.refused_dirty,
-                    ))
+                    refused.append(
+                        RepoCheckoutOutcome(
+                            repo_name=wt.repository.name,
+                            result=CheckoutResult.refused_dirty,
+                        )
+                    )
                     continue
                 if self._repo_repo.count_commits_not_in(wt, remote_ref) > 0:
-                    refused.append(RepoCheckoutOutcome(
-                        repo_name=wt.repository.name, result=CheckoutResult.refused_divergent,
-                    ))
+                    refused.append(
+                        RepoCheckoutOutcome(
+                            repo_name=wt.repository.name,
+                            result=CheckoutResult.refused_divergent,
+                        )
+                    )
                     continue
             passing.append(wt)
 
@@ -252,9 +265,12 @@ class WorkspaceService:
             self._repo_repo.set_upstream(wt, remote_ref)
             self._repo_repo.set_push_default(wt)
             self._repo_repo.hard_reset(wt, remote_ref)
-            applied.append(RepoCheckoutOutcome(
-                repo_name=wt.repository.name, result=CheckoutResult.reset,
-            ))
+            applied.append(
+                RepoCheckoutOutcome(
+                    repo_name=wt.repository.name,
+                    result=CheckoutResult.reset,
+                )
+            )
 
         repo_order = [wt.repository.name for wt in targets]
         outcomes = applied + skipped
@@ -267,11 +283,12 @@ class WorkspaceService:
         )
 
     def get_feature_environment_worktrees(
-        self, env: FeatureEnvironment, project_repos: list[ProjectRepository],
+        self,
+        env: FeatureEnvironment,
+        project_repos: list[ProjectRepository],
     ) -> FeatureEnvironmentWorktrees:
         worktrees = [
-            FeatureWorktree(workspace=env.workspace, environment=env, repository=repo)
-            for repo in project_repos
+            FeatureWorktree(workspace=env.workspace, environment=env, repository=repo) for repo in project_repos
         ]
         return FeatureEnvironmentWorktrees(environment=env, worktrees=worktrees)
 
@@ -279,15 +296,15 @@ class WorkspaceService:
         return FeatureWorktree(workspace=env.workspace, environment=env, repository=repo)
 
     def get_env_diff(
-        self, env_worktrees: FeatureEnvironmentWorktrees, mode: DiffMode, repo_filter: str | None = None,
+        self,
+        env_worktrees: FeatureEnvironmentWorktrees,
+        mode: DiffMode,
+        repo_filter: str | None = None,
     ) -> EnvDiffResult:
         worktrees = env_worktrees.worktrees
 
         if repo_filter:
-            matched = [
-                wt for wt in worktrees
-                if repo_filter == wt.repository.name
-            ]
+            matched = [wt for wt in worktrees if repo_filter == wt.repository.name]
             if not matched:
                 raise click.ClickException(f"Repo '{repo_filter}' not found")
             worktrees = matched
@@ -327,7 +344,8 @@ class WorkspaceService:
         env_worktrees_by_env = self._build_env_worktrees_map(envs, project_repos)
         matched_by_env: dict[str, list[FeatureWorktree]] = {
             env.name: [
-                wt for wt in env_worktrees_by_env[env.name].worktrees
+                wt
+                for wt in env_worktrees_by_env[env.name].worktrees
                 if _matches_any_pattern(env.name, wt.repository.name, patterns)
             ]
             for env in envs
@@ -407,7 +425,8 @@ class WorkspaceService:
 
         matched_by_env: dict[str, list[FeatureWorktree]] = {
             env.name: [
-                wt for wt in env_worktrees_by_env[env.name].worktrees
+                wt
+                for wt in env_worktrees_by_env[env.name].worktrees
                 if _matches_any_pattern(env.name, wt.repository.name, patterns)
             ]
             for env in envs
@@ -416,7 +435,8 @@ class WorkspaceService:
 
         targets, skipped = self._build_pull_targets(matched_envs, matched_by_env, project_repos)
         targets = [
-            t for t in targets
+            t
+            for t in targets
             if self._warn_unless_present(t.worktree.path, f"{t.env_name}/{t.worktree.repository.name}", t.env_name)
         ]
         standalone_repos = self._drop_missing_standalones(standalone_repos)
@@ -450,12 +470,19 @@ class WorkspaceService:
             standalone_futures: dict[concurrent.futures.Future, str] = {}
             for repo_name, group in targets_by_repo.items():
                 fut = pool.submit(
-                    self._fetch_then_integrate_group, group, mode, autostash, reporter,
+                    self._fetch_then_integrate_group,
+                    group,
+                    mode,
+                    autostash,
+                    reporter,
                 )
                 project_futures[fut] = repo_name
             for repo in standalone_repos:
                 fut = pool.submit(
-                    self._fetch_then_integrate_standalone, repo, mode, autostash,
+                    self._fetch_then_integrate_standalone,
+                    repo,
+                    mode,
+                    autostash,
                 )
                 standalone_futures[fut] = repo.name
 
@@ -468,8 +495,11 @@ class WorkspaceService:
                 else:
                     outcome = fut.result()
                     reporter.repo_synced(
-                        "standalone", outcome.repo_name, outcome.sync_result,
-                        outcome.ahead, outcome.behind,
+                        "standalone",
+                        outcome.repo_name,
+                        outcome.sync_result,
+                        outcome.ahead,
+                        outcome.behind,
                     )
                     standalone_outcomes.append(outcome)
 
@@ -515,7 +545,8 @@ class WorkspaceService:
             env_worktrees = self.get_feature_environment_worktrees(env, project_repos)
 
             worktrees = [
-                wt for wt in env_worktrees.worktrees
+                wt
+                for wt in env_worktrees.worktrees
                 if self._matches_pinned_scope(wt, pinned_scope)
                 and _matches_any_pattern(env.name, wt.repository.name, patterns)
             ]
@@ -524,27 +555,29 @@ class WorkspaceService:
 
             non_pinned = [wt for wt in worktrees if not wt.repository.pinned]
             if non_pinned and not env_status.feature_branch:
-                skipped.append(EnvSkipped(
-                    env=env.name,
-                    reason="not connected — run `winter ws connect` first",
-                ))
+                skipped.append(
+                    EnvSkipped(
+                        env=env.name,
+                        reason="not connected — run `winter ws connect` first",
+                    )
+                )
                 worktrees = [wt for wt in worktrees if wt.repository.pinned]
 
             outcomes = [
-                self._push_one(wt, env_status.feature_branch)
-                for wt in worktrees
-                if self._has_commits_to_push(wt)
+                self._push_one(wt, env_status.feature_branch) for wt in worktrees if self._has_commits_to_push(wt)
             ]
             env_reports.append(EnvPushReport(env=env.name, repos=outcomes))
 
         standalone_outcomes: list[RepoPushOutcome] = []
         for repo in standalone_repos:
             if self._repo_repo.get_standalone_upstream(repo) is None:
-                standalone_outcomes.append(RepoPushOutcome(
-                    repo_name=repo.name,
-                    pushed=False,
-                    error="no upstream — set one with `git branch --set-upstream-to`",
-                ))
+                standalone_outcomes.append(
+                    RepoPushOutcome(
+                        repo_name=repo.name,
+                        pushed=False,
+                        error="no upstream — set one with `git branch --set-upstream-to`",
+                    )
+                )
                 continue
             if self._repo_repo.get_standalone_tracking_ahead(repo) == 0:
                 continue
@@ -620,10 +653,7 @@ class WorkspaceService:
         envs: list[FeatureEnvironment],
         project_repos: list[ProjectRepository],
     ) -> dict[str, FeatureEnvironmentWorktrees]:
-        return {
-            env.name: self.get_feature_environment_worktrees(env, project_repos)
-            for env in envs
-        }
+        return {env.name: self.get_feature_environment_worktrees(env, project_repos) for env in envs}
 
     def _fetch_in_parallel(
         self,
@@ -658,20 +688,20 @@ class WorkspaceService:
         return False
 
     def _drop_missing_worktrees(
-        self, items: list[tuple[str, FeatureWorktree]],
+        self,
+        items: list[tuple[str, FeatureWorktree]],
     ) -> list[tuple[str, FeatureWorktree]]:
         return [
-            (env_name, wt) for (env_name, wt) in items
+            (env_name, wt)
+            for (env_name, wt) in items
             if self._warn_unless_present(wt.path, f"{env_name}/{wt.repository.name}", env_name)
         ]
 
     def _drop_missing_standalones(
-        self, repos: list[StandaloneRepository],
+        self,
+        repos: list[StandaloneRepository],
     ) -> list[StandaloneRepository]:
-        return [
-            r for r in repos
-            if self._warn_unless_present(r.path, f"standalone/{r.name}", None)
-        ]
+        return [r for r in repos if self._warn_unless_present(r.path, f"standalone/{r.name}", None)]
 
     def _fetch_then_integrate_group(
         self,
@@ -698,7 +728,11 @@ class WorkspaceService:
         for t in targets:
             outcome = self._repo_repo.integrate(t.worktree, t.target_ref, mode, autostash)
             reporter.repo_synced(
-                t.env_name, outcome.repo_name, outcome.sync_result, outcome.ahead, outcome.behind,
+                t.env_name,
+                outcome.repo_name,
+                outcome.sync_result,
+                outcome.ahead,
+                outcome.behind,
             )
             results.append((t.env_name, outcome))
         return results

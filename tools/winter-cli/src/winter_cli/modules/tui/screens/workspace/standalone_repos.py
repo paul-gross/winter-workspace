@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import ClassVar
+
 from rich.text import Text
 from textual.binding import Binding
 from textual.reactive import reactive
@@ -9,8 +11,7 @@ from winter_cli.modules.workspace.models import StandaloneRepoStatus
 
 
 class StandaloneReposTable(DataTable):
-
-    BINDINGS = [
+    BINDINGS: ClassVar[list[Binding]] = [
         Binding("h", "cursor_left", "Left", show=False),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
@@ -62,7 +63,11 @@ class StandaloneReposTable(DataTable):
         for s in self.statuses:
             commit = Text(s.latest_commit or "—", style="dim")
             self.add_row(
-                s.name, s.branch or "—", self._render_status(s), commit, key=s.name,
+                s.name,
+                s.branch or "—",
+                self._render_status(s),
+                commit,
+                key=s.name,
             )
 
     def _update_in_place(self) -> None:

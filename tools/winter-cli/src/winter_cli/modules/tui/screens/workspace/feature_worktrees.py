@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import contextlib
+from typing import ClassVar
+
 from rich.text import Text
 from textual.binding import Binding
 from textual.reactive import reactive
 from textual.widgets import DataTable
 
-from winter_cli.modules.workspace.models import FeatureEnvironmentOverview
 from winter_cli.modules.tui.screens.workspace.repo_status import render_repo_cell
+from winter_cli.modules.workspace.models import FeatureEnvironmentOverview
 
 # Pushpin marks pinned project repos in the row label. The trailing
 # U+FE0E (variation selector-15) requests text-style monochrome rendering
@@ -18,8 +21,7 @@ _PIN_PAD = "  "
 
 
 class FeatureWorktreesGrid(DataTable):
-
-    BINDINGS = [
+    BINDINGS: ClassVar[list[Binding]] = [
         Binding("h", "cursor_left", "Left", show=False),
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
@@ -48,10 +50,8 @@ class FeatureWorktreesGrid(DataTable):
     def action_cursor_up(self) -> None:
         row, col = self.cursor_coordinate
         if row <= 0:
-            try:
+            with contextlib.suppress(Exception):
                 self.screen.query_one("#singletons").focus()
-            except Exception:
-                pass
             return
         self.move_cursor(row=row - 1, column=col, animate=False)
 
@@ -61,10 +61,7 @@ class FeatureWorktreesGrid(DataTable):
 
     def _structure_matches(self) -> bool:
         env_keys = [o.status.environment.name for o in self.statuses]
-        repo_keys = (
-            [rs.worktree.repository.name for rs in self.statuses[0].repo_statuses]
-            if self.statuses else []
-        )
+        repo_keys = [rs.worktree.repository.name for rs in self.statuses[0].repo_statuses] if self.statuses else []
         return env_keys == self._env_keys and repo_keys == self._repo_keys
 
     @staticmethod
@@ -101,10 +98,7 @@ class FeatureWorktreesGrid(DataTable):
         repo_lookup = self._build_repo_lookup()
         first_repo_statuses = self.statuses[0].repo_statuses if self.statuses else []
         repo_names = [rs.worktree.repository.name for rs in first_repo_statuses]
-        pinned_by_name = {
-            rs.worktree.repository.name: rs.worktree.repository.pinned
-            for rs in first_repo_statuses
-        }
+        pinned_by_name = {rs.worktree.repository.name: rs.worktree.repository.pinned for rs in first_repo_statuses}
         self._repo_keys = list(repo_names)
 
         for repo_name in repo_names:

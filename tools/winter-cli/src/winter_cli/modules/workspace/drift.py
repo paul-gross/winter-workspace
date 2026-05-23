@@ -52,10 +52,7 @@ class DriftWarningService:
 
         on_disk: set[str] = set()
         if projects_dir.is_dir():
-            on_disk = {
-                p.name for p in projects_dir.iterdir()
-                if p.is_dir() and not p.name.startswith(".")
-            }
+            on_disk = {p.name for p in projects_dir.iterdir() if p.is_dir() and not p.name.startswith(".")}
 
         declared = {r.name for r in project_repos}
         missing = sorted(

@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 
 class PluginRegistry:
-
     def __init__(self) -> None:
         self.plugins: list[WinterPlugin] = []
         self.commands: list[click.BaseCommand] = []
@@ -87,7 +86,8 @@ class PluginRegistry:
 
         try:
             spec = importlib.util.spec_from_file_location(
-                f"winter_plugin_{plugin_name}", entry_point,
+                f"winter_plugin_{plugin_name}",
+                entry_point,
             )
             module = importlib.util.module_from_spec(spec)
             sys.modules[spec.name] = module
