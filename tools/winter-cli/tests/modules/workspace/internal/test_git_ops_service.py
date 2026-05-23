@@ -15,13 +15,14 @@ from winter_cli.modules.workspace.internal.git_ops_service import (
 from winter_cli.modules.workspace.internal.repo_error_factory import RepoErrorFactory
 from winter_cli.modules.workspace.models import RepoError
 
+_CWD = Path("/tmp")
+
 
 def _git_err(stderr: str) -> git.GitCommandError:
-    """Build a `GitCommandError` with the given stderr; exit code 128."""
     return git.GitCommandError(("git", "fetch", "origin"), 128, stderr=stderr)
 
 
-# ------------------------------ classifier ---------------------------------
+# ── is_transient_git_error ─────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
@@ -31,11 +32,10 @@ def _git_err(stderr: str) -> git.GitCommandError:
         "fatal: the remote end hung up unexpectedly",
         "kex_exchange_identification: Connection closed by remote host",
         "ssh: connect to host codeberg.org port 22: Connection timed out",
-        # case-insensitive match
         "CONNECTION CLOSED BY 217.197.84.140 PORT 22",
     ],
 )
-def test_is_transient_git_error_matches_documented_patterns(stderr: str):
+def test_is_transient_git_error_matches_documented_patterns(stderr: str) -> None:
     assert is_transient_git_error(_git_err(stderr))
 
 
@@ -49,30 +49,29 @@ def test_is_transient_git_error_matches_documented_patterns(stderr: str):
         "",
     ],
 )
-def test_is_transient_git_error_rejects_non_transient(stderr: str):
+def test_is_transient_git_error_rejects_non_transient(stderr: str) -> None:
     assert not is_transient_git_error(_git_err(stderr))
 
 
-# ------------------------------ run_remote ---------------------------------
+# ── run_remote ─────────────────────────────────────────────────────────────
 
 
 def _service(sleeps: list[float]) -> GitOpsService:
-    """A service with no real sleeps; sleep durations get recorded in `sleeps`."""
     return GitOpsService(
         RepoErrorFactory(),
         sleep=lambda d: sleeps.append(d),
-        jitter=lambda: 0.0,  # deterministic — base delay only
+        jitter=lambda: 0.0,
     )
 
 
-def test_run_remote_returns_value_on_success(tmp_path: Path):
+def test_run_remote_returns_value_on_success() -> None:
     sleeps: list[float] = []
     svc = _service(sleeps)
-    assert svc.run_remote(lambda: "ok", cwd=tmp_path, message="x") == "ok"
-    assert sleeps == []  # no retry, no sleep
+    assert svc.run_remote(lambda: "ok", cwd=_CWD, message="x") == "ok"
+    assert sleeps == []
 
 
-def test_run_remote_retries_transient_up_to_max_attempts(tmp_path: Path):
+def test_run_remote_retries_transient_up_to_max_attempts() -> None:
     sleeps: list[float] = []
     svc = _service(sleeps)
     transient = _git_err("Connection closed by 1.2.3.4 port 22")
@@ -83,15 +82,14 @@ def test_run_remote_retries_transient_up_to_max_attempts(tmp_path: Path):
         raise transient
 
     with pytest.raises(RepoError) as ei:
-        svc.run_remote(op, cwd=tmp_path, message="fetch failed")
-    assert calls["n"] == svc.MAX_ATTEMPTS  # 3 attempts
-    assert len(sleeps) == svc.MAX_ATTEMPTS - 1  # sleeps between attempts only
-    # Final RepoError carries the last gitpython error's context.
+        svc.run_remote(op, cwd=_CWD, message="fetch failed")
+    assert calls["n"] == svc.MAX_ATTEMPTS
+    assert len(sleeps) == svc.MAX_ATTEMPTS - 1
     assert ei.value.subcommand == "fetch"
     assert "Connection closed" in (ei.value.stderr or "")
 
 
-def test_run_remote_succeeds_after_transient_then_success(tmp_path: Path):
+def test_run_remote_succeeds_after_transient_then_success() -> None:
     sleeps: list[float] = []
     svc = _service(sleeps)
     sequence = [_git_err("Connection closed by 1.2.3.4 port 22"), None]
@@ -105,12 +103,12 @@ def test_run_remote_succeeds_after_transient_then_success(tmp_path: Path):
             raise item
         return "recovered"
 
-    assert svc.run_remote(op, cwd=tmp_path, message="fetch failed") == "recovered"
+    assert svc.run_remote(op, cwd=_CWD, message="fetch failed") == "recovered"
     assert calls["n"] == 2
-    assert len(sleeps) == 1  # one retry, one sleep
+    assert len(sleeps) == 1
 
 
-def test_run_remote_does_not_retry_non_transient(tmp_path: Path):
+def test_run_remote_does_not_retry_non_transient() -> None:
     sleeps: list[float] = []
     svc = _service(sleeps)
     non_transient = _git_err("fatal: Authentication failed")
@@ -121,26 +119,26 @@ def test_run_remote_does_not_retry_non_transient(tmp_path: Path):
         raise non_transient
 
     with pytest.raises(RepoError):
-        svc.run_remote(op, cwd=tmp_path, message="push failed")
+        svc.run_remote(op, cwd=_CWD, message="push failed")
     assert calls["n"] == 1
     assert sleeps == []
 
 
-def test_run_remote_backoff_respects_cap_and_jitter(tmp_path: Path):
-    # jitter=+1.0 pushes each delay to the upper bound of its jitter band.
+def test_run_remote_backoff_respects_cap_and_jitter() -> None:
     svc = GitOpsService(
         RepoErrorFactory(),
         sleep=lambda _d: None,
         jitter=lambda: 1.0,
     )
-    # base*(1+JITTER_RATIO) for attempt 1, capped at DELAY_CAP_S thereafter.
     assert svc._backoff_delay(1) == pytest.approx(BASE_DELAY_S * (1 + JITTER_RATIO))
-    # exponential growth, capped at DELAY_CAP_S
     for attempt in range(1, 10):
         assert 0 <= svc._backoff_delay(attempt) <= DELAY_CAP_S
 
 
-def test_executor_uses_parallelism_constant():
+# ── executor ───────────────────────────────────────────────────────────────
+
+
+def test_executor_uses_parallelism_constant() -> None:
     svc = GitOpsService(RepoErrorFactory())
     with svc.executor() as pool:
         assert pool._max_workers == GitOpsService.PARALLELISM

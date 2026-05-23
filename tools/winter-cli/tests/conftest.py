@@ -436,20 +436,3 @@ class FakeGitRepository:
 
     def set_push_default_upstream(self, path: Path) -> None:
         self.push_default_set.append(path)
-
-
-def make_git_repo(path: Path, initial_branch: str = "main") -> None:
-    """Create a real git repo at `path` with a single commit on `initial_branch`.
-
-    Shared across read/write repository tests so each one doesn't reinvent
-    the same bootstrap (init → identity → commit).
-    """
-    import git
-
-    r = git.Repo.init(str(path), initial_branch=initial_branch)
-    with r.config_writer(config_level="repository") as cw:
-        cw.set_value("user", "name", "test")
-        cw.set_value("user", "email", "test@example.com")
-    (path / "README.md").write_text("hello\n")
-    r.git.add("README.md")
-    r.git.commit("-m", "init")
