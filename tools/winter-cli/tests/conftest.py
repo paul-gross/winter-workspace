@@ -422,9 +422,7 @@ class FakeGitRepository:
     def clone(self, url: str, dest: Path) -> None:
         self.clones.append((url, dest))
 
-    def add_worktree(
-        self, source: Path, worktree_path: Path, branch: str, base_branch: str | None = None
-    ) -> None:
+    def add_worktree(self, source: Path, worktree_path: Path, branch: str, base_branch: str | None = None) -> None:
         self.added_worktrees.append((source, worktree_path, branch, base_branch))
 
     def remove_worktree(self, source: Path, worktree_path: Path, force: bool) -> None:

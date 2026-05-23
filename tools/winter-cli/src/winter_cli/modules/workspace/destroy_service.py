@@ -4,7 +4,7 @@ from pathlib import Path
 
 from winter_cli.config.models import WorkspaceConfig
 from winter_cli.core.filesystem import IFilesystemWriter
-from winter_cli.modules.workspace.extensions import ExtensionService
+from winter_cli.modules.workspace.extension_hook_service import ExtensionHookService
 from winter_cli.modules.workspace.git_repository import IGitRepository
 from winter_cli.modules.workspace.init_reporter import IInitReporter
 from winter_cli.modules.workspace.internal.managed_block import (
@@ -35,13 +35,13 @@ class DestroyService:
         self,
         config: WorkspaceConfig,
         repo_factory: RepositoryFactory,
-        extension_svc: ExtensionService,
+        extension_hook_svc: ExtensionHookService,
         fs: IFilesystemWriter,
         git_repo: IGitRepository,
     ) -> None:
         self._config = config
         self._repo_factory = repo_factory
-        self._extension_svc = extension_svc
+        self._extension_hook_svc = extension_hook_svc
         self._fs = fs
         self._git_repo = git_repo
 
@@ -105,7 +105,7 @@ class DestroyService:
             reporter.target_completed(name, True)
             return True
 
-        hooks_ok = self._extension_svc.run_env_destroy_hooks(
+        hooks_ok = self._extension_hook_svc.run_env_destroy_hooks(
             standalones,
             env_root,
             name,

@@ -14,6 +14,7 @@ from winter_cli.modules.tui.screens.workspace.feature_worktrees import FeatureWo
 from winter_cli.modules.tui.screens.workspace.standalone_repos import StandaloneReposTable
 from winter_cli.modules.tui.widgets.refresh_status import RefreshStatus
 from winter_cli.modules.tui.widgets.service_panel import ServicePanel
+from winter_cli.modules.workspace.env_status_service import EnvStatusService
 from winter_cli.modules.workspace.models import (
     FeatureEnvironmentOverview,
     FeatureEnvironmentWorktrees,
@@ -24,7 +25,7 @@ from winter_cli.modules.workspace.models import (
 from winter_cli.modules.workspace.repo_repository import IReadRepoRepository
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
 from winter_cli.modules.workspace.workspace_repository import IReadWorkspaceRepository
-from winter_cli.modules.workspace.workspace_service import WorkspaceService
+from winter_cli.modules.workspace.workspace_sync_service import WorkspaceSyncService
 from winter_cli.plugins.loader import PluginRegistry
 from winter_cli.plugins.types import (
     ActionScope,
@@ -49,7 +50,8 @@ class WorkspaceScreen(Screen):
 
     def __init__(
         self,
-        workspace_svc: WorkspaceService,
+        env_status_svc: EnvStatusService,
+        workspace_sync_svc: WorkspaceSyncService,
         workspace_repo: IReadWorkspaceRepository,
         repo_repo: IReadRepoRepository,
         repo_factory: RepositoryFactory,
@@ -59,7 +61,8 @@ class WorkspaceScreen(Screen):
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
-        self._workspace_svc = workspace_svc
+        self._env_status_svc = env_status_svc
+        self._workspace_sync_svc = workspace_sync_svc
         self._workspace_repo = workspace_repo
         self._repo_repo = repo_repo
         self._repo_factory = repo_factory
@@ -137,14 +140,14 @@ class WorkspaceScreen(Screen):
                 self._capture_error(f"WorkspaceScreen.refresh({env_name}/{wt.repository.name})", exc)
 
             try:
-                env_status = self._workspace_svc.get_environment_status(
+                env_status = self._env_status_svc.get_environment_status(
                     env,
                     project_repos,
                     environment_decorators or None,
                 )
-                env_worktrees = self._workspace_svc.get_feature_environment_worktrees(env, project_repos)
+                env_worktrees = self._env_status_svc.get_feature_environment_worktrees(env, project_repos)
                 env_worktrees_map[env.name] = env_worktrees
-                repo_statuses = self._workspace_svc.get_worktree_repo_statuses(
+                repo_statuses = self._env_status_svc.get_worktree_repo_statuses(
                     env_worktrees,
                     worktree_repo_decorators or None,
                     on_repo_error=_on_repo_error,
@@ -236,7 +239,7 @@ class WorkspaceScreen(Screen):
         if env_worktrees is None:
             return
         try:
-            self._workspace_svc.sync_env(env_worktrees)
+            self._workspace_sync_svc.sync_env(env_worktrees)
         except RepoError as exc:
             self._capture_error(f"WorkspaceScreen.sync({name})", exc)
         self._refresh_data()

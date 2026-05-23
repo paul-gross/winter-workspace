@@ -8,7 +8,10 @@ from pathlib import Path
 from winter_cli.config.models import WorkspaceConfig
 from winter_cli.core.filesystem import IFilesystemWriter
 from winter_cli.core.subprocess_runner import ISubprocessRunner
-from winter_cli.modules.workspace.extensions import ExtensionService
+from winter_cli.modules.workspace.extension_claudemd_service import ExtensionClaudemdService
+from winter_cli.modules.workspace.extension_exclude_service import ExtensionExcludeService
+from winter_cli.modules.workspace.extension_hook_service import ExtensionHookService
+from winter_cli.modules.workspace.extension_symlink_service import ExtensionSymlinkService
 from winter_cli.modules.workspace.git_repository import IGitRepository
 from winter_cli.modules.workspace.init_reporter import IInitReporter
 from winter_cli.modules.workspace.internal.git_ops_service import GitOpsService
@@ -67,7 +70,10 @@ class InitService:
         self,
         config: WorkspaceConfig,
         repo_factory: RepositoryFactory,
-        extension_svc: ExtensionService,
+        extension_symlink_svc: ExtensionSymlinkService,
+        extension_hook_svc: ExtensionHookService,
+        extension_exclude_svc: ExtensionExcludeService,
+        extension_claudemd_svc: ExtensionClaudemdService,
         fs: IFilesystemWriter,
         subprocess_runner: ISubprocessRunner,
         git_repo: IGitRepository,
@@ -75,7 +81,10 @@ class InitService:
     ) -> None:
         self._config = config
         self._repo_factory = repo_factory
-        self._extension_svc = extension_svc
+        self._extension_symlink_svc = extension_symlink_svc
+        self._extension_hook_svc = extension_hook_svc
+        self._extension_exclude_svc = extension_exclude_svc
+        self._extension_claudemd_svc = extension_claudemd_svc
         self._fs = fs
         self._subprocess = subprocess_runner
         self._git_repo = git_repo
@@ -114,9 +123,9 @@ class InitService:
         # Per-repo reconcile may have failed for some, but cloned-and-present
         # extensions still belong in both managed sections.
         present_repos = [r for r in repos if self._fs.exists(r.path)]
-        if not self._extension_svc.finalize_claudemd(present_repos, reporter):
+        if not self._extension_claudemd_svc.finalize_claudemd(present_repos, reporter):
             success = False
-        if not self._extension_svc.finalize_excludes(present_repos, reporter):
+        if not self._extension_exclude_svc.finalize_excludes(present_repos, reporter):
             success = False
 
         reporter.target_completed(target, success)
@@ -153,7 +162,7 @@ class InitService:
             success = False
 
         standalones = self._repo_factory.get_standalone_repos()
-        if not self._extension_svc.run_env_init_hooks(
+        if not self._extension_hook_svc.run_env_init_hooks(
             standalones,
             env_root,
             name,
@@ -275,7 +284,7 @@ class InitService:
             reporter.repo_error(label, str(exc))
             return False
 
-        return self._extension_svc.process(repo, reporter)
+        return self._extension_symlink_svc.process(repo, reporter)
 
     # ── Feature worktree ──────────────────────────────────────────────────
 
@@ -362,7 +371,7 @@ class InitService:
         """Add `/{dir_name}/` to a managed block in the workspace's `.git/info/exclude`.
 
         The block is namespaced as `winter-dir/{dir_name}` so the orphan-stripping
-        pass in ExtensionService.finalize_excludes leaves it alone (its regex
+        pass in ExtensionExcludeService.finalize_excludes leaves it alone (its regex
         rejects names containing `/`).
 
         Silent no-op when the workspace isn't a git repo (`.git/info/` missing

@@ -17,7 +17,8 @@ from winter_cli.config.models import (
     WorkspaceConfig,
 )
 from winter_cli.modules.workspace.destroy_service import DestroyService
-from winter_cli.modules.workspace.extensions import ExtensionService
+from winter_cli.modules.workspace.extension_hook_service import ExtensionHookService
+from winter_cli.modules.workspace.extension_manifest import ExtensionManifestLoader
 from winter_cli.modules.workspace.models import RepoError
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
 
@@ -43,16 +44,16 @@ def _service(
     fs: FakeFilesystem,
     git: FakeGitRepository,
 ) -> DestroyService:
-    ext_svc = ExtensionService(
-        workspace_config,
+    hook_svc = ExtensionHookService(
+        config=workspace_config,
         fs=fs,
-        config_file_reader=FakeConfigFileReader({}),
         subprocess_runner=FakeSubprocessRunner(),
+        manifest_loader=ExtensionManifestLoader(config_file_reader=FakeConfigFileReader({})),
     )
     return DestroyService(
         config=workspace_config,
         repo_factory=RepositoryFactory(workspace_config),
-        extension_svc=ext_svc,
+        extension_hook_svc=hook_svc,
         fs=fs,
         git_repo=git,
     )

@@ -8,14 +8,14 @@ from tests.conftest import (
     FakeConfigFileReader,
     FakeFilesystem,
     FakeGitRepository,
-    FakeSubprocessRunner,
 )
 from winter_cli.config.models import (
     AdoptExtensions,
     ProjectRepositoryConfig,
     WorkspaceConfig,
 )
-from winter_cli.modules.workspace.extensions import ExtensionService
+from winter_cli.modules.workspace.extension_exclude_service import ExtensionExcludeService
+from winter_cli.modules.workspace.extension_manifest import ExtensionManifestLoader
 from winter_cli.modules.workspace.prune_service import PruneOrphan, PruneService
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
 
@@ -42,18 +42,18 @@ def _service(
     git: FakeGitRepository | None = None,
 ) -> PruneService:
     git = git or FakeGitRepository()
-    # ExtensionService is only used here for finalize_excludes (re-aggregation),
-    # which the prune tests don't exercise; pass in fakes for completeness.
-    ext_svc = ExtensionService(
-        workspace_config,
+    # ExtensionExcludeService is only used here for finalize_excludes
+    # (re-aggregation), which the prune tests don't exercise; pass in fakes
+    # for completeness.
+    exclude_svc = ExtensionExcludeService(
+        config=workspace_config,
         fs=fs,
-        config_file_reader=FakeConfigFileReader({}),
-        subprocess_runner=FakeSubprocessRunner(),
+        manifest_loader=ExtensionManifestLoader(config_file_reader=FakeConfigFileReader({})),
     )
     return PruneService(
         config=workspace_config,
         repo_factory=RepositoryFactory(workspace_config),
-        extension_svc=ext_svc,
+        extension_exclude_svc=exclude_svc,
         fs=fs,
         git_repo=git,
     )

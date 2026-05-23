@@ -2,49 +2,36 @@ from __future__ import annotations
 
 import concurrent.futures
 import dataclasses
-import fnmatch
 import logging
-from collections.abc import Callable
 
 import click
 
+from winter_cli.modules.workspace.env_status_service import EnvStatusService
 from winter_cli.modules.workspace.fetch_reporter import IFetchReporter
 from winter_cli.modules.workspace.internal.git_ops_service import GitOpsService
 from winter_cli.modules.workspace.models import (
-    CheckoutResult,
-    DiffMode,
-    EnvCheckoutReport,
-    EnvDiffResult,
-    EnvPushReport,
     EnvSkipped,
     EnvSyncReport,
     FeatureEnvironment,
-    FeatureEnvironmentStatus,
     FeatureEnvironmentWorktrees,
     FeatureWorktree,
     FetchReport,
-    PinnedScope,
     ProjectRepository,
     PullMode,
     PullReport,
-    PushReport,
-    RepoCheckoutOutcome,
-    RepoDiffResult,
     RepoError,
     RepoFetchOutcome,
-    RepoPushOutcome,
     RepoScope,
     RepoSyncOutcome,
     StandaloneRepository,
     SyncResult,
     Workspace,
-    WorktreeRepoStatus,
 )
+from winter_cli.modules.workspace.pattern_match import matches_any_pattern
 from winter_cli.modules.workspace.pull_reporter import IPullReporter
 from winter_cli.modules.workspace.repo_repository import IWriteRepoRepository
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
 from winter_cli.modules.workspace.workspace_repository import IReadWorkspaceRepository
-from winter_cli.plugins.types import EnvironmentDecorator, WorktreeRepoDecorator
 
 logger = logging.getLogger(__name__)
 
@@ -58,107 +45,29 @@ class _PullTarget:
     target_ref: str
 
 
-def _matches_pattern(env_name: str, repo_name: str, pattern: str) -> bool:
-    """Match `<env>/<repo>` against a segment-aware glob.
+class WorkspaceSyncService:
+    """Network-touching git operations across envs and standalone repos.
 
-    Bare patterns (no '/') are treated as `<pattern>/*`. Each segment uses
-    fnmatch — `*` matches anything within a segment, `?` matches one char.
-    `*` does not cross `/`, so `*/winter` matches every env's winter worktree
-    but not `alpha/winter-product`.
+    Owns `sync_env` (single env, ff-or-merge against `origin/<main>`),
+    `fetch_all`, `pull_all`, `push_all`. Parallelism is bounded by the shared
+    `GitOpsService` executor so a wide workspace doesn't overwhelm SSH.
     """
-    if "/" not in pattern:
-        pattern = f"{pattern}/*"
-    env_pat, repo_pat = pattern.split("/", 1)
-    return fnmatch.fnmatchcase(env_name, env_pat) and fnmatch.fnmatchcase(repo_name, repo_pat)
 
-
-def _matches_any_pattern(env_name: str, repo_name: str, patterns: list[str]) -> bool:
-    return any(_matches_pattern(env_name, repo_name, p) for p in patterns)
-
-
-class WorkspaceService:
     def __init__(
         self,
+        env_status_svc: EnvStatusService,
         worktree_repo: IReadWorkspaceRepository,
         repo_repo: IWriteRepoRepository,
         repo_factory: RepositoryFactory,
         workspace: Workspace,
         git_ops: GitOpsService,
     ) -> None:
+        self._env_status_svc = env_status_svc
         self._worktree_repo = worktree_repo
         self._repo_repo = repo_repo
         self._repo_factory = repo_factory
         self._workspace = workspace
         self._git_ops = git_ops
-
-    def get_environment_status(
-        self,
-        env: FeatureEnvironment,
-        project_repos: list[ProjectRepository],
-        env_decorators: list[EnvironmentDecorator] | None = None,
-    ) -> FeatureEnvironmentStatus:
-        """Read the env's git-tracked status and let visual plugins decorate it.
-
-        Plugins receive the freshly-built `FeatureEnvironmentStatus` and the env's
-        worktree path, and may write into `status.extensions` to surface a badge
-        in the dashboard column header. Pass `env_decorators=None` (default) when
-        you don't want decoration — e.g. headless `winter ws status` JSON output.
-        """
-        status = self._worktree_repo.get_environment_status(env, project_repos)
-        if env_decorators:
-            for decorator in env_decorators:
-                try:
-                    decorator(status, env.path)
-                except Exception:
-                    logger.warning("environment decorator failed", exc_info=True)
-        return status
-
-    def get_worktree_repo_statuses(
-        self,
-        env_worktrees: FeatureEnvironmentWorktrees,
-        worktree_repo_decorators: list[WorktreeRepoDecorator] | None = None,
-        on_repo_error: Callable[[FeatureWorktree, RepoError], None] | None = None,
-    ) -> list[WorktreeRepoStatus]:
-        """Read one row per worktree, optionally tolerating per-worktree failures.
-
-        When `on_repo_error` is `None` (CLI / JSON output / tests), the first
-        `RepoError` propagates so the caller exits non-zero with full context.
-        When the dashboard passes a callback, the failed worktree is reported
-        to it and skipped — the rest of the env still renders. This is what
-        keeps one broken repo from hanging the whole dashboard refresh.
-        """
-        env = env_worktrees.environment
-
-        wt_repo_statuses: list[WorktreeRepoStatus] = []
-        for wt in env_worktrees.worktrees:
-            try:
-                rs = self._repo_repo.get_worktree_status(wt)
-            except RepoError as exc:
-                if on_repo_error is None:
-                    raise
-                on_repo_error(wt, exc)
-                continue
-            wt_repo_statuses.append(
-                WorktreeRepoStatus(
-                    worktree=wt,
-                    branch=rs.branch,
-                    ahead=rs.ahead,
-                    behind=rs.behind,
-                    dirty_count=len(rs.dirty_files),
-                    tracking_branch=rs.tracking_branch,
-                    tracking_ahead=rs.tracking_ahead,
-                    tracking_behind=rs.tracking_behind,
-                    tracking_ref_present=rs.tracking_ref_present,
-                )
-            )
-
-        if worktree_repo_decorators:
-            for decorator in worktree_repo_decorators:
-                for wt_repo_status in wt_repo_statuses:
-                    repo_path = env.path / wt_repo_status.worktree.repository.name
-                    decorator(wt_repo_status, repo_path)
-
-        return wt_repo_statuses
 
     def sync_env(self, env_worktrees: FeatureEnvironmentWorktrees) -> EnvSyncReport:
         """Sync a worktree's repos against `origin/<main>` (ff-or-merge).
@@ -184,141 +93,6 @@ class WorkspaceService:
 
         success = all(o.sync_result != SyncResult.diverged for o in outcomes)
         return EnvSyncReport(env=env_worktrees.environment.name, repos=outcomes, success=success)
-
-    def connect_env(self, env_worktrees: FeatureEnvironmentWorktrees, feature_branch: str) -> int:
-        count = 0
-        for wt in env_worktrees.worktrees:
-            if wt.repository.pinned:
-                continue
-            self._repo_repo.set_upstream(wt, f"origin/{feature_branch}")
-            self._repo_repo.set_push_default(wt)
-            count += 1
-        return count
-
-    def disconnect_env(self, env_worktrees: FeatureEnvironmentWorktrees) -> int:
-        count = 0
-        for wt in env_worktrees.worktrees:
-            if wt.repository.pinned:
-                continue
-            self._repo_repo.unset_upstream(wt)
-            count += 1
-        return count
-
-    def checkout_env(
-        self,
-        env_worktrees: FeatureEnvironmentWorktrees,
-        feature_branch: str,
-        force: bool,
-    ) -> EnvCheckoutReport:
-        """Adopt `origin/<feature_branch>` into every non-pinned worktree repo, all-or-nothing.
-
-        Phase 1 classifies each repo locally (no network): dirty / divergent
-        / missing-ref / clean. If any repo refuses safety in non-force mode,
-        Phase 2 is skipped — `git reset --hard` runs in no repo. Otherwise
-        Phase 2 wires upstream tracking and resets the Greek-letter branch to
-        the local `origin/<feature_branch>` ref in each repo that has it.
-        """
-        remote_ref = f"origin/{feature_branch}"
-        targets = [wt for wt in env_worktrees.worktrees if not wt.repository.pinned]
-
-        passing: list[FeatureWorktree] = []
-        refused: list[RepoCheckoutOutcome] = []
-        skipped: list[RepoCheckoutOutcome] = []
-        for wt in targets:
-            if not self._repo_repo.has_local_ref(wt, remote_ref):
-                skipped.append(
-                    RepoCheckoutOutcome(
-                        repo_name=wt.repository.name,
-                        result=CheckoutResult.skip_missing_ref,
-                    )
-                )
-                continue
-            if not force:
-                if self._repo_repo.is_worktree_dirty(wt):
-                    refused.append(
-                        RepoCheckoutOutcome(
-                            repo_name=wt.repository.name,
-                            result=CheckoutResult.refused_dirty,
-                        )
-                    )
-                    continue
-                if self._repo_repo.count_commits_not_in(wt, remote_ref) > 0:
-                    refused.append(
-                        RepoCheckoutOutcome(
-                            repo_name=wt.repository.name,
-                            result=CheckoutResult.refused_divergent,
-                        )
-                    )
-                    continue
-            passing.append(wt)
-
-        if refused:
-            return EnvCheckoutReport(
-                env=env_worktrees.environment.name,
-                feature_branch=feature_branch,
-                aborted=True,
-                repos=refused + skipped,
-            )
-
-        applied: list[RepoCheckoutOutcome] = []
-        for wt in passing:
-            self._repo_repo.set_upstream(wt, remote_ref)
-            self._repo_repo.set_push_default(wt)
-            self._repo_repo.hard_reset(wt, remote_ref)
-            applied.append(
-                RepoCheckoutOutcome(
-                    repo_name=wt.repository.name,
-                    result=CheckoutResult.reset,
-                )
-            )
-
-        repo_order = [wt.repository.name for wt in targets]
-        outcomes = applied + skipped
-        outcomes.sort(key=lambda o: repo_order.index(o.repo_name))
-        return EnvCheckoutReport(
-            env=env_worktrees.environment.name,
-            feature_branch=feature_branch,
-            aborted=False,
-            repos=outcomes,
-        )
-
-    def get_feature_environment_worktrees(
-        self,
-        env: FeatureEnvironment,
-        project_repos: list[ProjectRepository],
-    ) -> FeatureEnvironmentWorktrees:
-        worktrees = [
-            FeatureWorktree(workspace=env.workspace, environment=env, repository=repo) for repo in project_repos
-        ]
-        return FeatureEnvironmentWorktrees(environment=env, worktrees=worktrees)
-
-    def get_feature_worktree(self, env: FeatureEnvironment, repo: ProjectRepository) -> FeatureWorktree:
-        return FeatureWorktree(workspace=env.workspace, environment=env, repository=repo)
-
-    def get_env_diff(
-        self,
-        env_worktrees: FeatureEnvironmentWorktrees,
-        mode: DiffMode,
-        repo_filter: str | None = None,
-    ) -> EnvDiffResult:
-        worktrees = env_worktrees.worktrees
-
-        if repo_filter:
-            matched = [wt for wt in worktrees if repo_filter == wt.repository.name]
-            if not matched:
-                raise click.ClickException(f"Repo '{repo_filter}' not found")
-            worktrees = matched
-
-        results: list[RepoDiffResult] = []
-        for wt in worktrees:
-            diff = self._repo_repo.get_diff(wt, mode)
-            if not diff.diff_text:
-                continue
-            if mode == DiffMode.branch and wt.repository.pinned and diff.ahead == 0:
-                continue
-            results.append(diff)
-
-        return EnvDiffResult(env=env_worktrees.environment.name, mode=mode, repos=results)
 
     def fetch_all(
         self,
@@ -346,7 +120,7 @@ class WorkspaceService:
             env.name: [
                 wt
                 for wt in env_worktrees_by_env[env.name].worktrees
-                if _matches_any_pattern(env.name, wt.repository.name, patterns)
+                if matches_any_pattern(env.name, wt.repository.name, patterns)
             ]
             for env in envs
         }
@@ -427,7 +201,7 @@ class WorkspaceService:
             env.name: [
                 wt
                 for wt in env_worktrees_by_env[env.name].worktrees
-                if _matches_any_pattern(env.name, wt.repository.name, patterns)
+                if matches_any_pattern(env.name, wt.repository.name, patterns)
             ]
             for env in envs
         }
@@ -517,103 +291,6 @@ class WorkspaceService:
         reporter.pull_completed(report.success)
         return report
 
-    def push_all(
-        self,
-        scope: RepoScope,
-        patterns: list[str] | None = None,
-        pinned_scope: PinnedScope = PinnedScope.exclude,
-    ) -> PushReport:
-        """Push project worktrees matched by `patterns`, and/or standalone repos.
-
-        `patterns` filters project worktrees by segment-aware glob over
-        `<env>/<repo>` (empty list ⇒ `*/*`). `pinned_scope` controls whether
-        pinned worktrees are included, excluded (default), or pushed alone.
-        Non-pinned worktrees push HEAD:refs/heads/<feature_branch>; pinned
-        worktrees plain-push to whatever their local branch tracks. Standalone
-        repos plain-push to their tracked upstream and ignore `patterns`. Only
-        repos with commits ahead of upstream are pushed.
-        """
-        patterns = patterns or ["*/*"]
-        project_repos = self._repo_factory.get_project_repos()
-        envs = self._select_envs(scope, project_repos)
-        standalone_repos = self._repo_factory.get_standalone_repos() if scope.includes_standalone else []
-
-        env_reports: list[EnvPushReport] = []
-        skipped: list[EnvSkipped] = []
-        for env in envs:
-            env_status = self._worktree_repo.get_environment_status(env, project_repos)
-            env_worktrees = self.get_feature_environment_worktrees(env, project_repos)
-
-            worktrees = [
-                wt
-                for wt in env_worktrees.worktrees
-                if self._matches_pinned_scope(wt, pinned_scope)
-                and _matches_any_pattern(env.name, wt.repository.name, patterns)
-            ]
-            if not worktrees:
-                continue
-
-            non_pinned = [wt for wt in worktrees if not wt.repository.pinned]
-            if non_pinned and not env_status.feature_branch:
-                skipped.append(
-                    EnvSkipped(
-                        env=env.name,
-                        reason="not connected — run `winter ws connect` first",
-                    )
-                )
-                worktrees = [wt for wt in worktrees if wt.repository.pinned]
-
-            outcomes = [
-                self._push_one(wt, env_status.feature_branch) for wt in worktrees if self._has_commits_to_push(wt)
-            ]
-            env_reports.append(EnvPushReport(env=env.name, repos=outcomes))
-
-        standalone_outcomes: list[RepoPushOutcome] = []
-        for repo in standalone_repos:
-            if self._repo_repo.get_standalone_upstream(repo) is None:
-                standalone_outcomes.append(
-                    RepoPushOutcome(
-                        repo_name=repo.name,
-                        pushed=False,
-                        error="no upstream — set one with `git branch --set-upstream-to`",
-                    )
-                )
-                continue
-            if self._repo_repo.get_standalone_tracking_ahead(repo) == 0:
-                continue
-            standalone_outcomes.append(self._push_one_standalone(repo))
-
-        return PushReport(envs=env_reports, standalone=standalone_outcomes, skipped=skipped)
-
-    def _has_commits_to_push(self, wt: FeatureWorktree) -> bool:
-        status = self._repo_repo.get_worktree_status(wt)
-        if wt.repository.pinned:
-            return status.tracking_ahead > 0
-        return status.tracking_ahead > 0 or status.ahead > 0
-
-    @staticmethod
-    def _matches_pinned_scope(wt: FeatureWorktree, pinned_scope: PinnedScope) -> bool:
-        if wt.repository.pinned:
-            return pinned_scope.matches_pinned
-        return pinned_scope.matches_non_pinned
-
-    def _push_one(self, wt: FeatureWorktree, feature_branch: str | None) -> RepoPushOutcome:
-        target_branch = None if wt.repository.pinned else feature_branch
-        try:
-            commits = self._repo_repo.push(wt, target_branch)
-        except RepoError as exc:
-            logger.warning("Push failed for %s: %s", wt.repository.name, exc)
-            return RepoPushOutcome(repo_name=wt.repository.name, pushed=False, error=str(exc))
-        return RepoPushOutcome(repo_name=wt.repository.name, pushed=True, commits=commits)
-
-    def _push_one_standalone(self, repo: StandaloneRepository) -> RepoPushOutcome:
-        try:
-            commits = self._repo_repo.push_standalone(repo)
-        except RepoError as exc:
-            logger.warning("Push failed for standalone %s: %s", repo.name, exc)
-            return RepoPushOutcome(repo_name=repo.name, pushed=False, error=str(exc))
-        return RepoPushOutcome(repo_name=repo.name, pushed=True, commits=commits)
-
     def _build_pull_targets(
         self,
         envs: list[FeatureEnvironment],
@@ -653,7 +330,7 @@ class WorkspaceService:
         envs: list[FeatureEnvironment],
         project_repos: list[ProjectRepository],
     ) -> dict[str, FeatureEnvironmentWorktrees]:
-        return {env.name: self.get_feature_environment_worktrees(env, project_repos) for env in envs}
+        return {env.name: self._env_status_svc.get_feature_environment_worktrees(env, project_repos) for env in envs}
 
     def _fetch_in_parallel(
         self,

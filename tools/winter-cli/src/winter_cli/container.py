@@ -21,7 +21,13 @@ from winter_cli.modules.tui.screens.workspace import WorkspaceScreen
 from winter_cli.modules.tui.screens.worktree_detail import WorktreeDetailScreen
 from winter_cli.modules.workspace.destroy_service import DestroyService
 from winter_cli.modules.workspace.drift import DriftWarningService
-from winter_cli.modules.workspace.extensions import ExtensionService
+from winter_cli.modules.workspace.env_checkout_service import EnvCheckoutService
+from winter_cli.modules.workspace.env_status_service import EnvStatusService
+from winter_cli.modules.workspace.extension_claudemd_service import ExtensionClaudemdService
+from winter_cli.modules.workspace.extension_exclude_service import ExtensionExcludeService
+from winter_cli.modules.workspace.extension_hook_service import ExtensionHookService
+from winter_cli.modules.workspace.extension_manifest import ExtensionManifestLoader
+from winter_cli.modules.workspace.extension_symlink_service import ExtensionSymlinkService
 from winter_cli.modules.workspace.fetch_reporter import JsonFetchReporter, StreamFetchReporter
 from winter_cli.modules.workspace.handlers.destroy_handler import DestroyHandler
 from winter_cli.modules.workspace.handlers.init_handler import InitHandler
@@ -38,7 +44,8 @@ from winter_cli.modules.workspace.prune_service import PruneService
 from winter_cli.modules.workspace.pull_reporter import JsonPullReporter, StreamPullReporter
 from winter_cli.modules.workspace.reporter_factory import ReporterFactory
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
-from winter_cli.modules.workspace.workspace_service import WorkspaceService
+from winter_cli.modules.workspace.workspace_push_service import WorkspacePushService
+from winter_cli.modules.workspace.workspace_sync_service import WorkspaceSyncService
 from winter_cli.plugins.internal.importlib_plugin_loader import ImportlibPluginLoader
 from winter_cli.plugins.loader import PluginRegistry
 
@@ -131,8 +138,15 @@ class Container(containers.DeclarativeContainer):
         click=providers.Object(click),
     )
 
-    workspace_svc = providers.Factory(
-        WorkspaceService,
+    env_status_svc = providers.Factory(
+        EnvStatusService,
+        worktree_repo=worktree_repo,
+        repo_repo=repo_repo,
+    )
+
+    workspace_sync_svc = providers.Factory(
+        WorkspaceSyncService,
+        env_status_svc=env_status_svc,
         worktree_repo=worktree_repo,
         repo_repo=repo_repo,
         repo_factory=repo_factory,
@@ -140,19 +154,58 @@ class Container(containers.DeclarativeContainer):
         git_ops=git_ops_svc,
     )
 
-    extension_svc = providers.Singleton(
-        ExtensionService,
+    workspace_push_svc = providers.Factory(
+        WorkspacePushService,
+        env_status_svc=env_status_svc,
+        worktree_repo=worktree_repo,
+        repo_repo=repo_repo,
+        repo_factory=repo_factory,
+        workspace=workspace,
+    )
+
+    env_checkout_svc = providers.Factory(
+        EnvCheckoutService,
+        repo_repo=repo_repo,
+    )
+
+    extension_manifest_loader = providers.Singleton(
+        ExtensionManifestLoader,
+        config_file_reader=config_file_reader,
+    )
+
+    extension_symlink_svc = providers.Singleton(
+        ExtensionSymlinkService,
         config=workspace_config,
         fs=fs,
-        config_file_reader=config_file_reader,
+        manifest_loader=extension_manifest_loader,
+    )
+
+    extension_hook_svc = providers.Singleton(
+        ExtensionHookService,
+        config=workspace_config,
+        fs=fs,
         subprocess_runner=subprocess_runner,
+        manifest_loader=extension_manifest_loader,
+    )
+
+    extension_exclude_svc = providers.Singleton(
+        ExtensionExcludeService,
+        config=workspace_config,
+        fs=fs,
+        manifest_loader=extension_manifest_loader,
+    )
+
+    extension_claudemd_svc = providers.Singleton(
+        ExtensionClaudemdService,
+        config=workspace_config,
+        fs=fs,
     )
 
     prune_svc = providers.Factory(
         PruneService,
         config=workspace_config,
         repo_factory=repo_factory,
-        extension_svc=extension_svc,
+        extension_exclude_svc=extension_exclude_svc,
         fs=fs,
         git_repo=git_repo,
     )
@@ -161,7 +214,10 @@ class Container(containers.DeclarativeContainer):
         InitService,
         config=workspace_config,
         repo_factory=repo_factory,
-        extension_svc=extension_svc,
+        extension_symlink_svc=extension_symlink_svc,
+        extension_hook_svc=extension_hook_svc,
+        extension_exclude_svc=extension_exclude_svc,
+        extension_claudemd_svc=extension_claudemd_svc,
         fs=fs,
         subprocess_runner=subprocess_runner,
         git_repo=git_repo,
@@ -172,7 +228,7 @@ class Container(containers.DeclarativeContainer):
         DestroyService,
         config=workspace_config,
         repo_factory=repo_factory,
-        extension_svc=extension_svc,
+        extension_hook_svc=extension_hook_svc,
         fs=fs,
         git_repo=git_repo,
     )
@@ -214,7 +270,10 @@ class Container(containers.DeclarativeContainer):
 
     workspace_handler = providers.Factory(
         WorkspaceHandler,
-        workspace_svc=workspace_svc,
+        env_status_svc=env_status_svc,
+        workspace_sync_svc=workspace_sync_svc,
+        workspace_push_svc=workspace_push_svc,
+        env_checkout_svc=env_checkout_svc,
         workspace_repo=worktree_repo,
         repo_repo=repo_repo,
         repo_factory=repo_factory,
@@ -254,7 +313,8 @@ class Container(containers.DeclarativeContainer):
 
     workspace_screen = providers.Factory(
         WorkspaceScreen,
-        workspace_svc=workspace_svc,
+        env_status_svc=env_status_svc,
+        workspace_sync_svc=workspace_sync_svc,
         workspace_repo=worktree_repo,
         repo_repo=repo_repo,
         repo_factory=repo_factory,
@@ -265,7 +325,8 @@ class Container(containers.DeclarativeContainer):
 
     worktree_detail_screen = providers.Factory(
         WorktreeDetailScreen,
-        workspace_svc=workspace_svc,
+        env_status_svc=env_status_svc,
+        workspace_sync_svc=workspace_sync_svc,
         workspace_repo=worktree_repo,
         repo_repo=repo_repo,
         repo_factory=repo_factory,

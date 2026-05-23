@@ -19,7 +19,11 @@ from winter_cli.config.models import (
     WorkspaceConfig,
 )
 from winter_cli.core.subprocess_runner import SubprocessResult
-from winter_cli.modules.workspace.extensions import ExtensionService
+from winter_cli.modules.workspace.extension_claudemd_service import ExtensionClaudemdService
+from winter_cli.modules.workspace.extension_exclude_service import ExtensionExcludeService
+from winter_cli.modules.workspace.extension_hook_service import ExtensionHookService
+from winter_cli.modules.workspace.extension_manifest import ExtensionManifestLoader
+from winter_cli.modules.workspace.extension_symlink_service import ExtensionSymlinkService
 from winter_cli.modules.workspace.init_service import InitService
 from winter_cli.modules.workspace.internal.git_ops_service import GitOpsService
 from winter_cli.modules.workspace.internal.repo_error_factory import RepoErrorFactory
@@ -50,16 +54,30 @@ def _service(
     git: FakeGitRepository,
     git_ops: GitOpsService | None = None,
 ) -> InitService:
-    ext_svc = ExtensionService(
-        workspace_config,
-        fs=fs,
-        config_file_reader=FakeConfigFileReader({}),
-        subprocess_runner=subprocess,
-    )
+    manifest_loader = ExtensionManifestLoader(config_file_reader=FakeConfigFileReader({}))
     return InitService(
         config=workspace_config,
         repo_factory=RepositoryFactory(workspace_config),
-        extension_svc=ext_svc,
+        extension_symlink_svc=ExtensionSymlinkService(
+            config=workspace_config,
+            fs=fs,
+            manifest_loader=manifest_loader,
+        ),
+        extension_hook_svc=ExtensionHookService(
+            config=workspace_config,
+            fs=fs,
+            subprocess_runner=subprocess,
+            manifest_loader=manifest_loader,
+        ),
+        extension_exclude_svc=ExtensionExcludeService(
+            config=workspace_config,
+            fs=fs,
+            manifest_loader=manifest_loader,
+        ),
+        extension_claudemd_svc=ExtensionClaudemdService(
+            config=workspace_config,
+            fs=fs,
+        ),
         fs=fs,
         subprocess_runner=subprocess,
         git_repo=git,

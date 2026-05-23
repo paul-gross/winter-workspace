@@ -18,8 +18,8 @@ from winter_cli.modules.workspace.models import (
 
 def _make_handler(fetch_report: FetchReport) -> WorkspaceHandler:
     """Build a WorkspaceHandler with the minimum stubs fetch() touches."""
-    workspace_svc = MagicMock()
-    workspace_svc.fetch_all.return_value = fetch_report
+    workspace_sync_svc = MagicMock()
+    workspace_sync_svc.fetch_all.return_value = fetch_report
 
     cli_output_svc = MagicMock()
     cli_output_svc.style.side_effect = lambda text, _style: text
@@ -28,7 +28,10 @@ def _make_handler(fetch_report: FetchReport) -> WorkspaceHandler:
     drift_warning_svc = MagicMock()
 
     return WorkspaceHandler(
-        workspace_svc=workspace_svc,
+        env_status_svc=MagicMock(),
+        workspace_sync_svc=workspace_sync_svc,
+        workspace_push_svc=MagicMock(),
+        env_checkout_svc=MagicMock(),
         workspace_repo=MagicMock(),
         repo_repo=MagicMock(),
         repo_factory=MagicMock(),

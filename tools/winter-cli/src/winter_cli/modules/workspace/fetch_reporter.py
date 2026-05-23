@@ -23,7 +23,7 @@ class StreamFetchReporter:
     """Renders fetch events as human-readable text to stdout as work happens.
 
     Thread-safe: each event acquires a lock so individual lines stay atomic
-    when WorkspaceService runs git operations for multiple repos concurrently.
+    when WorkspaceSyncService runs git operations for multiple repos concurrently.
     """
 
     def __init__(self, click: Any) -> None:

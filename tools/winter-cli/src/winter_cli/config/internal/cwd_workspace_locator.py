@@ -18,6 +18,5 @@ class CwdWorkspaceLocator:
             if (directory / WINTER_DIR).is_dir():
                 return directory
         raise RuntimeError(
-            f"Could not find workspace root from {current}. "
-            f"Expected to find a {WINTER_DIR}/ directory in a parent."
+            f"Could not find workspace root from {current}. Expected to find a {WINTER_DIR}/ directory in a parent."
         )

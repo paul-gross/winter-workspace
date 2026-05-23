@@ -6,7 +6,7 @@ from pathlib import Path
 
 from winter_cli.config.models import WorkspaceConfig
 from winter_cli.core.filesystem import IFilesystemWriter
-from winter_cli.modules.workspace.extensions import ExtensionService
+from winter_cli.modules.workspace.extension_exclude_service import ExtensionExcludeService
 from winter_cli.modules.workspace.git_repository import IGitRepository
 from winter_cli.modules.workspace.init_reporter import IInitReporter
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
@@ -37,13 +37,13 @@ class PruneService:
         self,
         config: WorkspaceConfig,
         repo_factory: RepositoryFactory,
-        extension_svc: ExtensionService,
+        extension_exclude_svc: ExtensionExcludeService,
         fs: IFilesystemWriter,
         git_repo: IGitRepository,
     ) -> None:
         self._config = config
         self._repo_factory = repo_factory
-        self._extension_svc = extension_svc
+        self._extension_exclude_svc = extension_exclude_svc
         self._fs = fs
         self._git_repo = git_repo
 
@@ -65,7 +65,7 @@ class PruneService:
             self._fs.unlink(orphan.path)
 
     def reaggregate_excludes(self, reporter: IInitReporter) -> bool:
-        return self._extension_svc.finalize_excludes(self._repo_factory.get_standalone_repos(), reporter)
+        return self._extension_exclude_svc.finalize_excludes(self._repo_factory.get_standalone_repos(), reporter)
 
     # ── detection ────────────────────────────────────────────────────────
 

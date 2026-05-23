@@ -104,9 +104,7 @@ def test_discover_skips_extension_plugin_when_workspace_plugin_wins(workspace: W
     )
 
     ext_repo = StandaloneRepository(name="demo", path=ext_path)
-    registry = PluginRegistry(fs, FakeConfigFileReader({}), loader).discover(
-        workspace, standalone_repos=[ext_repo]
-    )
+    registry = PluginRegistry(fs, FakeConfigFileReader({}), loader).discover(workspace, standalone_repos=[ext_repo])
 
     # Workspace one loaded, extension one skipped (same name).
     assert loader.load_calls == [("demo", ws_plugin)]

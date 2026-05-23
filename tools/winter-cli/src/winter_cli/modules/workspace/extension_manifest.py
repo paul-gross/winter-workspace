@@ -1,0 +1,94 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from winter_cli.core.config_file import ConfigFileReadError, IConfigFileReader
+from winter_cli.modules.workspace.models import RepoError, StandaloneRepository
+
+EXT_MANIFEST = "winter-ext.toml"
+DEFAULT_SKILLS_DIRS = ("skills", ".claude/skills")
+DEFAULT_AGENTS_DIRS = ("agents", ".claude/agents")
+
+PORT_BASE = 4000
+PORT_STEP = 100
+
+HOOK_ON_ENV_INIT = "on_env_init"
+HOOK_ON_ENV_DESTROY = "on_env_destroy"
+
+CLAUDEMD_BLOCK_NAME = "winter-extensions"
+CLAUDEMD_INDEX_FILENAME = "index.md"
+
+# Workspaces commit a stable `# Winter Extensions` section in CLAUDE.md that
+# imports `@CLAUDE.winter.md`; this CLI only writes the imported file. The
+# file is gitignored so init runs don't dirty the workspace.
+CLAUDEMD_WINTER_FILENAME = "CLAUDE.winter.md"
+
+
+@dataclass(frozen=True)
+class ExtensionManifest:
+    """Resolved extension settings for a single standalone repo.
+
+    `prefix` is the final symlink prefix after applying overrides:
+    workspace config `prefix` > manifest `prefix` > manifest `name` > repo dir name.
+
+    `skills_dirs` and `agents_dirs` are ordered candidate paths; processing uses
+    the first one that exists. The defaults try the winter convention
+    (top-level `skills/`/`agents/`) and then the Claude Code convention
+    (`.claude/skills/`/`.claude/agents/`), so vanilla Claude Code repos can be
+    adopted as extensions without modification.
+
+    `hooks` maps hook names (e.g. `on_env_init`) to executable script paths
+    relative to the extension's repo root. Hooks let an extension contribute
+    setup steps that don't fit the symlink-skills/agents model — for example,
+    dropping additional files into a worktree or running provisioning commands.
+    """
+
+    prefix: str
+    skills_dirs: tuple[str, ...]
+    agents_dirs: tuple[str, ...]
+    hooks: dict[str, str] = field(default_factory=dict)
+
+
+class ExtensionManifestLoader:
+    """Reads `winter-ext.toml` and produces a resolved `ExtensionManifest`.
+
+    A single loader is shared by the symlink, hook, and exclude services so
+    the prefix resolution and field-shape interpretation stay in one place.
+
+    Error-handling shape: raises `RepoError` on a malformed manifest. Callers
+    catch at their own wrap site and route the failure through the reporter.
+    """
+
+    def __init__(self, config_file_reader: IConfigFileReader) -> None:
+        self._config_file_reader = config_file_reader
+
+    def load(
+        self,
+        repo: StandaloneRepository,
+        manifest_path: Path | None,
+    ) -> ExtensionManifest:
+        data: dict = {}
+        if manifest_path is not None:
+            try:
+                data = self._config_file_reader.load(manifest_path)
+            except ConfigFileReadError as exc:
+                raise RepoError(f"reading {EXT_MANIFEST} — {exc}") from exc
+
+        # Prefix resolution: workspace override > manifest prefix > manifest name > repo dir name.
+        prefix = repo.prefix or data.get("prefix") or data.get("name") or repo.name
+
+        # Manifest can declare an explicit dir; otherwise fall back to the
+        # default search list which covers both winter and Claude Code conventions.
+        skills_dirs = (data["skills_dir"],) if "skills_dir" in data else DEFAULT_SKILLS_DIRS
+        agents_dirs = (data["agents_dir"],) if "agents_dir" in data else DEFAULT_AGENTS_DIRS
+
+        hooks_raw = data.get("hooks") or {}
+        hooks = {k: str(v) for k, v in hooks_raw.items() if isinstance(v, str)}
+
+        return ExtensionManifest(
+            prefix=prefix,
+            skills_dirs=skills_dirs,
+            agents_dirs=agents_dirs,
+            hooks=hooks,
+        )

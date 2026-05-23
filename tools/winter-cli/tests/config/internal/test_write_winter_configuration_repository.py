@@ -40,9 +40,7 @@ def repo(workspace_config: WorkspaceConfig, fs: FakeFilesystem) -> WriteWinterCo
     return WriteWinterConfigurationRepository(workspace_config, fs=fs)
 
 
-def test_append_project_repository_adds_block(
-    fs: FakeFilesystem, repo: WriteWinterConfigurationRepository
-) -> None:
+def test_append_project_repository_adds_block(fs: FakeFilesystem, repo: WriteWinterConfigurationRepository) -> None:
     repo.append_project_repository(
         ProjectRepositoryConfig(name="api", url="git@example.com:org/api.git", pinned=True),
     )
@@ -87,9 +85,7 @@ def test_remove_project_repository_returns_false_when_missing(repo: WriteWinterC
     assert repo.remove_project_repository("ghost") is False
 
 
-def test_remove_matches_url_derived_name(
-    fs: FakeFilesystem, repo: WriteWinterConfigurationRepository
-) -> None:
+def test_remove_matches_url_derived_name(fs: FakeFilesystem, repo: WriteWinterConfigurationRepository) -> None:
     """When `name` is omitted on append, removal matches the URL-derived name."""
     repo.append_project_repository(ProjectRepositoryConfig(url="git@example.com:org/derived.git"))
     assert repo.remove_project_repository("derived") is True

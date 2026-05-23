@@ -10,6 +10,8 @@ import click
 
 from winter_cli.core.cli_output_service import Cell, ICliOutputService
 from winter_cli.modules.workspace.drift import DriftWarningService
+from winter_cli.modules.workspace.env_checkout_service import EnvCheckoutService
+from winter_cli.modules.workspace.env_status_service import EnvStatusService
 from winter_cli.modules.workspace.internal.read_workspace_repository import resolve_env_index
 from winter_cli.modules.workspace.models import (
     CheckoutResult,
@@ -29,8 +31,9 @@ from winter_cli.modules.workspace.prune_service import PruneOrphan, PruneService
 from winter_cli.modules.workspace.repo_repository import IReadRepoRepository
 from winter_cli.modules.workspace.reporter_factory import ReporterFactory
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
+from winter_cli.modules.workspace.workspace_push_service import WorkspacePushService
 from winter_cli.modules.workspace.workspace_repository import IReadWorkspaceRepository
-from winter_cli.modules.workspace.workspace_service import WorkspaceService
+from winter_cli.modules.workspace.workspace_sync_service import WorkspaceSyncService
 
 
 @dataclasses.dataclass
@@ -120,7 +123,10 @@ class WorkspacePruneParams:
 class WorkspaceHandler:
     def __init__(
         self,
-        workspace_svc: WorkspaceService,
+        env_status_svc: EnvStatusService,
+        workspace_sync_svc: WorkspaceSyncService,
+        workspace_push_svc: WorkspacePushService,
+        env_checkout_svc: EnvCheckoutService,
         workspace_repo: IReadWorkspaceRepository,
         repo_repo: IReadRepoRepository,
         repo_factory: RepositoryFactory,
@@ -130,7 +136,10 @@ class WorkspaceHandler:
         cli_output_svc: ICliOutputService,
         workspace: Workspace,
     ) -> None:
-        self._workspace_svc = workspace_svc
+        self._env_status_svc = env_status_svc
+        self._workspace_sync_svc = workspace_sync_svc
+        self._workspace_push_svc = workspace_push_svc
+        self._env_checkout_svc = env_checkout_svc
         self._workspace_repo = workspace_repo
         self._repo_repo = repo_repo
         self._repo_factory = repo_factory
@@ -166,16 +175,16 @@ class WorkspaceHandler:
         if params.env:
             env = self._workspace_repo.get_environment(self._workspace, params.env)
             env_status = self._workspace_repo.get_environment_status(env, project_repos)
-            env_worktrees = self._workspace_svc.get_feature_environment_worktrees(env, project_repos)
-            repo_statuses = self._workspace_svc.get_worktree_repo_statuses(env_worktrees)
+            env_worktrees = self._env_status_svc.get_feature_environment_worktrees(env, project_repos)
+            repo_statuses = self._env_status_svc.get_worktree_repo_statuses(env_worktrees)
             self._render_single(env_status, repo_statuses, params.output_json)
         else:
             environments = self._workspace_repo.get_environments(self._workspace, project_repos)
             overviews = []
             for env in environments:
                 env_status = self._workspace_repo.get_environment_status(env, project_repos)
-                env_worktrees = self._workspace_svc.get_feature_environment_worktrees(env, project_repos)
-                repo_statuses = self._workspace_svc.get_worktree_repo_statuses(env_worktrees)
+                env_worktrees = self._env_status_svc.get_feature_environment_worktrees(env, project_repos)
+                repo_statuses = self._env_status_svc.get_worktree_repo_statuses(env_worktrees)
                 overviews.append(FeatureEnvironmentOverview(status=env_status, repo_statuses=repo_statuses))
             self._render_grid(overviews, params.output_json)
 
@@ -183,8 +192,8 @@ class WorkspaceHandler:
         env = self._workspace_repo.get_environment(self._workspace, params.env)
         project_repos = self._repo_factory.get_project_repos()
         self._drift_warning_svc.raise_warning()
-        env_worktrees = self._workspace_svc.get_feature_environment_worktrees(env, project_repos)
-        report = self._workspace_svc.sync_env(env_worktrees)
+        env_worktrees = self._env_status_svc.get_feature_environment_worktrees(env, project_repos)
+        report = self._workspace_sync_svc.sync_env(env_worktrees)
 
         if params.output_json:
             _echo_json(_to_dict(report))
@@ -227,8 +236,8 @@ class WorkspaceHandler:
         env = self._workspace_repo.get_environment(self._workspace, params.env)
         project_repos = self._repo_factory.get_project_repos()
         self._drift_warning_svc.raise_warning()
-        env_worktrees = self._workspace_svc.get_feature_environment_worktrees(env, project_repos)
-        count = self._workspace_svc.connect_env(env_worktrees, params.feature_branch)
+        env_worktrees = self._env_status_svc.get_feature_environment_worktrees(env, project_repos)
+        count = self._env_checkout_svc.connect_env(env_worktrees, params.feature_branch)
 
         if params.output_json:
             _echo_json(
@@ -251,8 +260,8 @@ class WorkspaceHandler:
         env = self._workspace_repo.get_environment(self._workspace, params.env)
         project_repos = self._repo_factory.get_project_repos()
         self._drift_warning_svc.raise_warning()
-        env_worktrees = self._workspace_svc.get_feature_environment_worktrees(env, project_repos)
-        count = self._workspace_svc.disconnect_env(env_worktrees)
+        env_worktrees = self._env_status_svc.get_feature_environment_worktrees(env, project_repos)
+        count = self._env_checkout_svc.disconnect_env(env_worktrees)
 
         if params.output_json:
             _echo_json({"env": params.env, "repos_configured": count})
@@ -265,8 +274,8 @@ class WorkspaceHandler:
         env = self._workspace_repo.get_environment(self._workspace, params.env)
         project_repos = self._repo_factory.get_project_repos()
         self._drift_warning_svc.raise_warning()
-        env_worktrees = self._workspace_svc.get_feature_environment_worktrees(env, project_repos)
-        report = self._workspace_svc.checkout_env(
+        env_worktrees = self._env_status_svc.get_feature_environment_worktrees(env, project_repos)
+        report = self._env_checkout_svc.checkout_env(
             env_worktrees,
             params.feature_branch,
             params.force,
@@ -320,7 +329,7 @@ class WorkspaceHandler:
     def fetch(self, params: EnvFetchParams) -> None:
         self._drift_warning_svc.raise_warning()
         reporter = self._reporter_factory.get_fetch_reporter(params.output_json)
-        report = self._workspace_svc.fetch_all(
+        report = self._workspace_sync_svc.fetch_all(
             scope=params.scope,
             patterns=params.patterns,
             reporter=reporter,
@@ -340,7 +349,7 @@ class WorkspaceHandler:
     def pull(self, params: EnvPullParams) -> None:
         self._drift_warning_svc.raise_warning()
         reporter = self._reporter_factory.get_pull_reporter(params.output_json)
-        report = self._workspace_svc.pull_all(
+        report = self._workspace_sync_svc.pull_all(
             scope=params.scope,
             patterns=params.patterns,
             mode=params.mode,
@@ -366,7 +375,7 @@ class WorkspaceHandler:
 
     def push(self, params: EnvPushParams) -> None:
         self._drift_warning_svc.raise_warning()
-        report = self._workspace_svc.push_all(
+        report = self._workspace_push_svc.push_all(
             scope=params.scope,
             patterns=params.patterns,
             pinned_scope=params.pinned_scope,
@@ -493,8 +502,8 @@ class WorkspaceHandler:
         env = self._workspace_repo.get_environment(self._workspace, params.env)
         project_repos = self._repo_factory.get_project_repos()
         self._drift_warning_svc.raise_warning()
-        env_worktrees = self._workspace_svc.get_feature_environment_worktrees(env, project_repos)
-        result = self._workspace_svc.get_env_diff(env_worktrees, params.mode, repo_filter=params.repo_filter)
+        env_worktrees = self._env_status_svc.get_feature_environment_worktrees(env, project_repos)
+        result = self._env_status_svc.get_env_diff(env_worktrees, params.mode, repo_filter=params.repo_filter)
 
         if params.output_json:
             data = {
