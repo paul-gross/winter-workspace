@@ -433,11 +433,12 @@ class InitService:
         env_path = env_root / WINTER_ENV_FILE
         try:
             existing = self._fs.read_text(env_path) if self._fs.exists(env_path) else ""
-            new_content = self._replace_or_prepend_block(
+            new_content = replace_or_append_block(
                 existing,
                 WINTER_ENV_BEGIN,
                 WINTER_ENV_END,
                 block_lines,
+                position="prepend",
             )
             if new_content == existing:
                 return True
@@ -453,41 +454,6 @@ class InitService:
             f"WINTER_PORT_BASE={port_base}",
         )
         return True
-
-    @staticmethod
-    def _replace_or_prepend_block(
-        content: str,
-        begin: str,
-        end: str,
-        desired_lines: list[str],
-    ) -> str:
-        """Replace a marker-bracketed block, or prepend if not present."""
-        lines = content.split("\n") if content else []
-        try:
-            begin_idx = lines.index(begin)
-        except ValueError:
-            begin_idx = -1
-
-        if begin_idx >= 0:
-            try:
-                end_offset = lines[begin_idx:].index(end)
-            except ValueError:
-                end_idx = len(lines) - 1
-            else:
-                end_idx = begin_idx + end_offset
-            new_lines = lines[:begin_idx] + desired_lines + lines[end_idx + 1 :]
-        else:
-            new_lines = list(desired_lines)
-            if lines:
-                # Separate the managed block from existing content with a blank line.
-                if lines[0].strip() != "":
-                    new_lines.append("")
-                new_lines.extend(lines)
-
-        result = "\n".join(new_lines)
-        if not result.endswith("\n"):
-            result += "\n"
-        return result
 
     # ── Shared reconcile steps ────────────────────────────────────────────
 

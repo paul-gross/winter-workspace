@@ -6,8 +6,12 @@ that winter rewrites on every run. Lines outside the markers are preserved.
 
 from __future__ import annotations
 
+from typing import Literal
+
 GITIGNORE_BEGIN = "# >>> {name} (managed by winter)"
 GITIGNORE_END = "# <<< {name}"
+
+Position = Literal["append", "prepend"]
 
 
 def replace_or_append_block(
@@ -15,13 +19,18 @@ def replace_or_append_block(
     begin: str,
     end: str,
     desired_lines: list[str],
+    *,
+    position: Position = "append",
 ) -> str:
     """Replace the block between `begin` and `end` markers with `desired_lines`.
 
-    `desired_lines` must include the begin/end markers. If the block is absent,
-    it's appended to the end (preceded by a blank line if needed). If the file
-    has the begin marker but not the end marker, the block is treated as
-    extending to end-of-file and replaced wholesale.
+    `desired_lines` must include the begin/end markers. If the block is absent
+    and `position="append"` (the default), it's added at end-of-file with a
+    blank line separating it from preceding content. If `position="prepend"`,
+    it's added at the start instead, with a blank line separating it from
+    following content. If the file has the begin marker but not the end
+    marker, the block is treated as extending to end-of-file and replaced
+    wholesale.
     """
     lines = content.split("\n") if content else []
     try:
@@ -38,6 +47,12 @@ def replace_or_append_block(
         else:
             end_idx = begin_idx + end_offset
         new_lines = lines[:begin_idx] + desired_lines + lines[end_idx + 1 :]
+    elif position == "prepend":
+        new_lines = list(desired_lines)
+        if lines:
+            if lines[0].strip() != "":
+                new_lines.append("")
+            new_lines.extend(lines)
     else:
         new_lines = list(lines)
         # Ensure separation from preceding content.
