@@ -1,133 +1,207 @@
 from __future__ import annotations
 
 from pathlib import Path
-from textwrap import dedent
 
 import pytest
 
-from tests.conftest import FakeInitReporter
+from tests.conftest import (
+    FakeConfigFileReader,
+    FakeFilesystem,
+    FakeInitReporter,
+    FakeSubprocessRunner,
+)
 from winter_cli.config.models import AdoptExtensions, WorkspaceConfig
 from winter_cli.modules.workspace.extensions import ExtensionService
 from winter_cli.modules.workspace.models import StandaloneRepository
 
+WORKSPACE_ROOT = Path("/ws")
+
 
 @pytest.fixture
-def workspace_config(tmp_path: Path) -> WorkspaceConfig:
+def workspace_config() -> WorkspaceConfig:
     return WorkspaceConfig(
-        workspace_root=tmp_path,
+        workspace_root=WORKSPACE_ROOT,
         session_prefix="t",
         main_branch="main",
         adopt_extensions=AdoptExtensions.winter,
     )
 
 
-@pytest.fixture
-def service(workspace_config: WorkspaceConfig) -> ExtensionService:
-    return ExtensionService(workspace_config)
-
-
-def _make_extension(workspace_root: Path, name: str = "my-ext") -> StandaloneRepository:
-    """Create a tiny extension on disk: winter-ext.toml + one skill + one agent."""
-    ext_path = workspace_root / name
-    ext_path.mkdir()
-    (ext_path / "winter-ext.toml").write_text(f'name = "{name}"\n')
-
-    # One skill directory containing a SKILL.md without a `name` frontmatter field.
-    skill_dir = ext_path / "skills" / "do-thing"
-    skill_dir.mkdir(parents=True)
-    (skill_dir / "SKILL.md").write_text(
-        dedent(
-            """
-            ---
-            description: An example skill
-            ---
-
-            # do-thing
-
-            Body of the skill.
-            """
-        ).lstrip()
+def _service(
+    workspace_config: WorkspaceConfig,
+    fs: FakeFilesystem,
+    config_files: dict[Path, dict] | None = None,
+    subprocess: FakeSubprocessRunner | None = None,
+) -> ExtensionService:
+    return ExtensionService(
+        workspace_config,
+        fs=fs,
+        config_file_reader=FakeConfigFileReader(config_files or {}),
+        subprocess_runner=subprocess or FakeSubprocessRunner(),
     )
 
-    # One flat agent file.
+
+def _seed_extension(
+    fs: FakeFilesystem,
+    config_files: dict[Path, dict],
+    name: str = "my-ext",
+    *,
+    skip_skill: bool = False,
+    skill_frontmatter_name: str | None = None,
+) -> StandaloneRepository:
+    """Plant a tiny extension in the fake fs: winter-ext.toml + skill dir + agent file."""
+    ext_path = WORKSPACE_ROOT / name
+    fs.directories.add(ext_path)
+
+    manifest_path = ext_path / "winter-ext.toml"
+    fs.files[manifest_path] = ""  # presence only; reader returns dict below
+    config_files[manifest_path] = {"name": name}
+
+    seeded_dirs: list[Path] = [ext_path]
+    if not skip_skill:
+        skill_dir = ext_path / "skills" / "do-thing"
+        fs.directories.add(skill_dir)
+        seeded_dirs.append(skill_dir)
+        skill_md = skill_dir / "SKILL.md"
+        if skill_frontmatter_name is None:
+            fs.files[skill_md] = "---\ndescription: An example skill\n---\n\n# do-thing\n"
+        else:
+            fs.files[skill_md] = f"---\nname: {skill_frontmatter_name}\ndescription: x\n---\n"
+
     agents_dir = ext_path / "agents"
-    agents_dir.mkdir()
-    (agents_dir / "reviewer.md").write_text("# reviewer\n")
+    fs.directories.add(agents_dir)
+    seeded_dirs.append(agents_dir)
+    fs.files[agents_dir / "reviewer.md"] = "# reviewer\n"
+
+    # Materialize parent dirs so iterdir() at any ancestor sees children.
+    for p in seeded_dirs:
+        for parent in p.parents:
+            fs.directories.add(parent)
 
     return StandaloneRepository(name=name, path=ext_path)
 
 
 def test_process_symlinks_skills_and_agents(
-    tmp_path: Path,
-    service: ExtensionService,
-    init_reporter: FakeInitReporter,
+    workspace_config: WorkspaceConfig, init_reporter: FakeInitReporter
 ) -> None:
-    ext = _make_extension(tmp_path)
+    fs = FakeFilesystem()
+    config_files: dict[Path, dict] = {}
+    ext = _seed_extension(fs, config_files)
+    svc = _service(workspace_config, fs, config_files)
 
-    ok = service.process(ext, init_reporter)
+    ok = svc.process(ext, init_reporter)
 
     assert ok is True
-    # Skill directory linked under prefix-<dirname>.
-    skill_link = tmp_path / ".claude" / "skills" / "my-ext-do-thing"
-    assert skill_link.is_symlink()
-    assert skill_link.resolve() == (ext.path / "skills" / "do-thing").resolve()
 
-    # Agent file linked under prefix-<filename> (preserving .md).
-    agent_link = tmp_path / ".claude" / "agents" / "my-ext-reviewer.md"
-    assert agent_link.is_symlink()
-    assert agent_link.resolve() == (ext.path / "agents" / "reviewer.md").resolve()
+    # Skill symlink created under .claude/skills/<prefix>-<dirname>
+    skill_link = WORKSPACE_ROOT / ".claude" / "skills" / "my-ext-do-thing"
+    assert fs.is_symlink(skill_link)
+
+    # Agent symlink created under .claude/agents/<prefix>-<filename>
+    agent_link = WORKSPACE_ROOT / ".claude" / "agents" / "my-ext-reviewer.md"
+    assert fs.is_symlink(agent_link)
 
     actions = [(a[0], a[2]) for a in init_reporter.actions]
     assert ("my-ext", "extension_installed") in actions
 
 
-def test_process_skips_when_adopt_mode_is_none(tmp_path: Path, init_reporter: FakeInitReporter) -> None:
+def test_process_skips_when_adopt_mode_is_none(init_reporter: FakeInitReporter) -> None:
     config = WorkspaceConfig(
-        workspace_root=tmp_path,
+        workspace_root=WORKSPACE_ROOT,
         session_prefix="t",
         main_branch="main",
         adopt_extensions=AdoptExtensions.none,
     )
-    ext = _make_extension(tmp_path)
+    fs = FakeFilesystem()
+    config_files: dict[Path, dict] = {}
+    ext = _seed_extension(fs, config_files)
+    svc = _service(config, fs, config_files)
 
-    assert ExtensionService(config).process(ext, init_reporter) is True
-    # No symlinks created.
-    assert not (tmp_path / ".claude" / "skills" / "my-ext-do-thing").exists()
+    assert svc.process(ext, init_reporter) is True
+    assert not fs.is_symlink(WORKSPACE_ROOT / ".claude" / "skills" / "my-ext-do-thing")
 
 
 def test_process_skips_in_winter_mode_when_manifest_missing(
-    tmp_path: Path, service: ExtensionService, init_reporter: FakeInitReporter
+    workspace_config: WorkspaceConfig, init_reporter: FakeInitReporter
 ) -> None:
     """`adopt_extensions = winter` ignores repos that don't declare winter-ext.toml."""
-    ext_path = tmp_path / "vanilla"
-    ext_path.mkdir()
-    (ext_path / "skills" / "do-thing").mkdir(parents=True)
-    (ext_path / "skills" / "do-thing" / "SKILL.md").write_text("# skill\n")
+    fs = FakeFilesystem()
+    ext_path = WORKSPACE_ROOT / "vanilla"
+    fs.directories.update({ext_path, ext_path / "skills", ext_path / "skills" / "do-thing"})
+    fs.files[ext_path / "skills" / "do-thing" / "SKILL.md"] = "# skill\n"
     ext = StandaloneRepository(name="vanilla", path=ext_path)
+    svc = _service(workspace_config, fs)
 
-    assert service.process(ext, init_reporter) is True
-    assert not (tmp_path / ".claude" / "skills" / "vanilla-do-thing").exists()
+    assert svc.process(ext, init_reporter) is True
+    assert not fs.is_symlink(WORKSPACE_ROOT / ".claude" / "skills" / "vanilla-do-thing")
 
 
 def test_process_rejects_skill_md_with_name_frontmatter(
-    tmp_path: Path, service: ExtensionService, init_reporter: FakeInitReporter
+    workspace_config: WorkspaceConfig, init_reporter: FakeInitReporter
 ) -> None:
-    """In strict (winter) mode, SKILL.md must not override the directory name."""
-    ext = _make_extension(tmp_path)
-    skill_md = ext.path / "skills" / "do-thing" / "SKILL.md"
-    skill_md.write_text(
-        dedent(
-            """
-            ---
-            name: override-name
-            description: An example skill
-            ---
+    fs = FakeFilesystem()
+    config_files: dict[Path, dict] = {}
+    _seed_extension(fs, config_files, skill_frontmatter_name="override-name")
+    ext = StandaloneRepository(name="my-ext", path=WORKSPACE_ROOT / "my-ext")
+    svc = _service(workspace_config, fs, config_files)
 
-            Body.
-            """
-        ).lstrip()
-    )
-
-    assert service.process(ext, init_reporter) is False
+    assert svc.process(ext, init_reporter) is False
     error_messages = [error for _, error in init_reporter.errors]
     assert any("name: override-name" in msg for msg in error_messages)
+
+
+def test_finalize_excludes_writes_one_block_per_extension(
+    workspace_config: WorkspaceConfig, init_reporter: FakeInitReporter
+) -> None:
+    fs = FakeFilesystem(directories=[WORKSPACE_ROOT / ".git" / "info"])
+    config_files: dict[Path, dict] = {}
+    _seed_extension(fs, config_files, name="ext-a")
+    _seed_extension(fs, config_files, name="ext-b")
+    repos = [
+        StandaloneRepository(name="ext-a", path=WORKSPACE_ROOT / "ext-a"),
+        StandaloneRepository(name="ext-b", path=WORKSPACE_ROOT / "ext-b"),
+    ]
+    svc = _service(workspace_config, fs, config_files)
+
+    ok = svc.finalize_excludes(repos, init_reporter)
+    assert ok is True
+
+    exclude_path = WORKSPACE_ROOT / ".git" / "info" / "exclude"
+    content = fs.files[exclude_path]
+    assert "# >>> ext-a (managed by winter)" in content
+    assert "# >>> ext-b (managed by winter)" in content
+    assert "/ext-a/" in content
+    assert ".claude/skills/ext-a-*" in content
+
+
+def test_run_env_init_hook_streams_output_and_succeeds(
+    workspace_config: WorkspaceConfig, init_reporter: FakeInitReporter
+) -> None:
+    """Happy-path: a hook script runs, lines stream to the reporter, exit 0."""
+    fs = FakeFilesystem()
+    config_files: dict[Path, dict] = {}
+    ext_path = WORKSPACE_ROOT / "my-ext"
+    fs.directories.add(ext_path)
+    manifest_path = ext_path / "winter-ext.toml"
+    fs.files[manifest_path] = ""
+    config_files[manifest_path] = {"name": "my-ext", "hooks": {"on_env_init": "hooks/init.sh"}}
+
+    hook_path = (ext_path / "hooks" / "init.sh").resolve()
+    fs.files[hook_path] = ""
+    fs.executables.add(hook_path)
+    fs.directories.add(hook_path.parent)
+
+    repos = [StandaloneRepository(name="my-ext", path=ext_path)]
+    env_root = WORKSPACE_ROOT / "alpha"
+
+    subprocess = FakeSubprocessRunner(
+        popen_responses={str(hook_path): (["doing stuff", "done"], 0)},
+    )
+
+    svc = _service(workspace_config, fs, config_files, subprocess=subprocess)
+    ok = svc.run_env_init_hooks(repos, env_root, "alpha", init_reporter)
+
+    assert ok is True
+    assert ("my-ext", "doing stuff") in init_reporter.cmd_output
+    assert ("my-ext", "done") in init_reporter.cmd_output
+    assert any(a[2] == "hook_ran" for a in init_reporter.actions)

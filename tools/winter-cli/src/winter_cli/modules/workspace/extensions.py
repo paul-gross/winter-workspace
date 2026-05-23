@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import os
 import re
-import subprocess
-import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from winter_cli.config.models import AdoptExtensions, WorkspaceConfig
+from winter_cli.core.config_file import ConfigFileReadError, IConfigFileReader
+from winter_cli.core.filesystem import IFilesystemWriter
+from winter_cli.core.subprocess_runner import ISubprocessRunner
 from winter_cli.modules.workspace.init_reporter import IInitReporter
 from winter_cli.modules.workspace.internal.managed_block import (
     GITIGNORE_BEGIN,
@@ -74,8 +75,17 @@ class ExtensionService:
     workspace `.git/info/exclude`.
     """
 
-    def __init__(self, config: WorkspaceConfig) -> None:
+    def __init__(
+        self,
+        config: WorkspaceConfig,
+        fs: IFilesystemWriter,
+        config_file_reader: IConfigFileReader,
+        subprocess_runner: ISubprocessRunner,
+    ) -> None:
         self._config = config
+        self._fs = fs
+        self._config_file_reader = config_file_reader
+        self._subprocess = subprocess_runner
 
     def process(
         self,
@@ -87,7 +97,7 @@ class ExtensionService:
             return True
 
         manifest_path = repo.path / EXT_MANIFEST
-        manifest_present = manifest_path.is_file()
+        manifest_present = self._fs.is_file(manifest_path)
 
         if mode == AdoptExtensions.winter and not manifest_present:
             return True
@@ -201,10 +211,10 @@ class ExtensionService:
 
         success = True
         for repo in repos:
-            if not repo.path.exists():
+            if not self._fs.exists(repo.path):
                 continue
             manifest_path = repo.path / EXT_MANIFEST
-            if not manifest_path.is_file():
+            if not self._fs.is_file(manifest_path):
                 continue
             manifest = self._load_manifest(repo, manifest_path, reporter)
             if manifest is None:
@@ -236,10 +246,10 @@ class ExtensionService:
                 f"hook path `{hook}` escapes the extension directory; refusing to run",
             )
             return False
-        if not script_path.is_file():
+        if not self._fs.is_file(script_path):
             reporter.repo_error(repo.name, f"hook `{hook}` not found at {script_path}")
             return False
-        if not os.access(script_path, os.X_OK):
+        if not self._fs.access_x_ok(script_path):
             reporter.repo_error(repo.name, f"hook `{hook}` is not executable")
             return False
 
@@ -259,22 +269,13 @@ class ExtensionService:
         label = f"hook {hook_name}"
         reporter.cmd_started(repo.name, label)
         try:
-            proc = subprocess.Popen(
-                [str(script_path)],
-                cwd=str(env_root),
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-            )
+            with self._subprocess.popen([str(script_path)], cwd=env_root, env=env) as proc:
+                for line in proc.stdout_lines:
+                    reporter.cmd_output_line(repo.name, line)
+                returncode = proc.wait()
         except OSError as exc:
             reporter.repo_error(repo.name, f"hook {hook_name} — {exc}")
             return False
-        assert proc.stdout is not None
-        for line in proc.stdout:
-            reporter.cmd_output_line(repo.name, line.rstrip("\n"))
-        returncode = proc.wait()
         reporter.cmd_completed(repo.name, label, returncode)
         if returncode != 0:
             reporter.repo_error(
@@ -296,9 +297,8 @@ class ExtensionService:
         data: dict = {}
         if manifest_path is not None:
             try:
-                with manifest_path.open("rb") as f:
-                    data = tomllib.load(f)
-            except (OSError, tomllib.TOMLDecodeError) as exc:
+                data = self._config_file_reader.load(manifest_path)
+            except ConfigFileReadError as exc:
                 reporter.repo_error(repo.name, f"reading {EXT_MANIFEST} — {exc}")
                 return None
 
@@ -336,15 +336,15 @@ class ExtensionService:
         strict (`winter`) mode, refuse to install if any SKILL.md sets `name`.
         In `all` mode, the user opts into a less-curated experience, so we only warn.
         """
-        if skills_root is None or not skills_root.is_dir():
+        if skills_root is None or not self._fs.is_dir(skills_root):
             return True
 
         offenders: list[str] = []
-        for entry in sorted(skills_root.iterdir()):
-            if not entry.is_dir():
+        for entry in sorted(self._fs.iterdir(skills_root)):
+            if not self._fs.is_dir(entry):
                 continue
             skill_md = entry / "SKILL.md"
-            if not skill_md.is_file():
+            if not self._fs.is_file(skill_md):
                 continue
             name_field = self._extract_frontmatter_name(skill_md)
             if name_field is None:
@@ -367,15 +367,14 @@ class ExtensionService:
         reporter.repo_action(repo.name, str(repo.path), "extension_warning", msg)
         return True
 
-    @staticmethod
-    def _extract_frontmatter_name(skill_md: Path) -> str | None:
+    def _extract_frontmatter_name(self, skill_md: Path) -> str | None:
         """Return the `name` field from YAML frontmatter, or None if not set.
 
         Looks only at the top-level frontmatter delimited by `---`. Returns None
         if there's no frontmatter, no `name` key, or any read error.
         """
         try:
-            text = skill_md.read_text()
+            text = self._fs.read_text(skill_md)
         except OSError:
             return None
         if not text.startswith("---"):
@@ -404,12 +403,11 @@ class ExtensionService:
 
     # ── Symlinks ──────────────────────────────────────────────────────────
 
-    @staticmethod
-    def _resolve_existing_dir(base: Path, candidates: tuple[str, ...]) -> Path | None:
+    def _resolve_existing_dir(self, base: Path, candidates: tuple[str, ...]) -> Path | None:
         """Return the first candidate path under `base` that exists as a directory."""
         for candidate in candidates:
             path = base / candidate
-            if path.is_dir():
+            if self._fs.is_dir(path):
                 return path
         return None
 
@@ -434,18 +432,18 @@ class ExtensionService:
         Returns the list of created/existing symlink names on success, or None on error.
         Returns an empty list if `source_root` is None or doesn't exist.
         """
-        if source_root is None or not source_root.is_dir():
+        if source_root is None or not self._fs.is_dir(source_root):
             return []
 
-        target_root.mkdir(parents=True, exist_ok=True)
+        self._fs.mkdir(target_root, parents=True, exist_ok=True)
 
         linked: list[str] = []
-        for entry in sorted(source_root.iterdir()):
-            if entry.is_dir():
+        for entry in sorted(self._fs.iterdir(source_root)):
+            if self._fs.is_dir(entry):
                 if not include_dirs:
                     continue
                 link_name = f"{prefix}-{entry.name}"
-            elif entry.is_file():
+            elif self._fs.is_file(entry):
                 if not include_files:
                     continue
                 if file_suffix and not entry.name.endswith(file_suffix):
@@ -457,23 +455,23 @@ class ExtensionService:
             link_path = target_root / link_name
             relative_target = self._relative_symlink_target(target_root, entry)
 
-            if link_path.is_symlink():
+            if self._fs.is_symlink(link_path):
                 # Update if pointing at the wrong place.
                 try:
-                    current = link_path.readlink()
+                    current = self._fs.readlink(link_path)
                 except OSError:
                     current = None
                 if current != relative_target:
                     try:
-                        link_path.unlink()
-                        link_path.symlink_to(relative_target)
+                        self._fs.unlink(link_path)
+                        self._fs.symlink_to(link_path, relative_target)
                     except OSError as exc:
                         reporter.repo_error(repo_name, f"refresh {kind} symlink {link_name}: {exc}")
                         return None
                 linked.append(link_name)
                 continue
 
-            if link_path.exists():
+            if self._fs.exists(link_path):
                 reporter.repo_error(
                     repo_name,
                     f"cannot create {kind} symlink {link_name}: path exists and is not a symlink",
@@ -481,7 +479,7 @@ class ExtensionService:
                 return None
 
             try:
-                link_path.symlink_to(relative_target)
+                self._fs.symlink_to(link_path, relative_target)
             except OSError as exc:
                 reporter.repo_error(repo_name, f"create {kind} symlink {link_name}: {exc}")
                 return None
@@ -519,9 +517,9 @@ class ExtensionService:
         exclude_path = self._config.workspace_root / ".git" / "info" / "exclude"
 
         existing = ""
-        if exclude_path.exists():
+        if self._fs.exists(exclude_path):
             try:
-                existing = exclude_path.read_text()
+                existing = self._fs.read_text(exclude_path)
             except OSError as exc:
                 reporter.repo_error(
                     CLAUDEMD_BLOCK_NAME,
@@ -558,9 +556,9 @@ class ExtensionService:
         if new_content == existing:
             return True
 
-        exclude_path.parent.mkdir(parents=True, exist_ok=True)
+        self._fs.mkdir(exclude_path.parent, parents=True, exist_ok=True)
         try:
-            exclude_path.write_text(new_content)
+            self._fs.write_text(exclude_path, new_content)
         except OSError as exc:
             reporter.repo_error(
                 CLAUDEMD_BLOCK_NAME,
@@ -593,7 +591,7 @@ class ExtensionService:
         an extension). When `prefix` is None, no symlink-glob lines are added
         to the exclude block.
         """
-        if not repo.path.exists():
+        if not self._fs.exists(repo.path):
             return None
         try:
             relative = repo.path.relative_to(self._config.workspace_root).as_posix()
@@ -601,16 +599,15 @@ class ExtensionService:
             return None
         mode = self._config.adopt_extensions
         manifest_path = repo.path / EXT_MANIFEST
-        manifest_present = manifest_path.is_file()
+        manifest_present = self._fs.is_file(manifest_path)
         extension_eligible = mode != AdoptExtensions.none and (manifest_present or mode == AdoptExtensions.all)
         if not extension_eligible:
             return relative, None
         data: dict = {}
         if manifest_present:
             try:
-                with manifest_path.open("rb") as f:
-                    data = tomllib.load(f)
-            except (OSError, tomllib.TOMLDecodeError):
+                data = self._config_file_reader.load(manifest_path)
+            except ConfigFileReadError:
                 data = {}
         prefix = repo.prefix or data.get("prefix") or data.get("name") or repo.name
         return relative, prefix
@@ -664,7 +661,7 @@ class ExtensionService:
         eligible: list[tuple[str, str]] = []
         for repo in repos:
             index_path = repo.path / CLAUDEMD_INDEX_FILENAME
-            if not index_path.is_file():
+            if not self._fs.is_file(index_path):
                 continue
             try:
                 relative = repo.path.relative_to(self._config.workspace_root).as_posix()
@@ -677,10 +674,10 @@ class ExtensionService:
         winter_path = self._config.workspace_root / CLAUDEMD_WINTER_FILENAME
 
         if not eligible:
-            if not winter_path.exists():
+            if not self._fs.exists(winter_path):
                 return True
             try:
-                winter_path.unlink()
+                self._fs.unlink(winter_path)
             except OSError as exc:
                 reporter.repo_error(CLAUDEMD_BLOCK_NAME, f"removing {CLAUDEMD_WINTER_FILENAME} — {exc}")
                 return False
@@ -699,9 +696,9 @@ class ExtensionService:
         new_winter = "\n".join(winter_lines) + "\n"
 
         existing_winter = ""
-        if winter_path.exists():
+        if self._fs.exists(winter_path):
             try:
-                existing_winter = winter_path.read_text()
+                existing_winter = self._fs.read_text(winter_path)
             except OSError as exc:
                 reporter.repo_error(CLAUDEMD_BLOCK_NAME, f"reading {CLAUDEMD_WINTER_FILENAME} — {exc}")
                 return False
@@ -710,7 +707,7 @@ class ExtensionService:
             return True
 
         try:
-            winter_path.write_text(new_winter)
+            self._fs.write_text(winter_path, new_winter)
         except OSError as exc:
             reporter.repo_error(CLAUDEMD_BLOCK_NAME, f"writing {CLAUDEMD_WINTER_FILENAME} — {exc}")
             return False

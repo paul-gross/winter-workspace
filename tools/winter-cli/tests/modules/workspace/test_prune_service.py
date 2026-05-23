@@ -30,10 +30,23 @@ def workspace_config(tmp_path: Path) -> WorkspaceConfig:
 
 @pytest.fixture
 def service(workspace_config: WorkspaceConfig) -> PruneService:
+    # Phase 6 will replace this with a fully-faked PruneService. For phase 5
+    # we just wire the real ExtensionService adapters so the existing tests
+    # (which use tmp_path + real git) continue to exercise their happy paths.
+    from winter_cli.core.internal.local_filesystem import LocalFilesystem
+    from winter_cli.core.internal.local_subprocess_runner import LocalSubprocessRunner
+    from winter_cli.core.internal.tomllib_config_file_reader import TomllibConfigFileReader
+
+    fs = LocalFilesystem()
     return PruneService(
         config=workspace_config,
         repo_factory=RepositoryFactory(workspace_config),
-        extension_svc=ExtensionService(workspace_config),
+        extension_svc=ExtensionService(
+            workspace_config,
+            fs=fs,
+            config_file_reader=TomllibConfigFileReader(),
+            subprocess_runner=LocalSubprocessRunner(),
+        ),
     )
 
 

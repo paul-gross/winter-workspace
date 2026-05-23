@@ -140,6 +140,9 @@ class Container(containers.DeclarativeContainer):
     extension_svc = providers.Singleton(
         ExtensionService,
         config=workspace_config,
+        fs=fs,
+        config_file_reader=config_file_reader,
+        subprocess_runner=subprocess_runner,
     )
 
     prune_svc = providers.Factory(

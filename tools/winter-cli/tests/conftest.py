@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from textwrap import dedent
 from typing import Any
@@ -15,6 +16,7 @@ from winter_cli.config.models import (
     WorkspaceConfig,
 )
 from winter_cli.container import Container
+from winter_cli.core.subprocess_runner import SubprocessResult
 
 
 @pytest.fixture
@@ -273,6 +275,101 @@ class FakeFilesystem:
         for d in list(self.directories):
             if path in d.parents:
                 self.directories.discard(d)
+
+
+class FakeConfigFileReader:
+    """IConfigFileReader fake — returns canned dicts keyed by path.
+
+    Raises `ConfigFileReadError` for paths registered as "broken" so error
+    paths in services can be exercised. Unknown paths raise FileNotFoundError
+    so callers that probe presence via the filesystem first are still
+    correctly modeled (presence-then-load).
+    """
+
+    def __init__(
+        self,
+        files: dict[Path, dict] | None = None,
+        broken: set[Path] | None = None,
+    ) -> None:
+        self.files: dict[Path, dict] = dict(files or {})
+        self.broken: set[Path] = set(broken or ())
+
+    def load(self, path: Path) -> dict:
+        if path in self.broken:
+            from winter_cli.core.config_file import ConfigFileReadError
+
+            raise ConfigFileReadError(f"broken {path}")
+        if path not in self.files:
+            raise FileNotFoundError(path)
+        return self.files[path]
+
+
+class FakeStreamingProcess:
+    """IStreamingProcess fake — yields canned lines, returns canned exit code."""
+
+    def __init__(self, lines: list[str], returncode: int) -> None:
+        self._lines = lines
+        self._returncode = returncode
+
+    @property
+    def stdout_lines(self) -> Iterator[str]:
+        yield from self._lines
+
+    def wait(self) -> int:
+        return self._returncode
+
+
+class FakeSubprocessRunner:
+    """ISubprocessRunner fake — records every invocation; canned responses.
+
+    Tests register `(cmd_signature → SubprocessResult)` for `run` and
+    `(cmd_signature → (lines, returncode))` for `popen`. The signature is
+    the joined command for stability. Unknown commands raise so test
+    accidentally-fanned-out subprocess work surfaces.
+    """
+
+    def __init__(
+        self,
+        run_responses: dict[str, SubprocessResult] | None = None,
+        popen_responses: dict[str, tuple[list[str], int]] | None = None,
+    ) -> None:
+        self._run_responses = dict(run_responses or {})
+        self._popen_responses = dict(popen_responses or {})
+        self.run_calls: list[tuple[list[str], Path | None]] = []
+        self.popen_calls: list[tuple[list[str] | str, Path | None]] = []
+
+    @staticmethod
+    def _key(cmd: list[str] | str) -> str:
+        return cmd if isinstance(cmd, str) else " ".join(cmd)
+
+    def run(
+        self,
+        cmd: list[str],
+        *,
+        cwd: Path | None = None,
+        env: Any = None,
+    ) -> SubprocessResult:
+        self.run_calls.append((list(cmd), cwd))
+        key = self._key(cmd)
+        if key not in self._run_responses:
+            raise AssertionError(f"FakeSubprocessRunner.run got unexpected command: {key!r}")
+        return self._run_responses[key]
+
+    @contextmanager
+    def popen(
+        self,
+        cmd: list[str] | str,
+        *,
+        cwd: Path | None = None,
+        env: Any = None,
+        shell: bool = False,
+    ) -> Iterator[FakeStreamingProcess]:
+        self.popen_calls.append((cmd, cwd))
+        key = self._key(cmd)
+        if key not in self._popen_responses:
+            raise AssertionError(f"FakeSubprocessRunner.popen got unexpected command: {key!r}")
+        lines, rc = self._popen_responses[key]
+        yield FakeStreamingProcess(lines, rc)
 
 
 def make_git_repo(path: Path, initial_branch: str = "main") -> None:
