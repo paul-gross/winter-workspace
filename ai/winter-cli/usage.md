@@ -227,10 +227,16 @@ winter ws init alpha        # create the alpha/ feature environment
 winter ws status alpha
 ```
 
-### Sync before starting work
+### Merge main before starting work
 ```bash
-winter ws sync alpha    # tries ff-only against origin/main, falls back to merge, reports diverged if both fail
+winter ws merge master alpha                # offline ff-only against local master — no network call
+winter ws merge master alpha beta gamma     # fan one source ref across multiple envs in a single call
+winter ws fetch alpha                       # add this first if you need a fresh origin/master
+winter ws merge origin/master alpha         # then merge the freshly-fetched ref
+winter ws merge master alpha --merge        # 3-way fallback when ff-only would refuse
 ```
+
+Prefer `merge` over `sync` here — it doesn't hit the remote, so it's faster, offline-capable, and won't stall on a hanging fetch. Use `sync` (below) only when you want the fetch + merge bundled per env.
 
 ### Pull remote feature-branch commits into the local env
 ```bash
@@ -245,12 +251,14 @@ winter ws init alpha                       # ensures alpha/ exists
 winter ws connect alpha feature/my-feature
 ```
 
-### Fold one env into another, or merge main without fetch
+### Sync (fetch + ff-merge origin/main + ff source checkouts, one env at a time)
+```bash
+winter ws sync alpha    # tries ff-only against origin/main, falls back to merge, reports diverged if both fail
+```
+
+### Fold one env into another
 ```bash
 winter ws merge alpha gamma                # merge alpha into gamma's worktrees
-winter ws merge master gamma --merge       # merge master with 3-way fallback on divergence
-winter ws fetch gamma                      # if you need a fresh origin/master first
-winter ws merge origin/master gamma        # then merge the freshly-fetched ref
 ```
 
 ### Push completed work
