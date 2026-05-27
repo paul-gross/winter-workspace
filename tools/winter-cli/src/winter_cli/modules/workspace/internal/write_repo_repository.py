@@ -221,7 +221,12 @@ class WriteRepoRepository(ReadRepoRepository):
         # ahead count before opening ours so the two Repo lifetimes don't
         # overlap unnecessarily.
         status = self.get_worktree_status(worktree)
-        commit_count = status.ahead
+        # Count what we're actually putting on the remote: when the upstream
+        # ref exists, that's `tracking_ahead` (HEAD past upstream). On the
+        # first push to a freshly-connected feature branch the upstream ref
+        # doesn't exist yet and `tracking_ahead` is 0 — fall back to `ahead`
+        # (HEAD past master), which is what the push creates on the remote.
+        commit_count = status.tracking_ahead if status.tracking_ref_present else status.ahead
         message = f"push failed for {worktree.repository.name}"
         with git.Repo(str(worktree.path)) as r:
             if feature_branch:

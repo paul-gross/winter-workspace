@@ -15,6 +15,7 @@ from winter_cli.modules.workspace.models import (
     FeatureWorktree,
     ProjectRepository,
     RepoError,
+    RepoStatus,
     StandaloneRepository,
     Workspace,
 )
@@ -128,6 +129,49 @@ def test_sync_ff_only_raises_on_failure(monkeypatch: pytest.MonkeyPatch, repo: W
         repo.sync_ff_only(project)
 
     assert ei.value.subcommand in {"fetch", "merge"}
+
+
+def test_push_returns_tracking_ahead_when_upstream_present(
+    monkeypatch: pytest.MonkeyPatch, repo: WriteRepoRepository
+) -> None:
+    """Push count reflects commits new to the upstream, not total commits past master.
+
+    Regression: a feature with 14 commits already on `origin/feature/foo` plus
+    1 fresh commit must report `1` pushed, not `15`.
+    """
+    _fake_git_repo(monkeypatch)
+    wt = _wt(_REPO_PATH)
+    status = RepoStatus(
+        name="demo",
+        path=str(_REPO_PATH),
+        main_branch="main",
+        ahead=15,
+        tracking_ref_present=True,
+        tracking_ahead=1,
+    )
+    monkeypatch.setattr(repo, "get_worktree_status", lambda _wt: status)
+
+    assert repo.push(wt, feature_branch="feature/foo") == 1
+
+
+def test_push_falls_back_to_ahead_when_no_upstream_ref(
+    monkeypatch: pytest.MonkeyPatch, repo: WriteRepoRepository
+) -> None:
+    """First push to a freshly-connected feature branch has no upstream ref yet —
+    fall back to commits-past-master so the count still reflects what landed."""
+    _fake_git_repo(monkeypatch)
+    wt = _wt(_REPO_PATH)
+    status = RepoStatus(
+        name="demo",
+        path=str(_REPO_PATH),
+        main_branch="main",
+        ahead=3,
+        tracking_ref_present=False,
+        tracking_ahead=0,
+    )
+    monkeypatch.setattr(repo, "get_worktree_status", lambda _wt: status)
+
+    assert repo.push(wt, feature_branch="feature/foo") == 3
 
 
 def test_unset_upstream_is_idempotent_when_no_upstream(
