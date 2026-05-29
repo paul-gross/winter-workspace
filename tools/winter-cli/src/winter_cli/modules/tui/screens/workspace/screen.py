@@ -30,6 +30,7 @@ from winter_cli.plugins.types import (
     ActionScope,
     FeatureEnvironmentContext,
     FeatureWorktreeContext,
+    StandaloneRepoContext,
     WorkspaceContext,
 )
 
@@ -252,6 +253,11 @@ class WorkspaceScreen(Screen):
             repo_name = grid.get_selected_repo()
             if wt_name is not None and repo_name is not None:
                 self._execute_worktree_action(action_name, wt_name, repo_name)
+        elif action.scope == ActionScope.standalone_repository:
+            singletons = self.query_one("#singletons", StandaloneReposTable)
+            repo_name = singletons.get_selected_repo()
+            if repo_name is not None:
+                self._execute_standalone_action(action_name, repo_name)
 
     @work(thread=True)
     def _execute_workspace_action(self, action_name: str) -> None:
@@ -280,6 +286,27 @@ class WorkspaceScreen(Screen):
         wt = next(wt for wt in env_worktrees.worktrees if wt.repository.name == repo_name)
         ctx = FeatureWorktreeContext(worktree=wt, suspend=self.app.suspend)
         for action in self._plugin_registry.actions_for_scope(ActionScope.feature_worktree):
+            if action.name == action_name:
+                action.handler(ctx)
+                return
+
+    @work(thread=True)
+    def _execute_standalone_action(self, action_name: str, repo_name: str) -> None:
+        repo = next(
+            (
+                r
+                for r in [
+                    *self._repo_factory.get_singleton_repos(),
+                    *self._repo_factory.get_standalone_repos(),
+                ]
+                if r.name == repo_name
+            ),
+            None,
+        )
+        if repo is None:
+            return
+        ctx = StandaloneRepoContext(repo=repo, suspend=self.app.suspend)
+        for action in self._plugin_registry.actions_for_scope(ActionScope.standalone_repository):
             if action.name == action_name:
                 action.handler(ctx)
                 return

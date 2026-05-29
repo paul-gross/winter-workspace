@@ -38,6 +38,15 @@ class StandaloneReposTable(DataTable):
         row, col = self.cursor_coordinate
         self.move_cursor(row=max(0, row - 1), column=col, animate=False)
 
+    def get_selected_repo(self) -> str | None:
+        """Return the selected standalone repo's name, or None if nothing is selected."""
+        if self.cursor_coordinate is None:
+            return None
+        row_idx = self.cursor_coordinate.row
+        if row_idx < 0 or row_idx >= len(self.statuses):
+            return None
+        return self.statuses[row_idx].name
+
     def watch_statuses(self) -> None:
         if len(self.statuses) == 0:
             self.clear(columns=True)

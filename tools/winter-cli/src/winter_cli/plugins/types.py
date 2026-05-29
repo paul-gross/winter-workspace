@@ -19,6 +19,7 @@ import click
 from winter_cli.modules.workspace.models import (
     FeatureEnvironment,
     FeatureWorktree,
+    StandaloneRepository,
     Workspace,
 )
 
@@ -58,6 +59,9 @@ class ActionScope(enum.Enum):
     feature_worktree = "feature_worktree"
     """Action operates on a specific repo worktree within a feature environment."""
 
+    standalone_repository = "standalone_repository"
+    """Action operates on a standalone repo (singleton or user-declared) in the standalone panel."""
+
 
 SuspendFn = Callable[[], "contextlib.AbstractContextManager[None]"]
 
@@ -80,7 +84,13 @@ class FeatureWorktreeContext:
     suspend: SuspendFn | None = None
 
 
-ActionContext = WorkspaceContext | FeatureEnvironmentContext | FeatureWorktreeContext
+@dataclasses.dataclass
+class StandaloneRepoContext:
+    repo: StandaloneRepository
+    suspend: SuspendFn | None = None
+
+
+ActionContext = WorkspaceContext | FeatureEnvironmentContext | FeatureWorktreeContext | StandaloneRepoContext
 
 ActionHandler = Callable[[ActionContext], None]
 
