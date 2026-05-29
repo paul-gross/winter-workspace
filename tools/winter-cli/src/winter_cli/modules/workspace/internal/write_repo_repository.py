@@ -106,7 +106,12 @@ class WriteRepoRepository(ReadRepoRepository):
                 autostash,
             )
 
-    def sync_ff_only(self, repo: ProjectRepository) -> None:
+    def sync_ff_only(self, repo: ProjectRepository) -> int:
+        """Fetch origin and fast-forward the source checkout's local main.
+
+        Returns the number of commits the local main advanced (0 when it was
+        already up to date), so `ws fetch` can report `+N` per repo.
+        """
         main_branch = repo.main_branch
         with git.Repo(str(repo.main_path)) as r:
             self._git_ops.run_remote_git(
@@ -116,6 +121,7 @@ class WriteRepoRepository(ReadRepoRepository):
                 cwd=repo.main_path,
                 message=f"sync_ff_only failed for {repo.name}",
             )
+            head_before = r.head.commit.hexsha
             try:
                 r.git.merge("--ff-only", f"origin/{main_branch}")
             except git.GitCommandError as exc:
@@ -124,6 +130,10 @@ class WriteRepoRepository(ReadRepoRepository):
                     message=f"sync_ff_only failed for {repo.name}",
                     cwd=repo.main_path,
                 ) from exc
+            head_after = r.head.commit.hexsha
+            if head_before == head_after:
+                return 0
+            return self._count_range(r, repo.name, f"{head_before}..{head_after}")
 
     def set_upstream(self, worktree: FeatureWorktree, remote_branch: str) -> None:
         # Write branch.<head>.{remote,merge} directly instead of using
@@ -304,15 +314,21 @@ class WriteRepoRepository(ReadRepoRepository):
         mode: PullMode,
         autostash: bool,
     ) -> RepoSyncOutcome:
+        # Commits the upstream is ahead of HEAD *before* we integrate — the
+        # number brought in by a clean ff / merge / rebase. Resolved once
+        # up-front (HEAD moves during a ff) and reported as `commits` on every
+        # success outcome; 0 means already up to date. Diverged outcomes carry
+        # their own ahead/behind span instead.
+        commits = self._count_range(r, repo_name, f"HEAD..{target_ref}")
         if mode == PullMode.ff_only:
-            return self._ff_only(r, repo_name, target_ref, autostash)
+            return self._ff_only(r, repo_name, target_ref, autostash, commits)
         if mode == PullMode.merge:
-            return self._ff_or_merge(r, repo_name, target_ref, autostash)
+            return self._ff_or_merge(r, repo_name, target_ref, autostash, commits)
         if mode == PullMode.rebase:
-            return self._ff_or_rebase(r, repo_name, target_ref, autostash)
+            return self._ff_or_rebase(r, repo_name, target_ref, autostash, commits)
         raise ValueError(f"unknown PullMode: {mode}")
 
-    def _ff_only(self, r: git.Repo, repo_name: str, target_ref: str, autostash: bool) -> RepoSyncOutcome:
+    def _ff_only(self, r: git.Repo, repo_name: str, target_ref: str, autostash: bool, commits: int) -> RepoSyncOutcome:
         head_before = r.head.commit.hexsha
         try:
             r.git.merge(*_autostash_args(autostash), "--ff-only", target_ref)
@@ -321,26 +337,30 @@ class WriteRepoRepository(ReadRepoRepository):
         head_after = r.head.commit.hexsha
         if head_before == head_after:
             return RepoSyncOutcome(repo_name=repo_name, sync_result=SyncResult.up_to_date)
-        return RepoSyncOutcome(repo_name=repo_name, sync_result=SyncResult.fast_forwarded)
+        return RepoSyncOutcome(repo_name=repo_name, sync_result=SyncResult.fast_forwarded, commits=commits)
 
-    def _ff_or_merge(self, r: git.Repo, repo_name: str, target_ref: str, autostash: bool) -> RepoSyncOutcome:
-        ff = self._ff_only(r, repo_name, target_ref, autostash)
+    def _ff_or_merge(
+        self, r: git.Repo, repo_name: str, target_ref: str, autostash: bool, commits: int
+    ) -> RepoSyncOutcome:
+        ff = self._ff_only(r, repo_name, target_ref, autostash, commits)
         if ff.sync_result != SyncResult.diverged:
             return ff
         try:
             r.git.merge(*_autostash_args(autostash), target_ref)
-            return RepoSyncOutcome(repo_name=repo_name, sync_result=SyncResult.merged)
+            return RepoSyncOutcome(repo_name=repo_name, sync_result=SyncResult.merged, commits=commits)
         except git.GitCommandError:
             self._abort(r.git.merge)
             return self._diverged_outcome(r, repo_name, target_ref)
 
-    def _ff_or_rebase(self, r: git.Repo, repo_name: str, target_ref: str, autostash: bool) -> RepoSyncOutcome:
-        ff = self._ff_only(r, repo_name, target_ref, autostash)
+    def _ff_or_rebase(
+        self, r: git.Repo, repo_name: str, target_ref: str, autostash: bool, commits: int
+    ) -> RepoSyncOutcome:
+        ff = self._ff_only(r, repo_name, target_ref, autostash, commits)
         if ff.sync_result != SyncResult.diverged:
             return ff
         try:
             r.git.rebase(*_autostash_args(autostash), target_ref)
-            return RepoSyncOutcome(repo_name=repo_name, sync_result=SyncResult.rebased)
+            return RepoSyncOutcome(repo_name=repo_name, sync_result=SyncResult.rebased, commits=commits)
         except git.GitCommandError:
             self._abort(r.git.rebase)
             return self._diverged_outcome(r, repo_name, target_ref)
@@ -453,6 +473,26 @@ class WriteRepoRepository(ReadRepoRepository):
             ahead=ahead,
             behind=behind,
         )
+
+    @staticmethod
+    def _count_range(r: git.Repo, repo_name: str, rev_range: str) -> int:
+        """`git rev-list --count <range>`, best-effort.
+
+        Used to report how many commits an operation moved (ff span, commits
+        integrated). A count is reporting metadata, not load-bearing — if the
+        rev-list fails (e.g. a ref stopped resolving mid-operation) we warn and
+        return 0 rather than failing the whole fetch / pull over a number.
+        """
+        try:
+            return int(r.git.rev_list("--count", rev_range))
+        except git.GitCommandError as exc:
+            logger.warning(
+                "commit-count probe failed for %s over %s: %s",
+                repo_name,
+                rev_range,
+                exc.stderr.strip() if isinstance(exc.stderr, str) else exc,
+            )
+            return 0
 
     @staticmethod
     def _has_ref(r: git.Repo, ref: str) -> bool:

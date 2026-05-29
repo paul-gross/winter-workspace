@@ -17,6 +17,7 @@ class IPullReporter(Protocol):
         scope_label: str,
         repo_name: str,
         result: SyncResult,
+        commits: int,
         ahead: int,
         behind: int,
     ) -> None: ...
@@ -52,6 +53,7 @@ class StreamPullReporter:
         scope_label: str,
         repo_name: str,
         result: SyncResult,
+        commits: int,
         ahead: int,
         behind: int,
     ) -> None:
@@ -60,12 +62,14 @@ class StreamPullReporter:
             self._echo(f"{prefix} diverged: +{ahead}/-{behind}", err=True)
         elif result == SyncResult.no_upstream:
             self._echo(f"{prefix} no upstream", err=True)
+        elif result == SyncResult.up_to_date:
+            self._echo(f"{prefix} up to date")
         elif result == SyncResult.merged:
-            self._echo(f"{prefix} merged (merge commit created)")
+            self._echo(f"{prefix} merged (+{commits})")
         elif result == SyncResult.rebased:
-            self._echo(f"{prefix} rebased (local commits replayed on upstream)")
+            self._echo(f"{prefix} rebased (+{commits})")
         else:
-            self._echo(f"{prefix} {result.value}")
+            self._echo(f"{prefix} fast-forwarded (+{commits})")
 
     def env_skipped(self, env: str, reason: str) -> None:
         self._echo(f"[{env}] skipped: {reason}", err=True)
@@ -97,6 +101,7 @@ class JsonPullReporter:
         scope_label: str,
         repo_name: str,
         result: SyncResult,
+        commits: int,
         ahead: int,
         behind: int,
     ) -> None:
@@ -106,6 +111,7 @@ class JsonPullReporter:
                 "scope": scope_label,
                 "repo": repo_name,
                 "result": result.value,
+                "commits": commits,
                 "ahead": ahead,
                 "behind": behind,
             }

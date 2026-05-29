@@ -142,7 +142,7 @@ class WorkspaceSyncService:
             for fut in concurrent.futures.as_completed(future_keys):
                 scope_label, repo_name = future_keys[fut]
                 outcome = self._collect_fetch(fut, repo_name)
-                reporter.repo_fetched(scope_label, repo_name, outcome.success, outcome.error)
+                reporter.repo_fetched(scope_label, repo_name, outcome.success, outcome.commits, outcome.error)
                 if scope_label == "project":
                     project_results.append(outcome)
                 else:
@@ -254,6 +254,7 @@ class WorkspaceSyncService:
                         "standalone",
                         outcome.repo_name,
                         outcome.sync_result,
+                        outcome.commits,
                         outcome.ahead,
                         outcome.behind,
                     )
@@ -372,6 +373,7 @@ class WorkspaceSyncService:
                 t.env_name,
                 outcome.repo_name,
                 outcome.sync_result,
+                outcome.commits,
                 outcome.ahead,
                 outcome.behind,
             )
@@ -411,7 +413,11 @@ class WorkspaceSyncService:
     @staticmethod
     def _collect_fetch(fut: concurrent.futures.Future, repo_name: str) -> RepoFetchOutcome:
         try:
-            fut.result()
-            return RepoFetchOutcome(repo_name=repo_name, success=True)
+            # Project repos run `sync_ff_only`, which returns the ff commit
+            # count; standalone repos run `fetch_standalone`, which returns
+            # None (no local branch is advanced). Normalize the latter to 0.
+            result = fut.result()
+            commits = result if isinstance(result, int) else 0
+            return RepoFetchOutcome(repo_name=repo_name, success=True, commits=commits)
         except RepoError as exc:
             return RepoFetchOutcome(repo_name=repo_name, success=False, error=str(exc))

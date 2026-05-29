@@ -74,8 +74,8 @@ class FakeWriteRepoRepository:
     accidental fan-out trips the test.
     """
 
-    def sync_ff_only(self, repo: ProjectRepository) -> None:
-        return None
+    def sync_ff_only(self, repo: ProjectRepository) -> int:
+        return 0
 
     def __getattr__(self, name: str) -> Any:
         raise AssertionError(f"FakeWriteRepoRepository.{name} called unexpectedly")
@@ -85,7 +85,7 @@ class _NullFetchReporter:
     def fetch_started(self) -> None:
         return None
 
-    def repo_fetched(self, scope: str, repo: str, success: bool, error: str | None) -> None:
+    def repo_fetched(self, scope: str, repo: str, success: bool, commits: int, error: str | None) -> None:
         return None
 
     def fetch_completed(self, success: bool) -> None:
@@ -99,7 +99,7 @@ class _NullPullReporter:
     def env_skipped(self, env: str, reason: str) -> None:
         return None
 
-    def repo_synced(self, scope: str, repo: str, result: Any, ahead: int, behind: int) -> None:
+    def repo_synced(self, scope: str, repo: str, result: Any, commits: int, ahead: int, behind: int) -> None:
         return None
 
     def pull_completed(self, success: bool) -> None:
@@ -206,16 +206,18 @@ class _SpyWriteRepoRepository:
     diverged source main.
     """
 
-    def __init__(self, raise_on: str | None = None) -> None:
+    def __init__(self, raise_on: str | None = None, commits: int = 0) -> None:
         self.synced: list[ProjectRepository] = []
         self._raise_on = raise_on
+        self._commits = commits
         self._lock = threading.Lock()
 
-    def sync_ff_only(self, repo: ProjectRepository) -> None:
+    def sync_ff_only(self, repo: ProjectRepository) -> int:
         with self._lock:
             self.synced.append(repo)
         if repo.name == self._raise_on:
             raise RepoError(f"sync_ff_only failed for {repo.name}", cwd=str(repo.main_path))
+        return self._commits
 
     def fetch(self, worktree: FeatureWorktree) -> None:
         raise AssertionError("fetch_all must fast-forward via sync_ff_only, not fetch")
@@ -287,6 +289,20 @@ def test_fetch_all_fast_forwards_source_checkouts_via_sync_ff_only(
     assert [r.name for r in repo_repo.synced] == ["demo"]
     assert repo_repo.synced[0].main_path == repo.main_path
     assert [o.repo_name for o in report.projects] == ["demo"]
+    assert report.success is True
+
+
+def test_fetch_all_propagates_sync_ff_only_commit_count(workspace_config: WorkspaceConfig, tmp_path: Path) -> None:
+    """The commit count `sync_ff_only` returns surfaces on the per-repo outcome."""
+    workspace = Workspace(root_path=tmp_path, session_prefix="t", main_branch="main")
+    env_worktrees, _ = _make_env_with_worktree(workspace, tmp_path)
+    repo_repo = _SpyWriteRepoRepository(commits=4)
+    svc = _make_fetch_service(workspace, workspace_config, env_worktrees, repo_repo)
+    reporter: IFetchReporter = _NullFetchReporter()  # type: ignore[assignment]
+
+    report = svc.fetch_all(scope=RepoScope.project, patterns=None, reporter=reporter)
+
+    assert [o.commits for o in report.projects] == [4]
     assert report.success is True
 
 

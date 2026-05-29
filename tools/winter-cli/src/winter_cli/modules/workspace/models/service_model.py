@@ -109,10 +109,18 @@ class SyncResult(enum.Enum):
 
 @dataclasses.dataclass
 class RepoSyncOutcome:
-    """Result of syncing a single repo — whether it fast-forwarded, merged, or diverged."""
+    """Result of syncing a single repo — whether it fast-forwarded, merged, or diverged.
+
+    `commits` is the number of upstream commits integrated on a successful
+    fast-forward / merge / rebase (0 when already up to date). `ahead` /
+    `behind` carry the divergence span and are populated only for the
+    `diverged` outcome. `commits` is the shared field name used across the
+    fetch / pull / push outcome models.
+    """
 
     repo_name: str
     sync_result: SyncResult
+    commits: int = 0
     ahead: int = 0
     behind: int = 0
 
@@ -203,10 +211,17 @@ class EnvDiffResult:
 
 @dataclasses.dataclass
 class RepoFetchOutcome:
-    """Result of fetching one repo — name and whether the fetch succeeded."""
+    """Result of fetching one repo — name, success, and how far local main advanced.
+
+    `commits` is the number of commits the source checkout's local main was
+    fast-forwarded by this fetch (0 when already up to date). Standalone
+    clones are only fetched, not fast-forwarded, so their `commits` stays 0.
+    Shares the `commits` field name with `RepoSyncOutcome` / `RepoPushOutcome`.
+    """
 
     repo_name: str
     success: bool
+    commits: int = 0
     error: str | None = None
 
 
