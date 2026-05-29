@@ -152,8 +152,15 @@ class FeatureWorktreesGrid(DataTable):
             return None
         if len(self.statuses) == 0:
             return None
-        row_idx = self.cursor_coordinate.row
-        repo_names = [rs.worktree.repository.name for rs in self.statuses[0].repo_statuses]
-        if row_idx < 0 or row_idx >= len(repo_names):
+        # Resolve the repo from the selected column's env. Col 0 is the
+        # "Repositories" label column with no env of its own, so fall back
+        # to the first env there — repo rows align across envs.
+        col_idx = self.cursor_coordinate.column
+        env_idx = col_idx - 1 if col_idx >= 1 else 0
+        if env_idx >= len(self.statuses):
             return None
-        return repo_names[row_idx]
+        repo_statuses = self.statuses[env_idx].repo_statuses
+        row_idx = self.cursor_coordinate.row
+        if row_idx < 0 or row_idx >= len(repo_statuses):
+            return None
+        return repo_statuses[row_idx].worktree.repository.name

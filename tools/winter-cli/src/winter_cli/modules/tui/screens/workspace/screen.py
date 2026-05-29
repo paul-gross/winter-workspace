@@ -248,8 +248,9 @@ class WorkspaceScreen(Screen):
         grid = self.query_one("#grid", FeatureWorktreesGrid)
         name = grid.get_selected_worktree()
         if name is not None:
+            repo_name = grid.get_selected_repo()
             app = cast("WinterDashboardApp", self.app)
-            app.push_screen(app.screen_factory.worktree_detail_screen(name))
+            app.push_screen(app.screen_factory.worktree_detail_screen(name, focused_repo=repo_name))
 
     def _run_plugin_action(self, action_name: str) -> None:
         action = next(

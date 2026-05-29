@@ -56,6 +56,7 @@ class WorktreeDetailScreen(Screen):
         workspace: Workspace,
         plugin_registry: PluginRegistry,
         error_log: ErrorLogService,
+        focused_repo: str | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -70,7 +71,7 @@ class WorktreeDetailScreen(Screen):
         self._error_log = error_log
         self._env_status: FeatureEnvironmentStatus | None = None
         self._repo_statuses: list[WorktreeRepoStatus] = []
-        self._focused_repo: str | None = None
+        self._focused_repo: str | None = focused_repo
         self._repo_detail: RepoStatus | None = None
         self._detail_repo_keys: list[str] = []
 
@@ -199,8 +200,15 @@ class WorktreeDetailScreen(Screen):
             table._update_count += 1
             table.refresh()
 
-        if len(repo_statuses) > 0 and self._focused_repo is None:
-            self._focused_repo = repo_statuses[0].worktree.repository.name
+        # Seed/repair the focused repo: fall back to the first repo when none
+        # was supplied or the supplied one isn't present in this env.
+        if repo_keys and self._focused_repo not in repo_keys:
+            self._focused_repo = repo_keys[0]
+
+        # On first render, place the cursor on the focused repo's row so the
+        # detail table opens on the repo the matrix cursor was on.
+        if not structure_matches and self._focused_repo in repo_keys:
+            table.move_cursor(row=repo_keys.index(self._focused_repo), animate=False)
 
         if self._focused_repo is not None:
             self._load_repo_detail(self._focused_repo)
