@@ -45,14 +45,28 @@ See [ai/workspace-layout.md](./ai/workspace-layout.md) for the full directory ma
 
 ## 🌲 Winter Ecosystem
 
-Winter is extensible by design — the framework, the meta workspace it's developed in, and its extensions all ship as separate repos that compose via `winter ws init`:
+Winter is extensible by design — the framework, the consumable extensions that add capability, and the reference implementations meant to be studied all ship as separate repos that compose via `winter ws init`.
+
+**The framework**
 
 - **[winter](https://github.com/paul-gross/winter)** — the framework itself: Python CLI, workspace skills, conventions; **fork this to start your own**
-- **[winter-workspace](https://github.com/paul-gross/winter-workspace)** — the maintainer's own workspace where winter is developed; pre-wired to the maintainer's project repos, not a starter template
-- **[winter-service-tmux](https://github.com/paul-gross/winter-service-tmux)** — extension: tmux-based service orchestration so agents can launch and monitor application suites
-- **[winter-product](https://github.com/paul-gross/winter-product)** — extension: planning agents and the `todo` skill
-- **[winter-workflow](https://github.com/paul-gross/winter-workflow)** — extension: the author's personal agentic workflow, interchangeable with your own
-- **[winter-codeberg](https://github.com/paul-gross/winter-codeberg)** — extension: AI-native Codeberg issue format and the `/wc-issue` skill
+
+**Consumable extensions** — generic capabilities a workspace installs and uses as-is:
+
+- **[winter-service-tmux](https://github.com/paul-gross/winter-service-tmux)** — tmux-based service orchestration so agents can launch and monitor application suites
+- **[winter-product](https://github.com/paul-gross/winter-product)** — planning agents and the `todo` skill
+- **[winter-github](https://github.com/paul-gross/winter-github)** — AI-native GitHub issue format and the `/wg-issue` skill
+- **[winter-codeberg](https://github.com/paul-gross/winter-codeberg)** — AI-native Codeberg issue format and the `/wc-issue` skill
+
+**Examples** — the maintainer's own opinionated, swappable implementations (the workflow, conventions, and workspace). Install and use them as-is, or fork them as a starting point for your own:
+
+- **[winter-workflow](https://github.com/paul-gross/winter-workflow)** — the maintainer's personal agentic workflow (the blizzard team and review loops); turnkey, but interchangeable — adopt it or fork your own
+- **[winter-harness](https://github.com/paul-gross/winter-harness)** — the maintainer's conventions library (code, agent-facing-markdown, and process conventions); usable as-is, or a template to fork for your own
+- **[winter-workspace](https://github.com/paul-gross/winter-workspace)** — the meta-workspace winter itself is built in, pre-wired to the maintainer's project repos; a worked example, not a starter template
+
+**Related** — not a winter extension, but built around winter:
+
+- **[winter-nvim](https://github.com/paul-gross/winter-nvim)** — a Neovim plugin that drives a winter workspace from inside the editor; it consumes winter rather than extending it
 
 ## 🌿 Forking
 
