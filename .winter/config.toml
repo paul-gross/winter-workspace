@@ -1,0 +1,54 @@
+main_branch = "master"
+
+[[project_repository]]
+name = "winter"
+url = "git@github.com:paul-gross/winter.git"
+cmd = ["cd tools/winter-cli && mise trust . && mise run install"]
+
+[[project_repository]]
+name = "winter-github"
+url = "git@github.com:paul-gross/winter-github.git"
+
+[[project_repository]]
+name = "winter-harness"
+url = "git@github.com:paul-gross/winter-harness.git"
+
+[[project_repository]]
+name = "winter-product"
+url = "git@github.com:paul-gross/winter-product.git"
+
+[[project_repository]]
+name = "winter-service-tmux"
+url = "git@github.com:paul-gross/winter-service-tmux.git"
+
+[[project_repository]]
+name = "winter-workflow"
+url = "git@github.com:paul-gross/winter-workflow.git"
+
+[[project_repository]]
+name = "winter-docs"
+url = "git@github.com:paul-gross/winter-docs.git"
+cmd = ["npm install"]
+
+[[project_repository]]
+url = "git@github.com:paul-gross/winter-nvim.git"
+
+[[standalone_repository]]
+name = "winter-github"
+url = "git@github.com:paul-gross/winter-github.git"
+path = ".winter/ext/github"
+
+[[standalone_repository]]
+name = "winter-harness"
+url = "git@github.com:paul-gross/winter-harness.git"
+path = ".winter/ext/harness"
+
+[[standalone_repository]]
+name = "winter-service-tmux"
+url = "git@github.com:paul-gross/winter-service-tmux.git"
+path = ".winter/ext/service-tmux"
+
+[[standalone_repository]]
+name = "winter-workflow"
+url = "git@github.com:paul-gross/winter-workflow.git"
+path = ".winter/ext/workflow"
