@@ -14,6 +14,7 @@ from winter_cli.modules.workspace.models import (
     FeatureEnvironment,
     FeatureWorktree,
     ProjectRepository,
+    RepoError,
     StandaloneRepository,
     Workspace,
 )
@@ -224,6 +225,79 @@ def test_get_worktree_status_delegates_to_repo_status(
 
     assert status.name == "demo"
     assert status.branch == "alpha"
+
+
+def test_get_worktree_status_builds_commit_graph(monkeypatch: pytest.MonkeyPatch, repo: ReadRepoRepository) -> None:
+    # A feature worktree graphs the divergence from origin/<main> with --boundary
+    # so the merge-base commit anchors the history.
+    git_mock = _fake_git_repo(monkeypatch)
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+    r = git_mock.Repo.return_value
+    r.active_branch.name = "alpha"
+    r.active_branch.tracking_branch.return_value = None
+    r.index.diff.return_value = []
+    r.untracked_files = []
+    r.git.rev_list.return_value = "0"
+    r.iter_commits.return_value = []
+    r.git.log.return_value = "* abc1234 feature work\no def5678 base"
+    wt = _worktree()
+
+    status = repo.get_worktree_status(wt)
+
+    assert status.commit_graph == ["* abc1234 feature work", "o def5678 base"]
+    r.git.log.assert_called_once_with("--graph", "--oneline", "--decorate", "--boundary", "origin/main..HEAD")
+
+
+def test_commit_graph_falls_back_to_head_when_main_ref_missing(
+    monkeypatch: pytest.MonkeyPatch, repo: ReadRepoRepository
+) -> None:
+    # Fresh clone with no origin/main yet: the boundary range raises, the ref
+    # verify confirms it's genuinely missing, and the HEAD graph is used instead.
+    git_mock = _fake_git_repo(monkeypatch)
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+    r = git_mock.Repo.return_value
+    r.active_branch.name = "alpha"
+    r.active_branch.tracking_branch.return_value = None
+    r.index.diff.return_value = []
+    r.untracked_files = []
+    r.git.rev_list.return_value = "0"
+    r.iter_commits.return_value = []
+
+    def _log(*args: str) -> str:
+        if "origin/main..HEAD" in args:
+            raise git.GitCommandError("log", 128)
+        return "* abc1234 only commit"
+
+    r.git.log.side_effect = _log
+    r.git.rev_parse.side_effect = git.GitCommandError("rev-parse", 1)
+    wt = _worktree()
+
+    status = repo.get_worktree_status(wt)
+
+    assert status.commit_graph == ["* abc1234 only commit"]
+    r.git.log.assert_any_call("--graph", "--oneline", "--decorate", "--max-count=30", "HEAD")
+
+
+def test_commit_graph_raises_when_present_main_ref_fails(
+    monkeypatch: pytest.MonkeyPatch, repo: ReadRepoRepository
+) -> None:
+    # The main ref resolves but `git log` still fails — a real error, not the
+    # tolerated missing-ref case, so it propagates as a RepoError.
+    git_mock = _fake_git_repo(monkeypatch)
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+    r = git_mock.Repo.return_value
+    r.active_branch.name = "alpha"
+    r.active_branch.tracking_branch.return_value = None
+    r.index.diff.return_value = []
+    r.untracked_files = []
+    r.git.rev_list.return_value = "0"
+    r.iter_commits.return_value = []
+    r.git.log.side_effect = git.GitCommandError("log", 128)
+    r.git.rev_parse.return_value = "deadbeef"  # ref present
+    wt = _worktree()
+
+    with pytest.raises(RepoError):
+        repo.get_worktree_status(wt)
 
 
 def test_get_diff_for_uncommitted_returns_text_and_stats(

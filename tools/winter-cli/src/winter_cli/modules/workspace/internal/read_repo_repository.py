@@ -320,6 +320,8 @@ class ReadRepoRepository:
                                 cwd=repo_path,
                             ) from exc
 
+                commit_graph = self._build_commit_graph(r, name, repo_path, main_branch, recent_from_head)
+
                 return RepoStatus(
                     name=name,
                     path=str(repo_path),
@@ -329,6 +331,7 @@ class ReadRepoRepository:
                     behind=behind,
                     dirty_files=dirty_files,
                     recent_commits=recent_commits,
+                    commit_graph=commit_graph,
                     tracking_branch=tracking_branch,
                     tracking_ahead=tracking_ahead,
                     tracking_behind=tracking_behind,
@@ -336,6 +339,45 @@ class ReadRepoRepository:
                 )
         except (git.InvalidGitRepositoryError, git.NoSuchPathError):
             return RepoStatus(name=name, path=str(repo_path), main_branch=main_branch)
+
+    def _build_commit_graph(
+        self,
+        r: git.Repo,
+        name: str,
+        repo_path: Path,
+        main_branch: str | None,
+        recent_from_head: bool,
+    ) -> list[str]:
+        # Feature worktrees graph the divergence from origin/<main>; `--boundary`
+        # surfaces the merge-base commit (marked `o`) so the history shows where
+        # the branch left main, with full branch/merge topology. Standalones and
+        # repos without a main branch fall back to a bounded HEAD graph.
+        main_ref = f"origin/{main_branch}" if main_branch else None
+        if main_ref is not None and not recent_from_head:
+            try:
+                out = r.git.log("--graph", "--oneline", "--decorate", "--boundary", f"{main_ref}..HEAD")
+                return out.splitlines()
+            except git.GitCommandError as exc:
+                # A missing `origin/<main>` (fresh clone, no fetch) is the same
+                # tolerated case as the ahead/behind probe — fall through to the
+                # HEAD graph. Any other failure against a present ref is real.
+                try:
+                    r.git.rev_parse("--verify", "--quiet", main_ref)
+                except git.GitCommandError:
+                    pass
+                else:
+                    raise self._error_factory.from_git(
+                        exc,
+                        message=f"commit-graph probe failed for {name}",
+                        cwd=repo_path,
+                    ) from exc
+
+        # HEAD fallback — bounded, and tolerant of an unborn HEAD (no commits).
+        try:
+            out = r.git.log("--graph", "--oneline", "--decorate", "--max-count=30", "HEAD")
+            return out.splitlines()
+        except git.GitCommandError:
+            return []
 
 
 # Typecheck-time conformance sentinel — Pyright rejects this return if

@@ -81,6 +81,20 @@ StandaloneDetailScreen {
     height: 1fr;
 }
 
+/* Info body: the status header sizes to its content; the commit graph fills the
+   remaining height and scrolls when the history is taller than its area. */
+#repo-info {
+    height: auto;
+}
+
+#repo-graph-scroll {
+    height: 1fr;
+}
+
+#repo-graph {
+    height: auto;
+}
+
 ExtensionSlot {
     width: auto;
     height: auto;

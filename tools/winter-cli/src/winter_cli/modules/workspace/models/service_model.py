@@ -45,6 +45,15 @@ class RepoStatus:
     behind: int = 0
     dirty_files: list[str] = dataclasses.field(default_factory=list)
     recent_commits: list[RepoCommit] = dataclasses.field(default_factory=list)
+    commit_graph: list[str] = dataclasses.field(default_factory=list)
+    """`git log --graph --oneline`-style lines down to the merge-base with main.
+
+    Each entry is one rendered graph line (graph glyphs + abbreviated hash +
+    decoration + subject), preserving branch/merge topology — unlike the flat,
+    capped `recent_commits` list the matrix and standalone summaries still use.
+    Empty when HEAD has no commits beyond `origin/<main>` or `origin/<main>` is
+    missing (fresh clone, no fetch).
+    """
     tracking_branch: str | None = None
     tracking_ahead: int = 0
     tracking_behind: int = 0

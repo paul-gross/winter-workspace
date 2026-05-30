@@ -12,6 +12,7 @@ from textual.widgets import DataTable, Footer, Header, Static
 
 from winter_cli.modules.tui.error_log import ErrorLogService
 from winter_cli.modules.tui.screens.plugin_action_mixin import PluginActionMixin
+from winter_cli.modules.tui.screens.workspace.repo_status import render_repo_cell
 from winter_cli.modules.tui.widgets.refresh_status import RefreshStatus
 from winter_cli.modules.tui.widgets.repo_detail_view import PanelOutcome, RepoDetailView, render_detail_panels
 from winter_cli.modules.workspace.env_status_service import EnvStatusService
@@ -159,9 +160,7 @@ class WorktreeDetailScreen(PluginActionMixin, Screen):
             table.clear(columns=True)
             table.add_column("Repo", key="repo")
             table.add_column("Branch", key="branch")
-            table.add_column("Ahead", key="ahead")
-            table.add_column("Behind", key="behind")
-            table.add_column("Dirty", key="dirty")
+            table.add_column("Status", key="status")
             table.add_column("", key="ext")
             self._detail_repo_keys = repo_keys
 
@@ -170,7 +169,7 @@ class WorktreeDetailScreen(PluginActionMixin, Screen):
                 table.add_row(
                     name,
                     rs.branch or "—",
-                    *self._render_repo_cells(rs),
+                    render_repo_cell(rs, include_extensions=False),
                     self._render_extensions(rs),
                     key=name,
                 )
@@ -178,10 +177,7 @@ class WorktreeDetailScreen(PluginActionMixin, Screen):
             for rs in repo_statuses:
                 name = rs.worktree.repository.name
                 table.update_cell(name, "branch", rs.branch or "—")
-                ahead, behind, dirty = self._render_repo_cells(rs)
-                table.update_cell(name, "ahead", ahead)
-                table.update_cell(name, "behind", behind)
-                table.update_cell(name, "dirty", dirty)
+                table.update_cell(name, "status", render_repo_cell(rs, include_extensions=False))
                 table.update_cell(name, "ext", self._render_extensions(rs), update_width=True)
             table._update_count += 1
             table.refresh()
@@ -200,13 +196,6 @@ class WorktreeDetailScreen(PluginActionMixin, Screen):
             self._load_repo_detail(self._focused_repo)
 
         self.query_one("#refresh-status", RefreshStatus).finish_refresh()
-
-    @staticmethod
-    def _render_repo_cells(rs: WorktreeRepoStatus) -> tuple[Text, Text, Text]:
-        ahead = Text(str(rs.ahead), style="green") if rs.ahead > 0 else Text("0", style="dim")
-        behind = Text(str(rs.behind), style="yellow") if rs.behind > 0 else Text("0", style="dim")
-        dirty = Text(str(rs.dirty_count), style="red") if rs.dirty_count > 0 else Text("0", style="dim")
-        return ahead, behind, dirty
 
     @staticmethod
     def _render_extensions(rs: WorktreeRepoStatus) -> Text:

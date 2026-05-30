@@ -18,13 +18,19 @@ from typing import Any, cast
 
 import pytest
 from textual.app import App, ComposeResult
+from textual.containers import VerticalScroll
 from textual.screen import Screen
 from textual.widgets import Static, TabbedContent
 
 from winter_cli.modules.tui.screens.standalone_detail import StandaloneDetailScreen
 from winter_cli.modules.tui.screens.workspace.screen import WorkspaceScreen
 from winter_cli.modules.tui.screens.workspace.standalone_repos import StandaloneReposTable
-from winter_cli.modules.tui.widgets.repo_detail_view import RepoDetailView, render_detail_panels
+from winter_cli.modules.tui.widgets.repo_detail_view import (
+    RepoDetailView,
+    build_commit_graph,
+    build_repo_info_markup,
+    render_detail_panels,
+)
 from winter_cli.modules.workspace.models import RepoCommit, RepoStatus, StandaloneRepository, Workspace
 from winter_cli.modules.workspace.models.service_model import StandaloneRepoStatus
 from winter_cli.plugins.types import DetailPanelContext
@@ -81,6 +87,61 @@ def test_render_detail_panels_coerces_non_renderable_to_str() -> None:
     assert outcomes[0].content == "1234"
 
 
+# --- build_repo_info_markup upstream wording ---------------------------------
+
+
+def test_info_markup_no_upstream() -> None:
+    detail = RepoStatus(name="r", path="/p", main_branch="main", tracking_branch=None)
+    assert "Upstream: [dim]none[/dim]" in build_repo_info_markup(detail)
+
+
+def test_info_markup_unborn_upstream() -> None:
+    # tracking_ref_present == False — configured but never pushed/fetched.
+    detail = RepoStatus(
+        name="r",
+        path="/p",
+        main_branch="main",
+        tracking_branch="origin/feature/x",
+        tracking_ref_present=False,
+    )
+    markup = build_repo_info_markup(detail)
+    assert "origin/feature/x configured, not yet pushed/fetched" in markup
+
+
+def test_info_markup_tracked_and_present() -> None:
+    detail = RepoStatus(
+        name="r",
+        path="/p",
+        main_branch="main",
+        tracking_branch="origin/feature/x",
+        tracking_ref_present=True,
+        tracking_ahead=2,
+        tracking_behind=0,
+    )
+    markup = build_repo_info_markup(detail)
+    assert "tracking origin/feature/x — ahead 2, behind 0" in markup
+
+
+# --- build_commit_graph -------------------------------------------------------
+
+
+def test_commit_graph_empty_state_names_main() -> None:
+    detail = RepoStatus(name="r", path="/p", main_branch="main")
+    assert "No commits beyond origin/main" in build_commit_graph(detail).plain
+
+
+def test_commit_graph_renders_topology_lines() -> None:
+    detail = RepoStatus(
+        name="r",
+        path="/p",
+        main_branch="main",
+        commit_graph=["* abc1234 work", "o def5678 base"],
+    )
+    plain = build_commit_graph(detail).plain
+    assert "* abc1234 work" in plain
+    assert "o def5678 base" in plain
+
+
 # --- RepoDetailView -----------------------------------------------------------
 
 
@@ -100,7 +161,9 @@ def _repo_status() -> RepoStatus:
         main_branch=None,
         branch="main",
         tracking_branch="origin/main",
+        tracking_ref_present=True,
         recent_commits=[RepoCommit(short_hash="abc1234", message="recent work")],
+        commit_graph=["* abc1234 recent work"],
     )
 
 
@@ -112,6 +175,9 @@ async def test_view_with_zero_panels_has_no_tab_bar() -> None:
         view = app.query_one("#detail-info", RepoDetailView)
         assert len(view.query(TabbedContent)) == 0
         assert view.query_one("#repo-info", Static) is not None
+        # The commit graph lives in a scrollable container so tall histories scroll.
+        assert isinstance(view.query_one("#repo-graph-scroll"), VerticalScroll)
+        assert view.query_one("#repo-graph", Static) is not None
 
 
 @pytest.mark.asyncio
@@ -127,7 +193,7 @@ async def test_view_with_panels_renders_tabs_and_updates_content() -> None:
         view.show_repo(_repo_status(), outcomes)
         await pilot.pause()
 
-        assert "recent work" in str(view.query_one("#repo-info", Static).render())
+        assert "recent work" in str(view.query_one("#repo-graph", Static).render())
         assert "panel body" in str(view.query_one("#detail-panel-0", Static).render())
 
 
@@ -214,7 +280,7 @@ async def test_standalone_detail_shows_repo_and_panel() -> None:
         assert captured[0].worktree is None
 
         view = screen.query_one("#detail-info", RepoDetailView)
-        assert "recent work" in str(view.query_one("#repo-info", Static).render())
+        assert "recent work" in str(view.query_one("#repo-graph", Static).render())
         assert "panel body" in str(view.query_one("#detail-panel-0", Static).render())
 
 
@@ -227,7 +293,7 @@ async def test_standalone_detail_with_no_panels_renders_plain_info() -> None:
         await pilot.pause()
         view = screen.query_one("#detail-info", RepoDetailView)
         assert len(view.query(TabbedContent)) == 0
-        assert "recent work" in str(view.query_one("#repo-info", Static).render())
+        assert "recent work" in str(view.query_one("#repo-graph", Static).render())
 
 
 # --- Enter on a standalone row drills in -------------------------------------

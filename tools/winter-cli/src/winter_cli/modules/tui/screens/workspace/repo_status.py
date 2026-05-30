@@ -5,7 +5,7 @@ from rich.text import Text
 from winter_cli.modules.workspace.models import WorktreeRepoStatus
 
 
-def render_repo_cell(repo_status: WorktreeRepoStatus) -> Text:
+def render_repo_cell(repo_status: WorktreeRepoStatus, include_extensions: bool = True) -> Text:
     parts: list[tuple[str, str]] = []
 
     if repo_status.ahead > 0:
@@ -62,14 +62,17 @@ def render_repo_cell(repo_status: WorktreeRepoStatus) -> Text:
         prefix = " " if parts else ""
         text.append(f"{prefix}[+]", style="dark_orange")
 
-    for key, value in repo_status.extensions.items():
-        if key.startswith("_"):
-            continue
-        text.append(" ")
-        if isinstance(value, Text):
-            text.append(value)
-        else:
-            badge = str(value) if value else key
-            text.append(badge, style="cyan")
+    # The worktree-detail table carries extensions in a dedicated column, so it
+    # asks for the bare status cell; the matrix inlines the badges here.
+    if include_extensions:
+        for key, value in repo_status.extensions.items():
+            if key.startswith("_"):
+                continue
+            text.append(" ")
+            if isinstance(value, Text):
+                text.append(value)
+            else:
+                badge = str(value) if value else key
+                text.append(badge, style="cyan")
 
     return text
