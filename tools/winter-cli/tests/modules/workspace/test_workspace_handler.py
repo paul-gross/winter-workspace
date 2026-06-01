@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -16,6 +16,8 @@ from winter_cli.modules.workspace.models import (
     FetchReport,
     RepoFetchOutcome,
     RepoScope,
+    StandaloneRepository,
+    StandaloneRepoStatus,
     WorktreeRepoStatus,
 )
 
@@ -136,14 +138,25 @@ def _make_worktrees_handler(
     environments: list[Any],
     project_repos: list[Any],
     standalone_repos: list[Any],
+    workspace_repo_singleton: Any = None,
+    workspace_status: Any = None,
 ) -> WorkspaceHandler:
-    """Build a WorkspaceHandler with the minimum stubs worktrees() touches."""
+    """Build a WorkspaceHandler with the minimum stubs worktrees() touches.
+
+    `workspace_repo_singleton` stubs `RepositoryFactory.get_workspace_repo()`
+    (the implicit workspace-root entry); it defaults to None so tests that
+    don't care about the workspace row see no extra entry.
+    """
     workspace_repo = MagicMock()
     workspace_repo.get_environments.return_value = environments
 
     repo_factory = MagicMock()
     repo_factory.get_project_repos.return_value = project_repos
     repo_factory.get_standalone_repos.return_value = standalone_repos
+    repo_factory.get_workspace_repo.return_value = workspace_repo_singleton
+
+    repo_repo = MagicMock()
+    repo_repo.get_standalone_status.return_value = workspace_status
 
     env_status_svc = MagicMock()
     env_status_svc.get_feature_environment_worktrees.side_effect = lambda env, repos: _make_env_worktrees_mock(
@@ -160,7 +173,7 @@ def _make_worktrees_handler(
         workspace_merge_svc=MagicMock(),
         env_checkout_svc=MagicMock(),
         workspace_repo=workspace_repo,
-        repo_repo=MagicMock(),
+        repo_repo=repo_repo,
         repo_factory=repo_factory,
         drift_warning_svc=MagicMock(),
         prune_svc=MagicMock(),
@@ -330,6 +343,7 @@ def test_worktrees_human_table_calls_render_table_with_expected_rows(
     repo_factory: MagicMock = MagicMock()
     repo_factory.get_project_repos.return_value = [winter_repo]
     repo_factory.get_standalone_repos.return_value = []
+    repo_factory.get_workspace_repo.return_value = None
 
     handler = WorkspaceHandler(
         env_status_svc=env_status_svc,
@@ -386,6 +400,7 @@ def _make_worktrees_handler_with_status(
     repo_factory = MagicMock()
     repo_factory.get_project_repos.return_value = project_repos
     repo_factory.get_standalone_repos.return_value = standalone_repos
+    repo_factory.get_workspace_repo.return_value = None
 
     def _make_env_worktrees(env: Any, repos: list[Any]) -> Any:
         return _make_env_worktrees_mock(env, repos)
@@ -518,3 +533,144 @@ def test_worktrees_json_with_status_clean_repo_has_zero_dirty(
     assert item["ahead"] == 0
     assert item["behind"] == 0
     assert item["dirty"] == 0
+
+
+# ---------------------------------------------------------------------------
+# worktrees() — implicit workspace repo entry
+# ---------------------------------------------------------------------------
+
+
+def test_worktrees_json_includes_workspace_entry(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[Any],
+) -> None:
+    """The implicit workspace repo appears as a `<workspace>` entry in --json output."""
+    wt_dir = tmp_path / "alpha" / "winter"
+    wt_dir.mkdir(parents=True)
+
+    alpha_env = MagicMock()
+    alpha_env.name = "alpha"
+    alpha_env.path = tmp_path / "alpha"
+
+    winter_repo = MagicMock()
+    winter_repo.name = "winter"
+
+    workspace_singleton = StandaloneRepository(name="winter-workspace", path=tmp_path)
+
+    handler = _make_worktrees_handler(
+        environments=[alpha_env],
+        project_repos=[winter_repo],
+        standalone_repos=[],
+        workspace_repo_singleton=workspace_singleton,
+    )
+
+    handler.worktrees(EnvWorktreesParams(output_json=True))
+
+    items = json.loads(capsys.readouterr().out)
+    assert len(items) == 2
+
+    ws_item = next(i for i in items if i["kind"] == "workspace")
+    assert ws_item["env"] is None
+    assert ws_item["repo"] is None
+    assert ws_item["name"] == "winter-workspace"
+    assert ws_item["label"] == "<workspace>"
+    assert ws_item["path"] == str(tmp_path)
+
+
+def test_worktrees_omits_workspace_entry_when_absent(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[Any],
+) -> None:
+    """No workspace entry is emitted when get_workspace_repo() returns None."""
+    handler = _make_worktrees_handler(
+        environments=[],
+        project_repos=[],
+        standalone_repos=[],
+        workspace_repo_singleton=None,
+    )
+
+    handler.worktrees(EnvWorktreesParams(output_json=True))
+
+    items = json.loads(capsys.readouterr().out)
+    assert items == []
+
+
+def test_worktrees_human_table_includes_workspace_row(
+    tmp_path: Path,
+) -> None:
+    """The workspace entry surfaces as a `<workspace>` row in the human table."""
+    workspace_singleton = StandaloneRepository(name="winter-workspace", path=tmp_path)
+
+    handler = _make_worktrees_handler(
+        environments=[],
+        project_repos=[],
+        standalone_repos=[],
+        workspace_repo_singleton=workspace_singleton,
+    )
+
+    cli_output_svc = cast(MagicMock, handler._cli_output_svc)
+    handler.worktrees(EnvWorktreesParams(output_json=False))
+
+    cli_output_svc.render_table.assert_called_once()
+    rows = cli_output_svc.render_table.call_args[0][0]
+    assert rows == [["<workspace>", "workspace", str(tmp_path)]]
+
+
+def test_worktrees_with_status_populates_workspace_status(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[Any],
+) -> None:
+    """--status derives ahead/behind/dirty for the workspace entry from its repo status."""
+    workspace_singleton = StandaloneRepository(name="winter-workspace", path=tmp_path)
+    workspace_status = StandaloneRepoStatus(
+        repository=workspace_singleton,
+        branch="workspace",
+        ahead=2,
+        behind=1,
+        dirty_count=4,
+    )
+
+    handler = _make_worktrees_handler(
+        environments=[],
+        project_repos=[],
+        standalone_repos=[],
+        workspace_repo_singleton=workspace_singleton,
+        workspace_status=workspace_status,
+    )
+
+    handler.worktrees(EnvWorktreesParams(output_json=True, with_status=True))
+
+    items = json.loads(capsys.readouterr().out)
+    assert len(items) == 1
+    ws_item = items[0]
+    assert ws_item["kind"] == "workspace"
+    assert ws_item["ahead"] == 2
+    assert ws_item["behind"] == 1
+    assert ws_item["dirty"] == 4
+
+
+def test_worktrees_with_status_workspace_status_none_when_branch_absent(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[Any],
+) -> None:
+    """When the workspace status has no active branch, status fields fall back to None."""
+    workspace_singleton = StandaloneRepository(name="winter-workspace", path=tmp_path)
+    # branch=None models a missing / not-a-repo workspace root — status undecidable.
+    workspace_status = StandaloneRepoStatus(repository=workspace_singleton, branch=None)
+
+    handler = _make_worktrees_handler(
+        environments=[],
+        project_repos=[],
+        standalone_repos=[],
+        workspace_repo_singleton=workspace_singleton,
+        workspace_status=workspace_status,
+    )
+
+    handler.worktrees(EnvWorktreesParams(output_json=True, with_status=True))
+
+    items = json.loads(capsys.readouterr().out)
+    assert len(items) == 1
+    ws_item = items[0]
+    assert ws_item["ahead"] is None
+    assert ws_item["behind"] is None
+    assert ws_item["dirty"] is None

@@ -60,6 +60,23 @@ class RepositoryFactory:
             result.append(StandaloneRepository(name=r.name, path=path))
         return result
 
+    def get_workspace_repo(self) -> StandaloneRepository | None:
+        """Return the implicit workspace singleton — the workspace root itself.
+
+        The workspace root is a real git repo on the workspace branch but has no
+        `<env>/<repo>` location, so callers that need to surface it on its own
+        (e.g. `ws worktrees`) resolve it through this focused accessor rather
+        than filtering `get_singleton_repos()` by type.
+
+        The workspace-root path resolution mirrors `get_singleton_repos()` (where
+        `_SINGLETON_PATHS[SingletonType.workspace] == ()` maps to `workspace_root`);
+        keep the two in sync if that mapping ever changes.
+        """
+        for r in self._config.singleton_repos:
+            if r.type is SingletonType.workspace:
+                return StandaloneRepository(name=r.name, path=self._config.workspace_root)
+        return None
+
     def get_standalone_repos(self) -> list[StandaloneRepository]:
         """Return user-declared standalone repos from [[standalone_repository]] in config.
 

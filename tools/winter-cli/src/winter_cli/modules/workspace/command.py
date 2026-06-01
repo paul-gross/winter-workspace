@@ -185,11 +185,13 @@ def ws_list(ctx: click.Context, output_json: bool):
 def ws_worktrees(ctx: click.Context, output_json: bool, with_status: bool):
     """List feature-environment <env>/<repo> worktrees and standalone repos.
 
-    Emits all existing feature-environment worktrees across every env, followed
-    by all standalone repositories. Singleton repos (workspace, product, harness)
-    are not included. Entries whose directory does not exist on disk are omitted.
-    Intended for use by editor integrations (e.g. a Neovim fuzzy-finder plugin)
-    to enumerate locations for `cd`.
+    Emits all existing feature-environment worktrees across every env (kind
+    "worktree"), followed by all standalone repositories (kind "standalone"),
+    and finally the implicit workspace repo — the workspace root itself — as a
+    single kind "workspace" entry labelled <workspace>. The other singleton
+    repos (product, harness) are not included. Entries whose directory does not
+    exist on disk are omitted. Intended for use by editor integrations (e.g. a
+    Neovim fuzzy-finder plugin) to enumerate locations for `cd`.
 
     \b
       winter ws worktrees                    # human-readable table

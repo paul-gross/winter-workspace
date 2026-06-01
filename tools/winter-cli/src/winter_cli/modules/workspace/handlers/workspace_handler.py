@@ -23,6 +23,7 @@ from winter_cli.modules.workspace.models import (
     PinnedScope,
     PullMode,
     PushReport,
+    RepoError,
     RepoScope,
     SyncResult,
     Workspace,
@@ -131,6 +132,12 @@ class WorkspacePruneParams:
 class EnvWorktreesParams:
     output_json: bool
     with_status: bool = False
+
+
+# Sentinel label for the implicit workspace repo (the workspace root). It has no
+# `<env>/<repo>` location, so it renders under a stable, recognizable name in both
+# the `ws worktrees` table and `--json` output (and therefore the neovim picker).
+_WORKSPACE_LABEL = "<workspace>"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -485,6 +492,34 @@ class WorkspaceHandler:
                             path=str(standalone.path),
                         )
                     )
+
+        workspace_repo = self._repo_factory.get_workspace_repo()
+        if workspace_repo is not None and workspace_repo.path.exists() and workspace_repo.path.is_dir():
+            ahead = behind = dirty = None
+            if params.with_status:
+                # The workspace root is a real repo on the workspace branch, so —
+                # unlike a user-declared standalone — its ahead/behind/dirty are
+                # derivable. A failed probe leaves the fields None rather than
+                # crashing the whole listing.
+                try:
+                    ws_status = self._repo_repo.get_standalone_status(workspace_repo)
+                except RepoError:
+                    ws_status = None
+                if ws_status is not None and ws_status.branch is not None:
+                    ahead, behind, dirty = ws_status.ahead, ws_status.behind, ws_status.dirty_count
+            locations.append(
+                WorktreeLocation(
+                    kind="workspace",
+                    env=None,
+                    repo=None,
+                    name=workspace_repo.name,
+                    label=_WORKSPACE_LABEL,
+                    path=str(workspace_repo.path),
+                    ahead=ahead,
+                    behind=behind,
+                    dirty=dirty,
+                )
+            )
 
         if params.output_json:
             _echo_json([_worktree_location_to_dict(loc, params.with_status) for loc in locations])
