@@ -1,7 +1,6 @@
 ---
 name: ws
 description: Workspace guide - lists available ws-* skills and routes requests to the right one
-model: haiku
 allowed-tools:
 ---
 

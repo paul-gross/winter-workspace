@@ -1,7 +1,6 @@
 ---
 name: ws-init
 description: Non-interactive idempotent reconcile of the workspace, a feature environment, or a project repo against .winter/config.toml
-model: opus
 allowed-tools: Bash, Read
 ---
 

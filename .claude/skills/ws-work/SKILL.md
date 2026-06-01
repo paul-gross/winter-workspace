@@ -1,7 +1,6 @@
 ---
 name: ws-work
 description: Start working on a plan — use when the user says "work on <name>", "implement <name>", or "start the <name>". Reads the plan, selects a worktree, and begins implementation solo or with a team.
-model: opus
 allowed-tools: Bash, Read, Write, Edit, Glob, Grep, Task, TeamCreate, TaskCreate, TaskUpdate, TaskList, SendMessage, AskUserQuestion
 ---
 

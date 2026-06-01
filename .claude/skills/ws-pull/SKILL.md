@@ -1,7 +1,6 @@
 ---
 name: ws-pull
 description: Pull remote commits into a feature environment, a standalone repo, or the workspace branch
-model: opus
 allowed-tools: Bash, Read
 ---
 
