@@ -8,7 +8,7 @@ Push local commits from one of: the workspace branch, a standalone repo, or a fe
 
 ## Big picture
 
-A feature environment contains a worktree for every project repo, so pushing one is a multi-repo operation. Use `winter ws push` — it pushes every matched worktree to its tracked upstream in parallel and honors pinned-repo rules. See [ai/winter-cli/usage.md](./ai/winter-cli/usage.md) and [ai/worktree-ops.md](./ai/worktree-ops.md) for the full reference.
+A feature environment contains a worktree for every project repo, so pushing one is a multi-repo operation. Use `winter ws push` — it pushes every matched worktree to its tracked upstream in parallel and honors pinned-repo rules. For the full reference, start at the CLI hub [ai/winter-cli/index.md](./ai/winter-cli/index.md), then read the specific topic [ai/winter-cli/usage/ws/push.md](./ai/winter-cli/usage/ws/push.md) — plus [ai/worktree-ops.md](./ai/worktree-ops.md).
 
 Use raw `git push` for the workspace branch itself — `winter ws push` doesn't operate on it. Standalone repos can be reached via `winter ws push --standalone` or with raw git, whichever is more convenient.
 

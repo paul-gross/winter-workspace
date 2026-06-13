@@ -1,6 +1,6 @@
 # Winter CLI — Setup
 
-Installation and configuration reference. For day-to-day command usage, see [usage.md](./usage.md).
+Installation and configuration reference. For day-to-day command usage, see [index.md](./index.md).
 
 ## Installation
 
@@ -80,7 +80,7 @@ leader = "\\"          # what <leader> expands to (default backslash); single ke
 timeoutlen = 1000      # ms to wait for the next key of a chord sequence (Neovim's timeoutlen)
 
 # Action id -> key spec. Quoted ids keep the dotted name flat (not nested tables).
-# Absent ids keep their built-in default. Full id list + grammar: usage.md#keybindings.
+# Absent ids keep their built-in default. Full id list + grammar: usage/dashboard.md#keybindings.
 [keybindings.bindings]
 "workspace.refresh" = "<C-r>"     # modifier chord
 "worktree.open_detail" = "o"      # rebind Enter for opening a row's detail
@@ -88,7 +88,7 @@ timeoutlen = 1000      # ms to wait for the next key of a chord sequence (Neovim
 "plugin.codediff" = "<leader>d"   # remap a plugin action by its plugin.<name> id
 ```
 
-The `[keybindings.bindings]` keys are *quoted* action ids — the quotes keep a dotted id (`workspace.refresh`) a flat key instead of a nested TOML table. For the action-id reference, the full key-spec grammar, and the invalid-spec / unknown-id behavior, see [usage.md#keybindings](./usage.md#keybindings).
+The `[keybindings.bindings]` keys are *quoted* action ids — the quotes keep a dotted id (`workspace.refresh`) a flat key instead of a nested TOML table. For the action-id reference, the full key-spec grammar, and the invalid-spec / unknown-id behavior, see [usage/dashboard.md#keybindings](./usage/dashboard.md#keybindings).
 
 ### Display names and ordering
 
@@ -202,7 +202,7 @@ The top-level `adopt_extensions` field controls when winter processes a standalo
 
 ## Service orchestration
 
-`winter service` (see [usage.md#service](./usage.md#service)) owns a stable `up`/`down`/`status`/`restart`/`logs` interface and dispatches each invocation to a single orchestrator extension the workspace registers. The interface lives in core winter; the implementation lives in whichever extension the workspace points at (tmux, containers, a daemon), so consumers never depend on the implementation.
+`winter service` (see [usage/service.md](./usage/service.md)) owns a stable `up`/`down`/`status`/`restart`/`logs` interface and dispatches each invocation to a single orchestrator extension the workspace registers. The interface lives in core winter; the implementation lives in whichever extension the workspace points at (tmux, containers, a daemon), so consumers never depend on the implementation.
 
 ### Registering an orchestrator
 
@@ -215,11 +215,11 @@ With both in place, `winter service <action> <env>` resolves the orchestrator an
 
 ### Entrypoint contract
 
-The full implementer-facing contract — uniform argv rule, per-action env vars, NDJSON wire format, plain-line render format, idempotent backstop filters, tail-with-follow limitation, and exit codes — lives in [usage.md#orchestrator-contract](./usage.md#orchestrator-contract). A third-party orchestrator can conform without reading winter's source.
+The full implementer-facing contract — uniform argv rule, per-action env vars, NDJSON wire format, plain-line render format, idempotent backstop filters, tail-with-follow limitation, and exit codes — lives in [usage/service.md#orchestrator-contract](./usage/service.md#orchestrator-contract). A third-party orchestrator can conform without reading winter's source.
 
 ## Doctor probes
 
-`winter doctor` (see [usage.md#doctor](./usage.md#doctor)) aggregates probe results from three sources: built-in core checks in winter-cli, an optional workspace-level probe, and one probe per installed extension. The workspace and extension probes are opt-in shell scripts that follow the same output contract.
+`winter doctor` (see [usage/doctor.md](./usage/doctor.md)) aggregates probe results from three sources: built-in core checks in winter-cli, an optional workspace-level probe, and one probe per installed extension. The workspace and extension probes are opt-in shell scripts that follow the same output contract.
 
 ### Probe output contract
 
@@ -270,7 +270,7 @@ Results appear under a `[<ext-prefix>]` source group, one block per installed ex
 
 ## Lint checks
 
-`winter lint` (see [usage.md#lint](./usage.md#lint)) is the convention-checking counterpart of `winter doctor`. It's a dispatcher: it discovers lint scripts contributed by the workspace and by installed extensions, runs the applicable ones over the selected scope, and aggregates their findings. It owns scope selection, aggregation, and reporting — the check logic lives entirely in the contributed scripts.
+`winter lint` (see [usage/lint.md](./usage/lint.md)) is the convention-checking counterpart of `winter doctor`. It's a dispatcher: it discovers lint scripts contributed by the workspace and by installed extensions, runs the applicable ones over the selected scope, and aggregates their findings. It owns scope selection, aggregation, and reporting — the check logic lives entirely in the contributed scripts.
 
 ### Finding output contract
 

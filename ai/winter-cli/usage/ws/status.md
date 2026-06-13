@@ -1,5 +1,7 @@
 # `winter ws status` — full reference
 
+For the rest of the `winter ws` family, see the [`winter ws` hub](./index.md); for the full command reference, see [../index.md](../index.md).
+
 ## Synopsis
 
 ```

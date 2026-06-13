@@ -5,8 +5,8 @@ Each built-in action has a documented, config-addressable id (`workspace.refresh
 absent id falls back to the `default` here. Plugin actions get ids of the form
 `plugin.<name>` (built dynamically from the plugin registry).
 
-The agent-facing list of ids lives in `winter:/ai/winter-cli/usage.md` — keep it
-in sync when adding, renaming, or removing an entry here.
+The agent-facing list of ids lives in `winter:/ai/winter-cli/usage/dashboard.md` —
+keep it in sync when adding, renaming, or removing an entry here.
 """
 
 from __future__ import annotations

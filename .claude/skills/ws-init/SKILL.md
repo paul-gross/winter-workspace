@@ -8,7 +8,7 @@ Bring the workspace, a single feature environment, or a single project repo to t
 
 `/ws-init` is the "I just cloned this — make it work" path. It only *applies* declared config; it never *changes* config. Anything that would require a configuration decision (declaring a new repo, setting workspace remote, choosing git identity) belongs in `/ws-setup`, not here.
 
-The skill is a thin wrapper over `winter ws init`. It picks the right form, layers in per-environment post-init from `workspace:/ai/project/project-setup.md`, and halts cleanly on any of the precondition or runtime failures enumerated in the **Non-interactivity contract** below. See [ai/winter-cli/usage.md](./ai/winter-cli/usage.md) and [ai/worktree-ops.md](./ai/worktree-ops.md) for the underlying primitives.
+The skill is a thin wrapper over `winter ws init`. It picks the right form, layers in per-environment post-init from `workspace:/ai/project/project-setup.md`, and halts cleanly on any of the precondition or runtime failures enumerated in the **Non-interactivity contract** below. For the underlying primitives, start at the CLI hub [ai/winter-cli/index.md](./ai/winter-cli/index.md), then read the specific topic [ai/winter-cli/usage/ws/init.md](./ai/winter-cli/usage/ws/init.md) — plus [ai/worktree-ops.md](./ai/worktree-ops.md).
 
 ## Preflight
 

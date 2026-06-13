@@ -1,0 +1,9 @@
+# `winter ws checkout` — adopt a remote feature branch into an env
+
+For the rest of the family, see the [`winter ws` hub](./index.md).
+
+`winter ws checkout ENV FEATURE_BRANCH` connects every non-pinned project worktree to `origin/FEATURE_BRANCH` and hard-resets each to it — or to the repo's `origin/<main>` when `FEATURE_BRANCH` doesn't exist locally there (a new branch started from main, created on first push). **No network** — like `git checkout` it operates on the remote-tracking refs you already have; run [`winter ws fetch`](./fetch.md) first if you want them fresh.
+
+Starting a branch that doesn't exist anywhere requires `--new`: when `origin/FEATURE_BRANCH` resolves in **no** repo, the whole command refuses (`refused-unknown-branch`) — a ref the local store has never seen is more likely a typo or a missing `winter ws fetch` than a deliberate new branch. Separately, any single repo where neither the feature ref nor `origin/<main>` resolves refuses (`refused-missing-ref`) — a per-repo check that fires even when the branch resolves in other repos, since that repo has nothing to reset to; one refusal still aborts the whole run. Neither ref-resolution refusal is bypassed by `--force`.
+
+Phase 1 also checks each repo for a dirty working tree and for **abandonment** — commits on the worktree's branch that aren't on the branch it's moving *away from* (its own current upstream, e.g. `origin/feature-123`, falling back to `origin/<main>` when the worktree isn't connected). **If any repo is dirty or would abandon work (and `--force` is not set), the whole command refuses with a per-repo report — no connect and no `git reset --hard` runs anywhere.** Note the comparison is against each repo's *own* upstream, not the target `FEATURE_BRANCH` — the guard protects your unpushed commits, not the target's contents.

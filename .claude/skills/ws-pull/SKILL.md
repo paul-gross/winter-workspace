@@ -8,7 +8,7 @@ Pull remote commits into one of: the workspace branch, a standalone repo, or a f
 
 ## Big picture
 
-A feature environment contains a worktree for every project repo, so pulling one is a multi-repo operation. Use `winter ws pull` — it fetches every matched worktree's tracked upstream in parallel and integrates ff-only by default. See [ai/winter-cli/usage.md](./ai/winter-cli/usage.md) and [ai/worktree-ops.md](./ai/worktree-ops.md) for the full reference.
+A feature environment contains a worktree for every project repo, so pulling one is a multi-repo operation. Use `winter ws pull` — it fetches every matched worktree's tracked upstream in parallel and integrates ff-only by default. For the full reference, start at the CLI hub [ai/winter-cli/index.md](./ai/winter-cli/index.md), then read the specific topic [ai/winter-cli/usage/ws/pull.md](./ai/winter-cli/usage/ws/pull.md) — plus [ai/worktree-ops.md](./ai/worktree-ops.md).
 
 Use raw `git pull` for the workspace branch itself — `winter ws pull` doesn't operate on it. Standalone repos can be reached via `winter ws pull --standalone` or with raw git, whichever is more convenient.
 

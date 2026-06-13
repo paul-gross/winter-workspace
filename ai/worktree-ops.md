@@ -2,7 +2,7 @@
 
 Git commands for the polyrepo workspace topology. All paths are relative to the workspace root.
 
-> **Tip:** For multi-repo setup and bulk operations, prefer `winter ws init` and the other `winter ws` commands over the raw git sequences below — the CLI is idempotent, reads the workspace config, handles pinned repos, and runs in parallel. See [winter-cli/usage.md](./winter-cli/usage.md) for the full command reference. The raw git commands here are still useful for single-repo work and for understanding what the CLI does under the hood.
+> **Tip:** For multi-repo setup and bulk operations, prefer `winter ws init` and the other `winter ws` commands over the raw git sequences below — the CLI is idempotent, reads the workspace config, handles pinned repos, and runs in parallel. See [winter-cli/index.md](./winter-cli/index.md) for the full command reference. The raw git commands here are still useful for single-repo work and for understanding what the CLI does under the hood.
 
 ## Pinned repos
 
@@ -155,6 +155,6 @@ Non-pinned worktrees push to the feature branch recorded during `winter ws conne
 
 If an env has non-pinned repos matched by your patterns but isn't connected, those repos are skipped with an error in the report. Pinned repos matched in the same env still push because they don't need a feature branch.
 
-If the only matched repos with commits to push are pinned (so the default scope excludes them), the report shows a `! <env>: N pinned repo(s) with commits skipped` line rather than silently doing nothing — re-run with `--include-pinned`/`--only-pinned`. See [winter-cli/usage.md](./winter-cli/usage.md) (`push` → "Output signal — pinned repos skipped").
+If the only matched repos with commits to push are pinned (so the default scope excludes them), the report shows a `! <env>: N pinned repo(s) with commits skipped` line rather than silently doing nothing — re-run with `--include-pinned`/`--only-pinned`. See [winter-cli/usage/ws/push.md](./winter-cli/usage/ws/push.md) ("Output signal — pinned repos skipped").
 
 To push a single standalone repo, use raw git — patterns don't apply to standalone repos.
