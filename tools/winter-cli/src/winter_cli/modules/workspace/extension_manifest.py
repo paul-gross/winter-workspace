@@ -66,6 +66,12 @@ class ExtensionManifest:
     manifest accepts a single path or a list; a bare string is coerced to a
     one-element tuple. Empty by default.
 
+    `orchestrate_services` is the relative path of the executable service-orchestrator
+    entrypoint invoked by `winter service` when this extension is the registered
+    `service_orchestrator` in `.winter/config.toml`. It adheres to the contract
+    `<entrypoint> (up|down|status|restart|logs) <env> [params...]`. None when the
+    extension is not a service orchestrator.
+
     `requires` is the module's declared dependency list — the other modules this
     one references and therefore needs when shipped standalone. Each entry is a
     module name (the `<context>` half of a `<context>:/path` reference, e.g.
@@ -79,6 +85,7 @@ class ExtensionManifest:
     hooks: dict[str, str] = field(default_factory=dict)
     doctor: str | None = None
     lint: tuple[str, ...] = ()
+    orchestrate_services: str | None = None
     requires: tuple[str, ...] = ()
 
 
@@ -123,6 +130,11 @@ class ExtensionManifestLoader:
 
         lint = _coerce_str_tuple(data.get("lint"))
 
+        orchestrate_services_raw = data.get("orchestrate_services")
+        orchestrate_services = (
+            orchestrate_services_raw if isinstance(orchestrate_services_raw, str) and orchestrate_services_raw else None
+        )
+
         requires_raw = data.get("requires")
         requires = tuple(r for r in requires_raw if isinstance(r, str) and r) if isinstance(requires_raw, list) else ()
 
@@ -133,5 +145,6 @@ class ExtensionManifestLoader:
             hooks=hooks,
             doctor=doctor,
             lint=lint,
+            orchestrate_services=orchestrate_services,
             requires=requires,
         )

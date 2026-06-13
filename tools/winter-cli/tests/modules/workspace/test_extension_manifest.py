@@ -27,6 +27,7 @@ def test_load_returns_defaults_when_manifest_path_is_none() -> None:
     assert manifest.hooks == {}
     assert manifest.doctor is None
     assert manifest.lint == ()
+    assert manifest.orchestrate_services is None
     assert manifest.requires == ()
 
 
@@ -76,6 +77,25 @@ def test_load_ignores_non_string_doctor_value() -> None:
 
     manifest = loader.load(repo, manifest_path=manifest_path)
     assert manifest.doctor is None
+
+
+def test_load_parses_orchestrate_services_entrypoint() -> None:
+    """`orchestrate_services` is a single relative entrypoint path; empty / non-string falls back to None."""
+    manifest_path = WORKSPACE_ROOT / "my-ext" / "winter-ext.toml"
+    config_files = {manifest_path: {"orchestrate_services": "workflow/service"}}
+    loader = ExtensionManifestLoader(config_file_reader=FakeConfigFileReader(config_files))
+    repo = StandaloneRepository(name="my-ext", path=WORKSPACE_ROOT / "my-ext")
+
+    assert loader.load(repo, manifest_path=manifest_path).orchestrate_services == "workflow/service"
+
+
+def test_load_orchestrate_services_defaults_to_none() -> None:
+    manifest_path = WORKSPACE_ROOT / "my-ext" / "winter-ext.toml"
+    config_files = {manifest_path: {"orchestrate_services": ""}}
+    loader = ExtensionManifestLoader(config_file_reader=FakeConfigFileReader(config_files))
+    repo = StandaloneRepository(name="my-ext", path=WORKSPACE_ROOT / "my-ext")
+
+    assert loader.load(repo, manifest_path=manifest_path).orchestrate_services is None
 
 
 def test_load_coerces_lint_to_a_tuple() -> None:

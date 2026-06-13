@@ -41,3 +41,10 @@ def test_container_resolves_every_top_level_service(container: Container) -> Non
     assert isinstance(container.extension_hook_svc(), ExtensionHookService)
     assert isinstance(container.extension_exclude_svc(), ExtensionExcludeService)
     assert isinstance(container.extension_claudemd_svc(), ExtensionClaudemdService)
+
+
+def test_container_resolves_service_handler(container: Container) -> None:
+    """The `winter service` dispatch chain wires end-to-end (lazy providers resolve)."""
+    from winter_cli.modules.service.handler import ServiceHandler
+
+    assert isinstance(container.service_handler(), ServiceHandler)

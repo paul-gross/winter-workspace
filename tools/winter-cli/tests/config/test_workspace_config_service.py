@@ -101,6 +101,22 @@ def test_load_maps_workspace_doctor_and_lint_scripts() -> None:
     assert config.lint == ["ai/lint.sh"]
 
 
+def test_load_maps_service_orchestrator() -> None:
+    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
+    fs = FakeFilesystem(files={config_path: ""})
+    svc = _service(fs, {config_path: {"service_orchestrator": "winter-service-tmux"}})
+
+    assert svc.load().service_orchestrator == "winter-service-tmux"
+
+
+def test_load_service_orchestrator_defaults_to_none() -> None:
+    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
+    fs = FakeFilesystem(files={config_path: ""})
+    svc = _service(fs, {config_path: {}})
+
+    assert svc.load().service_orchestrator is None
+
+
 def test_load_accepts_lint_as_a_list() -> None:
     config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
     fs = FakeFilesystem(files={config_path: ""})

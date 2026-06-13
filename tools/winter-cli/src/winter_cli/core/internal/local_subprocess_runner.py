@@ -61,12 +61,39 @@ class LocalSubprocessRunner:
         )
 
     @staticmethod
+    def call(
+        cmd: list[str],
+        *,
+        cwd: Path | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> int:
+        """Run a process with inherited stdio, returning only the exit code.
+
+        No `capture_output` and no stream redirection: stdin/stdout/stderr are
+        inherited from this process, so the child writes straight to the
+        terminal (TTY, colors, and stdout/stderr separation preserved). An
+        exec failure (missing or non-executable file) surfaces as `126`, the
+        shell convention for "command found but not executable".
+        """
+        try:
+            completed = subprocess.run(
+                cmd,
+                cwd=str(cwd) if cwd is not None else None,
+                env=dict(env) if env is not None else None,
+                check=False,
+            )
+        except OSError:
+            return 126
+        return completed.returncode
+
+    @staticmethod
     @contextmanager
     def _popen_cm(
         cmd: list[str] | str,
         cwd: Path | None,
         env: Mapping[str, str] | None,
         shell: bool,
+        merge_stderr: bool,
     ) -> Iterator[IStreamingProcess]:
         proc = subprocess.Popen(
             cmd,
@@ -74,7 +101,12 @@ class LocalSubprocessRunner:
             env=dict(env) if env is not None else None,
             shell=shell,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            # When merge_stderr=True (default), merge stderr into stdout so
+            # callers see a single interleaved stream (init/destroy hook flow).
+            # When merge_stderr=False, leave stderr=None so it inherits the
+            # parent's stderr fd — the orchestrator's diagnostics reach the
+            # terminal without corrupting the NDJSON stdout (logs flow).
+            stderr=subprocess.STDOUT if merge_stderr else None,
             text=True,
             bufsize=1,
         )
@@ -91,8 +123,9 @@ class LocalSubprocessRunner:
         cwd: Path | None = None,
         env: Mapping[str, str] | None = None,
         shell: bool = False,
+        merge_stderr: bool = True,
     ) -> AbstractContextManager[IStreamingProcess]:
-        return self._popen_cm(cmd, cwd, env, shell)
+        return self._popen_cm(cmd, cwd, env, shell, merge_stderr)
 
 
 def _conforms_local_subprocess_runner(x: LocalSubprocessRunner) -> ISubprocessRunner:

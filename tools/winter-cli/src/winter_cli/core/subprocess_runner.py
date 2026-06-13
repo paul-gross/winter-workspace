@@ -39,11 +39,16 @@ class IStreamingProcess(Protocol):
 class ISubprocessRunner(Protocol):
     """Process-execution seam.
 
-    Two shapes:
+    Three shapes:
       - `run(...)` — fire and forget, get captured output back. Used for short
         git/system probes (`git status --porcelain`, etc.).
       - `popen(...)` — start a long-running process and stream its merged
         stdout line by line. Used for setup commands and extension hooks.
+      - `call(...)` — run a process with stdin/stdout/stderr inherited from the
+        parent and return only its exit code. Nothing is captured or
+        re-rendered, so the child's output reaches the terminal unmodified.
+        Used by `winter service` to dispatch to an orchestrator entrypoint and
+        pass its output and exit code straight through.
     """
 
     def run(
@@ -54,6 +59,14 @@ class ISubprocessRunner(Protocol):
         env: Mapping[str, str] | None = None,
     ) -> SubprocessResult: ...
 
+    def call(
+        self,
+        cmd: list[str],
+        *,
+        cwd: Path | None = None,
+        env: Mapping[str, str] | None = None,
+    ) -> int: ...
+
     def popen(
         self,
         cmd: list[str] | str,
@@ -61,4 +74,5 @@ class ISubprocessRunner(Protocol):
         cwd: Path | None = None,
         env: Mapping[str, str] | None = None,
         shell: bool = False,
+        merge_stderr: bool = True,
     ) -> AbstractContextManager[IStreamingProcess]: ...

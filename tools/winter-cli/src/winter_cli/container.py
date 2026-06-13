@@ -452,6 +452,35 @@ class Container(containers.DeclarativeContainer):
         json_reporter=json_graph_reporter,
     )
 
+    # ── service: dispatch to the registered orchestrator extension ──────────
+
+    service_orchestrator_resolver = providers.Factory(
+        _lazy("winter_cli.modules.service.orchestrator_resolver:ServiceOrchestratorResolver"),
+        service_orchestrator=workspace_config.provided.service_orchestrator,
+        repo_factory=repo_factory,
+        manifest_loader=extension_manifest_loader,
+        fs=fs,
+    )
+
+    service_dispatch_svc = providers.Factory(
+        _lazy("winter_cli.modules.service.service_dispatch_service:ServiceDispatchService"),
+        subprocess_runner=subprocess_runner,
+        orchestrator_resolver=service_orchestrator_resolver,
+    )
+
+    service_logs_svc = providers.Factory(
+        _lazy("winter_cli.modules.service.service_logs_service:ServiceLogsService"),
+        subprocess_runner=subprocess_runner,
+        orchestrator_resolver=service_orchestrator_resolver,
+        click=providers.Object(click),
+    )
+
+    service_handler = providers.Factory(
+        _lazy("winter_cli.modules.service.handler:ServiceHandler"),
+        dispatch_service=service_dispatch_svc,
+        logs_service=service_logs_svc,
+    )
+
     # ── lint: dispatcher to extension-contributed convention checks ─────────
 
     # Path to the winter CLI that launched this run, handed to every lint

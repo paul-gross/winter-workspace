@@ -41,7 +41,15 @@ def test_lazy_group_get_command_imports_on_dispatch() -> None:
 def test_cli_group_advertises_every_top_level_command() -> None:
     """`winter --help` must still list all top-level commands."""
     ctx = click.Context(_cli_group)
-    assert sorted(_cli_group.list_commands(ctx)) == ["dashboard", "doctor", "graph", "lint", "repo", "ws"]
+    assert sorted(_cli_group.list_commands(ctx)) == [
+        "dashboard",
+        "doctor",
+        "graph",
+        "lint",
+        "repo",
+        "service",
+        "ws",
+    ]
 
 
 def test_cli_lazy_map_targets_resolve() -> None:

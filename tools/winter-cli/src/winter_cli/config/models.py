@@ -173,6 +173,15 @@ class WorkspaceConfig(BaseModel):
     standalone_repos: list[StandaloneRepositoryConfig] = Field(default_factory=list)
     """Repos declared in `[[standalone_repository]]`."""
 
+    service_orchestrator: str | None = None
+    """Name of the installed extension that orchestrates services for `winter service`.
+
+    Matches an installed extension's `name` (a `[[standalone_repository]]` shipping
+    a `winter-ext.toml` with an `orchestrate_services` entrypoint). When set,
+    `winter service <action> <env> [params...]` dispatches to that extension's
+    entrypoint. When None, every `winter service` command fails with a message
+    explaining how to register one. Only a single orchestrator is supported."""
+
     doctor: str | None = None
     """Optional path to a workspace-level `winter doctor` probe script (relative to workspace_root).
 

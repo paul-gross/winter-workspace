@@ -136,6 +136,9 @@ class WorkspaceConfigService:
             singleton_repos=singletons,
             project_repos=project_repos,
             standalone_repos=standalone_repos,
+            service_orchestrator=(
+                merged.get("service_orchestrator") if isinstance(merged.get("service_orchestrator"), str) else None
+            ),
             doctor=merged.get("doctor") if isinstance(merged.get("doctor"), str) else None,
             lint=_coerce_str_list(merged.get("lint")),
             keybindings=keybindings,

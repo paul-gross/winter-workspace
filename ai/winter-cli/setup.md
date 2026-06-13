@@ -20,10 +20,11 @@ Winter loads two files and merges them:
 ### Shared config (`.winter/config.toml`)
 
 ```toml
-session_prefix = "my-project"       # tmux session prefix
-main_branch = "main"                # workspace-default main branch (per-repo override below)
-adopt_extensions = "winter"         # how aggressively standalone repos contribute skills/agents
-doctor = "ai/project/doctor.sh"     # optional; workspace-level `winter doctor` probe script (see Doctor below)
+session_prefix = "my-project"                 # tmux session prefix
+main_branch = "main"                          # workspace-default main branch (per-repo override below)
+adopt_extensions = "winter"                   # how aggressively standalone repos contribute skills/agents
+doctor = "ai/project/doctor.sh"               # optional; workspace-level `winter doctor` probe script (see Doctor below)
+service_orchestrator = "winter-service-tmux"  # optional; extension that handles `winter service` (see Service orchestration below)
 
 # Entries appended to every repo's .git/info/exclude on `winter ws init`.
 git_excludes = ["*.Local.csproj"]
@@ -32,10 +33,10 @@ git_excludes = ["*.Local.csproj"]
 # Entries appear in CLI and TUI output in the order they're listed here, so put
 # high-priority repos first.
 [[project_repository]]
-name = "web"                       # directory name under projects/ — overrides what would be derived from `url`
+name = "web"                               # directory name under projects/ — overrides what would be derived from `url`
 url = "git@example.com:org/winter-app.git"
-cmd = ["pnpm install"]             # run after clone and in every worktree
-git_excludes = [".env.development.local"]   # per-repo excludes, merged with workspace-wide
+cmd = ["pnpm install"]                     # run after clone and in every worktree
+git_excludes = [".env.development.local"]  # per-repo excludes, merged with workspace-wide
 
 [[project_repository]]
 name = "api"
@@ -112,6 +113,7 @@ skills_dir = "skills"          # optional; explicit path overrides default disco
 agents_dir = "agents"          # optional; explicit path overrides default discovery
 doctor = "scripts/doctor.sh"   # optional; executable that emits NDJSON probe events for `winter doctor`
 lint = "scripts/lint.sh"       # optional; executable(s) emitting NDJSON findings for `winter lint` (str or list)
+orchestrate_services = "workflow/service"   # optional; executable entrypoint for `winter service` (see Service orchestration below)
 requires = ["winter-product"]  # optional; other modules this one depends on (see `winter graph`)
 ```
 
@@ -185,6 +187,23 @@ The top-level `adopt_extensions` field controls when winter processes a standalo
 | `winter` (default) | Process only standalone repos that have a `winter-ext.toml` at the repo root. SKILL.md frontmatter is strictly validated. |
 | `all` | Process any standalone repo with `skills/`, `agents/`, `.claude/skills/`, or `.claude/agents/` directories, with or without a manifest. Frontmatter validation downgrades from refuse-to-warn — collisions become the user's problem. |
 | `none` | Skip all extension processing. Standalone repos are still cloned, but no symlinks are created. |
+
+## Service orchestration
+
+`winter service` (see [usage.md#service](./usage.md#service)) owns a stable `up`/`down`/`status`/`restart`/`logs` interface and dispatches each invocation to a single orchestrator extension the workspace registers. The interface lives in core winter; the implementation lives in whichever extension the workspace points at (tmux, containers, a daemon), so consumers never depend on the implementation.
+
+### Registering an orchestrator
+
+Two distinctly-named keys connect the interface to an implementation:
+
+- **Workspace config** — a top-level `service_orchestrator = "<extension-name>"` in `.winter/config.toml` (or the `config.local.toml` overlay) naming an installed extension. The name must match a `[[standalone_repository]]` that ships a `winter-ext.toml`.
+- **Extension manifest** — an `orchestrate_services = "<path>"` key in that extension's `winter-ext.toml`, an executable entrypoint relative to the extension's repo root.
+
+With both in place, `winter service <action> <env>` resolves the orchestrator and runs its entrypoint. With either missing — no `service_orchestrator` in config.toml, a name matching no installed extension, or an extension without an `orchestrate_services` entrypoint key in winter-ext.toml — the command fails naming the specific gap. Only one orchestrator is supported; there is no per-env selection.
+
+### Entrypoint contract
+
+The full implementer-facing contract — uniform argv rule, per-action env vars, NDJSON wire format, plain-line render format, idempotent backstop filters, tail-with-follow limitation, and exit codes — lives in [usage.md#orchestrator-contract](./usage.md#orchestrator-contract). A third-party orchestrator can conform without reading winter's source.
 
 ## Doctor probes
 

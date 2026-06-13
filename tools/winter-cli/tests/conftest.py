@@ -328,22 +328,30 @@ class FakeStreamingProcess:
 class FakeSubprocessRunner:
     """ISubprocessRunner fake — records every invocation; canned responses.
 
-    Tests register `(cmd_signature → SubprocessResult)` for `run` and
-    `(cmd_signature → (lines, returncode))` for `popen`. The signature is
-    the joined command for stability. Unknown commands raise so test
-    accidentally-fanned-out subprocess work surfaces.
+    Tests register `(cmd_signature → SubprocessResult)` for `run`,
+    `(cmd_signature → (lines, returncode))` for `popen`, and
+    `(cmd_signature → returncode)` for `call`. The signature is the joined
+    command for stability. Unknown commands raise so test accidentally-fanned-out
+    subprocess work surfaces. `call` defaults to exit 0 for unregistered
+    commands so passthrough-dispatch tests don't have to canned-register.
     """
 
     def __init__(
         self,
         run_responses: dict[str, SubprocessResult] | None = None,
         popen_responses: dict[str, tuple[list[str], int]] | None = None,
+        call_responses: dict[str, int] | None = None,
     ) -> None:
         self._run_responses = dict(run_responses or {})
         self._popen_responses = dict(popen_responses or {})
+        self._call_responses = dict(call_responses or {})
         self.run_calls: list[tuple[list[str], Path | None]] = []
         self.run_envs: list[Any] = []
         self.popen_calls: list[tuple[list[str] | str, Path | None]] = []
+        self.popen_envs: list[Any] = []
+        self.popen_merge_stderr: list[bool] = []
+        self.call_calls: list[tuple[list[str], Path | None]] = []
+        self.call_envs: list[Any] = []
 
     @staticmethod
     def _key(cmd: list[str] | str) -> str:
@@ -363,6 +371,17 @@ class FakeSubprocessRunner:
             raise AssertionError(f"FakeSubprocessRunner.run got unexpected command: {key!r}")
         return self._run_responses[key]
 
+    def call(
+        self,
+        cmd: list[str],
+        *,
+        cwd: Path | None = None,
+        env: Any = None,
+    ) -> int:
+        self.call_calls.append((list(cmd), cwd))
+        self.call_envs.append(env)
+        return self._call_responses.get(self._key(cmd), 0)
+
     @contextmanager
     def popen(
         self,
@@ -371,8 +390,11 @@ class FakeSubprocessRunner:
         cwd: Path | None = None,
         env: Any = None,
         shell: bool = False,
+        merge_stderr: bool = True,
     ) -> Iterator[FakeStreamingProcess]:
         self.popen_calls.append((cmd, cwd))
+        self.popen_envs.append(env)
+        self.popen_merge_stderr.append(merge_stderr)
         key = self._key(cmd)
         if key not in self._popen_responses:
             raise AssertionError(f"FakeSubprocessRunner.popen got unexpected command: {key!r}")
