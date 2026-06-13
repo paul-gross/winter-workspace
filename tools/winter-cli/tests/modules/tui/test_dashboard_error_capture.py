@@ -29,14 +29,13 @@ def _err(message: str = "boom", **overrides) -> RepoError:
 
 
 @pytest.mark.asyncio
-async def test_log_screen_displays_injected_errors():
-    container = Container()
+async def test_log_screen_displays_injected_errors(container: Container):
     log = container.error_log_svc()
     app = WinterDashboardApp(container)
     async with app.run_test(size=(140, 40)) as pilot:
-        # The initial refresh may surface real RepoErrors from whatever
-        # workspace state the test runs against — clear after it settles so
-        # the assertions below count only what we inject.
+        # The initial refresh may surface RepoErrors from the tmp workspace
+        # (its configured repo isn't cloned) — clear after it settles so the
+        # assertions below count only what we inject.
         await pilot.pause(0.5)
         log.clear()
         log.record(location="WorkspaceScreen.refresh", exc=_err("err A"))
@@ -60,8 +59,7 @@ async def test_log_screen_displays_injected_errors():
 
 
 @pytest.mark.asyncio
-async def test_log_clear_action_resets_log():
-    container = Container()
+async def test_log_clear_action_resets_log(container: Container):
     log = container.error_log_svc()
     log.clear()
     log.record(location="WorkspaceScreen.refresh", exc=_err())
@@ -77,14 +75,13 @@ async def test_log_clear_action_resets_log():
 
 
 @pytest.mark.asyncio
-async def test_refresh_swallows_repo_error_into_log():
+async def test_refresh_swallows_repo_error_into_log(container: Container):
     """A RepoError raised inside the refresh worker is captured, not crashed.
 
     Substitutes a fake `_workspace_repo.get_environments` that raises, then
     drives a refresh. The dashboard stays alive and the log records the
     error with the screen-action location.
     """
-    container = Container()
     log = container.error_log_svc()
     log.clear()
     app = WinterDashboardApp(container)
