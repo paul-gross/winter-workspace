@@ -1,0 +1,153 @@
+main_branch = "master"
+
+# Per-env port allocation: port base = base_port + index * ports_per_env.
+# 20-per-env spacing (alpha=4020, beta=4040, …). winter-test-service uses
+# the +10/+11/+12 sub-band per env.
+base_port = 4000
+ports_per_env = 20
+
+# Per-env variables rendered into each <env>/.winter.env on `winter ws init`.
+# ${WINTER_PORT_BASE+N} resolves against the env's own port base (alpha=4020,
+# beta=4040, …), so each env gets its own ports from one template.
+[env.vars]
+# winter-test-service — ports on the +10/+11/+12 sub-band. Sourced into each
+# service pane; also resolve ${WTS_*} in setup-tmux.toml status URLs.
+WTS_WEB_PORT = "${WINTER_PORT_BASE+10}"
+WTS_API_PORT = "${WINTER_PORT_BASE+11}"
+WTS_DB_PORT  = "${WINTER_PORT_BASE+12}"
+DATABASE_URL = "postgresql://wts:wts@localhost:${WINTER_PORT_BASE+12}/wts"
+# Shared RabbitMQ broker — a workspace singleton, so the same AMQP port (4001 =
+# workspace band base+1, matching WWS_RABBITMQ_AMQP_PORT) in every env. Pinned as
+# a literal because [env.vars] only substitutes the per-env WINTER_PORT_BASE.
+RABBITMQ_PORT = "4001"
+
+# Two service providers, bound explicitly. tmux runs the from-source services
+# (docs, shell, api, web, worker); winter-service-docker runs the dockerized
+# daemons (per-env db, workspace rabbitmq). Order is the `up` fan-out order —
+# docker first so the db/broker are up before the tmux api/worker that need them
+# (`up <env>` ensures the workspace scope first regardless). Service names are
+# globally unique across providers, so logs/restart route to the right one.
+[capabilities]
+service = ["winter-service-docker", "winter-service-tmux"]
+
+[core_checks.file_size]
+injected_bytes = 100000
+reference_bytes = 100000
+
+[[project_repository]]
+name = "winter"
+url = "git@github.com:paul-gross/winter.git"
+
+[[project_repository]]
+name = "winter-github"
+url = "git@github.com:paul-gross/winter-github.git"
+
+[[project_repository]]
+name = "winter-harness"
+url = "git@github.com:paul-gross/winter-harness.git"
+
+[[project_repository]]
+name = "winter-product"
+url = "git@github.com:paul-gross/winter-product.git"
+
+[[project_repository]]
+name = "winter-service-tmux"
+url = "git@github.com:paul-gross/winter-service-tmux.git"
+
+[[project_repository]]
+name = "winter-service-docker"
+url = "git@github.com:paul-gross/winter-service-docker.git"
+
+[[project_repository]]
+name = "winter-workflow"
+url = "git@github.com:paul-gross/winter-workflow.git"
+
+[[project_repository]]
+name = "winter-docs"
+url = "git@github.com:paul-gross/winter-docs.git"
+
+[[project_repository]]
+url = "git@github.com:paul-gross/winter-nvim.git"
+
+[[project_repository]]
+name = "winter-test-service"
+url = "git@github.com:paul-gross/winter-test-service.git"
+
+[[project_repository]]
+name = "winter-plugin-api"
+url = "git@github.com:paul-gross/winter-plugin-api.git"
+
+[[standalone_repository]]
+name = "winter-github"
+url = "git@github.com:paul-gross/winter-github.git"
+path = ".winter/ext/github"
+
+[[standalone_repository]]
+name = "winter-harness"
+url = "git@github.com:paul-gross/winter-harness.git"
+path = ".winter/ext/harness"
+
+[[standalone_repository]]
+name = "winter-service-tmux"
+url = "git@github.com:paul-gross/winter-service-tmux.git"
+path = ".winter/ext/service-tmux"
+
+[[standalone_repository]]
+name = "winter-service-docker"
+url = "git@github.com:paul-gross/winter-service-docker.git"
+path = ".winter/ext/service-docker"
+
+[[standalone_repository]]
+name = "winter-workflow"
+url = "git@github.com:paul-gross/winter-workflow.git"
+path = ".winter/ext/workflow"
+
+# ===========================================================================
+# Provisioning — `winter provision <env>` lifecycle handlers
+#
+# Dependency install: one feature-environment handler per project that needs
+# deps. `project = "<name>"` (paul-gross/winter#105) sets cwd to that repo's
+# worktree (<env>/<name>/) with parse-time validation against [[project_repository]]
+# and a hard error if the worktree is missing — preferred over a hand-rolled `cd`.
+# ===========================================================================
+
+[[provision.dependency]]
+scope = "feature-environment"
+project = "winter"
+apply = "cd tools/winter-cli && mise trust . && mise run install"
+
+[[provision.dependency]]
+scope = "feature-environment"
+project = "winter-test-service"
+apply = "uv sync && (cd web && npm install --no-audit --no-fund)"
+
+[[provision.dependency]]
+scope = "feature-environment"
+project = "winter-docs"
+apply = "npm install --no-audit --no-fund"
+
+[[provision.dependency]]
+scope = "feature-environment"
+project = "winter-plugin-api"
+apply = "uv sync"
+
+# ===========================================================================
+# Per-env RabbitMQ slice — carves a vhost + user `wts-<env>` out of the shared
+# workspace broker (container `wws-rabbitmq`, declared scope="workspace" in the
+# docker manifest). `required_services` gates on it being up first; cwd = env
+# root; WINTER_ENV is set. apply is idempotent (skip add_* when present, always
+# re-assert permissions); destroy tolerates already-gone entities.
+# ===========================================================================
+
+[[provision.resource]]
+scope = "feature-environment"
+apply = [
+  "docker exec wws-rabbitmq rabbitmqctl list_vhosts --quiet | grep -qx \"wts-$WINTER_ENV\" || docker exec wws-rabbitmq rabbitmqctl add_vhost \"wts-$WINTER_ENV\"",
+  "docker exec wws-rabbitmq rabbitmqctl list_users --quiet | awk '{print $1}' | grep -qx \"wts-$WINTER_ENV\" || docker exec wws-rabbitmq rabbitmqctl add_user \"wts-$WINTER_ENV\" \"wts-$WINTER_ENV\"",
+  "docker exec wws-rabbitmq rabbitmqctl set_permissions -p \"wts-$WINTER_ENV\" \"wts-$WINTER_ENV\" '.*' '.*' '.*'",
+]
+destroy = [
+  "docker exec wws-rabbitmq rabbitmqctl delete_vhost \"wts-$WINTER_ENV\" || true",
+  "docker exec wws-rabbitmq rabbitmqctl delete_user \"wts-$WINTER_ENV\" || true",
+]
+required_services = ["workspace/rabbitmq"]

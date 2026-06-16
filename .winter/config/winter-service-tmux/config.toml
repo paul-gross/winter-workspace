@@ -1,0 +1,64 @@
+# Declarative manifest for winter-service-tmux.
+# See winter-service-tmux:/workflow/config.toml.example for annotated schema docs.
+#
+# Validate with:
+#   cd alpha/winter-service-tmux
+#   PYTHONPATH=src python3 -m service_manifest.cli validate /path/to/workspace
+
+session_prefix = "wws"
+
+env_file = ".winter.env"
+
+layout_hook = "layout-hook.sh"
+
+# ---------------------------------------------------------------------------
+# Services
+# ---------------------------------------------------------------------------
+
+[[service]]
+# Pane 0.0: winter-docs dev server. Runs from the env's winter-docs worktree
+# and binds to $WINTER_PORT_BASE so each env serves on its own port.
+# Served under the site's /winter-docs base path.
+name = "docs"
+target = "0.0"
+cmd = 'cd winter-docs && npm run dev -- --port "${WINTER_PORT_BASE:-4321}" --host'
+
+[[service]]
+# Pane 0.1: utility shell — empty command leaves an interactive prompt.
+# log = "pane": read live via tmux capture-pane (no file persistence) — also the
+# canonical pane-mode example for testing `winter service logs <env> shell`.
+name = "shell"
+target = "0.1"
+cmd = ""
+log = "pane"
+
+# --- winter-test-service (window 1): the full-stack test fixture ----------
+# api / web / worker, launched from the env root via the repo's documented run
+# commands (see winter-test-service:/README.md). Every entrypoint reads its
+# config from the environment; the per-env WTS_* / DATABASE_URL values are
+# seeded in .winter.env (web +10, api +11, db +12 off $WINTER_PORT_BASE) with
+# `export`, and each pane sources .winter.env before its command — so the child
+# process inherits them directly and the command needs no `export` of its own.
+#
+# The `db` (per-env Postgres) and `rabbitmq` (workspace broker) services live in
+# winter-service-docker now — both real docker daemons, so compose owns their
+# lifecycle and healthchecks rather than a raw `docker run` in a tmux pane. See
+# workspace:/.winter/config/winter-service-docker/{config.toml,environment-compose.yaml,workspace-compose.yaml}.
+
+[[service]]
+# Pane 1.0: FastAPI / uvicorn. Honors BOOT_DELAY_SECONDS; exposes chaos endpoints.
+name = "api"
+target = "1.0"
+cmd = "cd winter-test-service && PYTHONPATH=.:api uv run python -m app"
+
+[[service]]
+# Pane 1.1: React + Vite dev server (proxies /api to the api service).
+name = "web"
+target = "1.1"
+cmd = "cd winter-test-service/web && npm run dev"
+
+[[service]]
+# Pane 1.2: Python worker — steady heartbeat log stream + DB writes.
+name = "worker"
+target = "1.2"
+cmd = "cd winter-test-service && uv run python -m worker.main"

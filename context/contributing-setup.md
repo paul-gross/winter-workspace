@@ -10,7 +10,7 @@ Different projects have different delivery workflows. Some merge directly to mai
 
 ## How it is used
 
-- Referenced by agents when completing a feature (see CLAUDE.md "Completing a feature")
+- Referenced by agents when completing a feature (see the "Follow the project's contributing conventions when completing work" rule in CLAUDE.md `## Rules`)
 - Referenced by the `/commit` skill for commit message conventions
 - Should be specific enough that an agent can execute the full delivery flow without asking questions
 

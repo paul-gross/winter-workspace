@@ -105,6 +105,8 @@ winter ws pull <name> --autostash    # stash dirty tree, integrate, then restore
 
 Each repo pulls from its own tracked upstream: non-pinned worktrees from whatever they track (`origin/<feature-branch>`, set by `connect`), or skipped as `no upstream` when untracked; pinned worktrees from `origin/<main-branch>`. Standalone repos can be reached with `winter ws pull --standalone` or `winter ws pull --all`.
 
+For project repos, `pull`'s first step also fast-forwards the source checkout's local main (`projects/<repo>`), just like `winter ws fetch` — so a pull keeps the base `winter ws init` branches new envs off of current. This is best-effort: a non-ff-able source checkout logs a warning and does not fail the pull.
+
 `pull` is **ff-only by default** — no silent merge commits, no surprise rewrites. Diverged repos are surfaced in the report and the working tree is left untouched. Use `--merge` or `--rebase` to integrate explicitly, or resolve with raw git in the affected repo.
 
 ## Destroying a feature environment

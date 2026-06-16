@@ -109,7 +109,7 @@ git rev-list --min-parents=2 --count HEAD ^winter/<branch>
 ```
 
 - **`≥1` — merge strategy confirmed.** The workspace already preserves history with its own merge commits. Just **merge** `winter/<branch>` in — no need to ask. Tell the user why ("this workspace integrates winter by merging, so I'll keep doing that").
-- **`0` — ambiguous.** No merges unique to the workspace, which looks identical for a rebase-strategy workspace (a linear customization stack) *and* a fresh install that has never taken an update. The log can't tell them apart, so there's **no default — ask** the user via `AskUserQuestion` whether to **rebase** or **merge**, framing the trade-off rather than steering hard: rebase keeps a personal/linear workspace clean; merge is safer if the branch is shared or already published.
+- **`0` — ambiguous to the log, but resolved for this workspace.** No merges unique to the workspace, which would normally be indistinguishable between a rebase-strategy workspace and a fresh install. This workspace has recorded its convention: **default to rebase** — integrate by rebase without asking. (This is the recorded preference from a prior update; the merge-confirmed `≥1` branch above still takes precedence whenever it applies.)
 
 So the log can only ever *confirm* the merge strategy; a `0` count is "unknown," never "rebase" (which is why Step 6 exists — to record a rebase default here).
 
