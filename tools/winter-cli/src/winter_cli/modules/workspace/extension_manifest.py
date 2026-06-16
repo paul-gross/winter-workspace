@@ -68,11 +68,14 @@ class ExtensionManifest:
     manifest accepts a single path or a list; a bare string is coerced to a
     one-element tuple. Empty by default.
 
-    `orchestrate_services` is the relative path of the executable service-orchestrator
-    entrypoint invoked by `winter service` when this extension is the registered
-    `service_orchestrator` in `.winter/config.toml`. It adheres to the contract
-    `<entrypoint> (up|down|status|restart|logs) <env> [params...]`. None when the
-    extension is not a service orchestrator.
+    `provides` maps capability slot names to entrypoint paths relative to the extension
+    repo root (e.g. `{"service": "workflow/service"}`). It is the general successor to
+    `orchestrate_services`; use `capability_entrypoint` to resolve a slot, which bridges
+    both forms transparently.
+
+    `orchestrate_services` is the deprecated, slot-specific predecessor of `provides.service`.
+    New extensions should declare `[provides]` instead; `capability_entrypoint` shims the
+    two so extensions that predate `[provides]` continue to resolve without change.
 
     `requires` is the module's declared dependency list — the other modules this
     one references and therefore needs when shipped standalone. Each entry is a
@@ -89,6 +92,20 @@ class ExtensionManifest:
     lint: tuple[str, ...] = ()
     orchestrate_services: str | None = None
     requires: tuple[str, ...] = ()
+    provides: dict[str, str] = field(default_factory=dict)
+
+    def capability_entrypoint(self, slot: str) -> str | None:
+        """Resolve the entrypoint for a capability slot.
+
+        Reads `provides.<slot>` first; for the `service` slot, falls back to the
+        deprecated `orchestrate_services` key so extensions that predate `[provides]`
+        keep resolving. Returns None when neither is declared.
+        """
+        if self.provides.get(slot):
+            return self.provides[slot]
+        if slot == "service":
+            return self.orchestrate_services
+        return None
 
 
 class ExtensionManifestLoader:
@@ -140,6 +157,13 @@ class ExtensionManifestLoader:
         requires_raw = data.get("requires")
         requires = tuple(r for r in requires_raw if isinstance(r, str) and r) if isinstance(requires_raw, list) else ()
 
+        provides_raw = data.get("provides")
+        provides = (
+            {k: str(v) for k, v in provides_raw.items() if isinstance(v, str) and v}
+            if isinstance(provides_raw, dict)
+            else {}
+        )
+
         return ExtensionManifest(
             prefix=prefix,
             skills_dirs=skills_dirs,
@@ -149,4 +173,5 @@ class ExtensionManifestLoader:
             lint=lint,
             orchestrate_services=orchestrate_services,
             requires=requires,
+            provides=provides,
         )

@@ -375,6 +375,14 @@ class Container(containers.DeclarativeContainer):
         reporter_factory=reporter_factory,
     )
 
+    capability_registry_svc = providers.Factory(
+        _lazy("winter_cli.modules.capability.capability_registry_service:CapabilityRegistryService"),
+        repo_factory=repo_factory,
+        manifest_loader=extension_manifest_loader,
+        bindings=workspace_config.provided.capabilities,
+        fs=fs,
+    )
+
     core_probe_svc = providers.Factory(
         _lazy("winter_cli.modules.doctor.core_probe_service:CoreProbeService"),
         config=workspace_config,
@@ -401,12 +409,18 @@ class Container(containers.DeclarativeContainer):
         manifest_loader=extension_manifest_loader,
     )
 
+    capability_probe_svc = providers.Factory(
+        _lazy("winter_cli.modules.doctor.capability_probe_service:CapabilityProbeService"),
+        registry=capability_registry_svc,
+    )
+
     doctor_svc = providers.Factory(
         _lazy("winter_cli.modules.doctor.doctor_service:DoctorService"),
         core_probe_svc=core_probe_svc,
         workspace_probe_svc=workspace_probe_svc,
         extension_probe_svc=extension_probe_svc,
         repo_factory=repo_factory,
+        capability_probe_svc=capability_probe_svc,
     )
 
     stream_doctor_reporter = providers.Factory(
@@ -460,9 +474,28 @@ class Container(containers.DeclarativeContainer):
     # when a non-None override is present, before resolving `service_handler`.
     service_orchestrator_override = providers.Object(None)
 
+    # ── capabilities: read-only slot introspection ───────────────────────────
+
+    stream_capability_reporter = providers.Factory(
+        _lazy("winter_cli.modules.capability.capability_reporter:StreamCapabilityReporter"),
+        click=providers.Object(click),
+    )
+
+    json_capability_reporter = providers.Factory(
+        _lazy("winter_cli.modules.capability.capability_reporter:JsonCapabilityReporter"),
+        click=providers.Object(click),
+    )
+
+    capabilities_handler = providers.Factory(
+        _lazy("winter_cli.modules.capability.handler:CapabilitiesHandler"),
+        registry=capability_registry_svc,
+        stream_reporter=stream_capability_reporter,
+        json_reporter=json_capability_reporter,
+    )
+
     service_orchestrator_resolver = providers.Factory(
         _lazy("winter_cli.modules.service.orchestrator_resolver:ServiceOrchestratorResolver"),
-        service_orchestrator=workspace_config.provided.service_orchestrator,
+        registry=capability_registry_svc,
         repo_factory=repo_factory,
         manifest_loader=extension_manifest_loader,
         fs=fs,

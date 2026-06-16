@@ -32,6 +32,14 @@ class _FakeExtensions:
         return list(self._results)
 
 
+class _FakeCapabilities:
+    def __init__(self, results: list[ProbeResult] | None = None) -> None:
+        self._results = results or []
+
+    def run(self) -> list[ProbeResult]:
+        return list(self._results)
+
+
 class _FakeRepoFactory:
     def get_standalone_repos(self) -> list[str]:
         return ["repo-a"]
@@ -60,7 +68,7 @@ def _make(status: ProbeStatus, name: str = "probe") -> ProbeResult:
 def test_emits_each_result_and_returns_zero_exit_when_no_fails() -> None:
     core = _FakeCore([_make(ProbeStatus.pass_), _make(ProbeStatus.warn)])
     exts = _FakeExtensions([_make(ProbeStatus.pass_)])
-    svc = DoctorService(core, _FakeWorkspace([]), exts, _FakeRepoFactory())  # type: ignore[arg-type]
+    svc = DoctorService(core, _FakeWorkspace([]), exts, _FakeRepoFactory(), _FakeCapabilities())  # type: ignore[arg-type]
     reporter = _RecordingReporter()
 
     summary = svc.run(reporter)  # type: ignore[arg-type]
@@ -77,7 +85,7 @@ def test_emits_each_result_and_returns_zero_exit_when_no_fails() -> None:
 def test_any_fail_flips_exit_code_to_one() -> None:
     core = _FakeCore([_make(ProbeStatus.pass_), _make(ProbeStatus.fail)])
     exts = _FakeExtensions([])
-    svc = DoctorService(core, _FakeWorkspace([]), exts, _FakeRepoFactory())  # type: ignore[arg-type]
+    svc = DoctorService(core, _FakeWorkspace([]), exts, _FakeRepoFactory(), _FakeCapabilities())  # type: ignore[arg-type]
     reporter = _RecordingReporter()
 
     summary = svc.run(reporter)  # type: ignore[arg-type]
@@ -87,7 +95,7 @@ def test_any_fail_flips_exit_code_to_one() -> None:
 
 def test_passes_standalone_repos_to_extension_runner() -> None:
     exts = _FakeExtensions([])
-    svc = DoctorService(_FakeCore([]), _FakeWorkspace([]), exts, _FakeRepoFactory())  # type: ignore[arg-type]
+    svc = DoctorService(_FakeCore([]), _FakeWorkspace([]), exts, _FakeRepoFactory(), _FakeCapabilities())  # type: ignore[arg-type]
     svc.run(_RecordingReporter())  # type: ignore[arg-type]
     assert exts.calls == [["repo-a"]]
 
@@ -96,8 +104,33 @@ def test_workspace_probe_results_appear_between_core_and_extensions() -> None:
     core = _FakeCore([ProbeResult(source="core", name="c", status=ProbeStatus.pass_)])
     workspace = _FakeWorkspace([ProbeResult(source="project", name="p", status=ProbeStatus.pass_)])
     exts = _FakeExtensions([ProbeResult(source="ext", name="e", status=ProbeStatus.pass_)])
-    svc = DoctorService(core, workspace, exts, _FakeRepoFactory())  # type: ignore[arg-type]
+    svc = DoctorService(core, workspace, exts, _FakeRepoFactory(), _FakeCapabilities())  # type: ignore[arg-type]
     reporter = _RecordingReporter()
 
     svc.run(reporter)  # type: ignore[arg-type]
     assert [r.source for r in reporter.results] == ["core", "project", "ext"]
+
+
+def test_capability_probe_results_flow_into_aggregate() -> None:
+    cap_result = ProbeResult(source="capabilities", name="slot: service", status=ProbeStatus.pass_)
+    caps = _FakeCapabilities([cap_result])
+    svc = DoctorService(_FakeCore([]), _FakeWorkspace([]), _FakeExtensions([]), _FakeRepoFactory(), caps)  # type: ignore[arg-type]
+    reporter = _RecordingReporter()
+
+    summary = svc.run(reporter)  # type: ignore[arg-type]
+
+    assert cap_result in reporter.results
+    assert summary.total == 1
+    assert summary.exit_code == 0
+
+
+def test_capability_fail_bumps_exit_code() -> None:
+    cap_result = ProbeResult(source="capabilities", name="slot: service", status=ProbeStatus.fail)
+    caps = _FakeCapabilities([cap_result])
+    svc = DoctorService(_FakeCore([]), _FakeWorkspace([]), _FakeExtensions([]), _FakeRepoFactory(), caps)  # type: ignore[arg-type]
+    reporter = _RecordingReporter()
+
+    summary = svc.run(reporter)  # type: ignore[arg-type]
+
+    assert summary.fails == 1
+    assert summary.exit_code == 1

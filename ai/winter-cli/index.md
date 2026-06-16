@@ -14,11 +14,11 @@ The `winter` command is a workspace-level tool for managing worktrees and reposi
 
 `winter --version` prints the installed CLI version (sourced from package metadata, so it tracks the running source) and exits 0. `winter --help` lists every command and root flag.
 
-`winter --service-orchestrator=<path-or-name> service …` overrides the service orchestrator for a single `winter service` invocation — points dispatch at a local extension directory or a registered name instead of the config-registered extension. See [usage/service.md#local-path-override](./usage/service.md#local-path-override) for the full precedence rule and path-vs-name semantics.
+`winter --service-orchestrator=<path-or-name> service …` overrides the service orchestrator for a single `winter service` invocation — points dispatch at a local extension directory or a registered name instead of the registry-resolved (bound or sole-provider) extension. See [usage/service.md#local-path-override](./usage/service.md#local-path-override) for the full precedence rule and path-vs-name semantics.
 
 ## What the CLI can do
 
-The surface is two command groups plus five standalone commands:
+The surface is two command groups plus six standalone commands:
 
 - **`winter ws …`** — reconcile the workspace or a feature env against the config (`init`), inspect state (`status`, `list`, `worktrees`, `diff`, `index`), move commits between remotes and worktrees (`fetch`, `pull`, `push`, `merge`), and manage env lifecycle (`connect`, `disconnect`, `checkout`, `destroy`, `prune`).
 - **`winter repo …`** — add, remove, and list the repositories declared in the config.
@@ -27,6 +27,7 @@ The surface is two command groups plus five standalone commands:
 - **`winter doctor`** — preflight health checks.
 - **`winter lint`** — convention checks.
 - **`winter graph`** — the module dependency graph.
+- **`winter capabilities`** — list each capability slot, its bound provider extension, and other installed candidates.
 
 Most flows are multi-repo: a single `winter ws` invocation fans out over every matched worktree in parallel, honoring pinned-repo rules. Commands accept segment-aware glob `PATTERNS` over `<env>/<repo>`, emit `--json` for tooling, and never touch the network unless the command's purpose is to (`fetch`/`pull`/`push`, or `status --fetch`).
 
@@ -34,7 +35,7 @@ Most flows are multi-repo: a single `winter ws` invocation fans out over every m
 
 | Topic | Read when… |
 |-------|------------|
-| [Command reference](./usage/index.md) | …you need to run any `winter` command — the per-topic routing index for `ws`, `repo`, `dashboard`, `service`, `doctor`, `lint`, and `graph`. |
+| [Command reference](./usage/index.md) | …you need to run any `winter` command — the per-topic routing index for `ws`, `repo`, `dashboard`, `service`, `doctor`, `lint`, `graph`, and `capabilities`. |
 | [Common workflows](./workflows.md) | …you want a ready-made command sequence for a routine multi-step operation — bootstrap, start a feature, merge main, push, tear down. |
 | [Resilience & drift](./resilience.md) | …you hit a flaky-network retry, a hung remote git call, or a config↔filesystem drift warning, and want the cross-cutting behavior behind it. |
 | [Install & configure](./setup.md) | …you're installing winter or editing `.winter/config.toml` — schema, local overlay, and extensions. |

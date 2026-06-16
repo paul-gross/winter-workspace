@@ -11,6 +11,8 @@ Runs preflight checks for the workspace and every installed extension. Each prob
 
 **Built-in core probes** cover `git --version`, the running python version (>=3.11), `.winter/config.toml` parses, every declared project repo exists at `projects/<name>/`, every declared standalone repo exists at its configured path, every feature env's per-repo worktrees exist on the env-named branch, and the `.claude/` symlinks (agents and skills contributed by extensions) resolve to existing targets.
 
+**Built-in capabilities probes** run unconditionally — one probe per known capability slot (currently just `service`). A slot that is ambiguous (two+ providers, no explicit binding) or invalid (broken config binding, missing entrypoint) → `fail`; a sole implicit provider → `pass` with a note; an explicit valid binding → `pass`; no provider installed → `warn`. See [setup.md#capability-registry](../setup.md#capability-registry) for the full resolution model and `winter capabilities` ([capabilities.md](./capabilities.md)) to introspect the registry interactively.
+
 **Workspace probes** are contributed via a top-level `doctor = "path/to/probe-script"` field in `.winter/config.toml`. Use this to add project-specific checks ("postgres reachable", "node_modules installed", "secrets present"). See [setup.md](../setup.md#workspace-doctor-probe) for the script contract.
 
 **Extension probes** are contributed via a `doctor = "path/to/probe-script"` field in the extension's `winter-ext.toml`. See [setup.md#extension-doctor-probes](../setup.md#extension-doctor-probes) for the script contract.

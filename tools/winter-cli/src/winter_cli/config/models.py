@@ -174,13 +174,20 @@ class WorkspaceConfig(BaseModel):
     """Repos declared in `[[standalone_repository]]`."""
 
     service_orchestrator: str | None = None
-    """Name of the installed extension that orchestrates services for `winter service`.
+    """Deprecated — use `capabilities["service"]` instead (kept for back-compat).
 
-    Matches an installed extension's `name` (a `[[standalone_repository]]` shipping
-    a `winter-ext.toml` with an `orchestrate_services` entrypoint). When set,
-    `winter service <action> <env> [params...]` dispatches to that extension's
-    entrypoint. When None, every `winter service` command fails with a message
-    explaining how to register one. Only a single orchestrator is supported."""
+    Previously the direct key for the extension that orchestrates services. At load
+    time, when no explicit `capabilities.service` is set, this value is folded into
+    `capabilities["service"]` automatically. Still parsed and aliased so existing
+    configs without a `[capabilities]` table continue to work unchanged."""
+
+    capabilities: dict[str, str] = Field(default_factory=dict)
+    """Maps a capability slot name (e.g. `service`) to the installed-extension name
+    that provides it.
+
+    Supersedes the deprecated `service_orchestrator` root key, which is folded into
+    `capabilities["service"]` at load time when no explicit `capabilities.service`
+    is set. Only `service` is currently a known slot."""
 
     doctor: str | None = None
     """Optional path to a workspace-level `winter doctor` probe script (relative to workspace_root).

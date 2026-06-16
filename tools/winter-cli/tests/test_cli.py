@@ -42,6 +42,7 @@ def test_cli_group_advertises_every_top_level_command() -> None:
     """`winter --help` must still list all top-level commands."""
     ctx = click.Context(_cli_group)
     assert sorted(_cli_group.list_commands(ctx)) == [
+        "capabilities",
         "dashboard",
         "doctor",
         "graph",

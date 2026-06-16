@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from winter_cli.modules.doctor.capability_probe_service import CapabilityProbeService
 from winter_cli.modules.doctor.core_probe_service import CoreProbeService
 from winter_cli.modules.doctor.doctor_reporter import IDoctorReporter
 from winter_cli.modules.doctor.extension_probe_service import ExtensionProbeService
@@ -35,11 +36,13 @@ class DoctorService:
         workspace_probe_svc: WorkspaceProbeService,
         extension_probe_svc: ExtensionProbeService,
         repo_factory: RepositoryFactory,
+        capability_probe_svc: CapabilityProbeService,
     ) -> None:
         self._core_probe_svc = core_probe_svc
         self._workspace_probe_svc = workspace_probe_svc
         self._extension_probe_svc = extension_probe_svc
         self._repo_factory = repo_factory
+        self._capability_probe_svc = capability_probe_svc
 
     def run(self, reporter: IDoctorReporter) -> DoctorSummary:
         reporter.started()
@@ -55,6 +58,10 @@ class DoctorService:
 
         standalone_repos = self._repo_factory.get_standalone_repos()
         for result in self._extension_probe_svc.run(standalone_repos):
+            reporter.probe_result(result)
+            results.append(result)
+
+        for result in self._capability_probe_svc.run():
             reporter.probe_result(result)
             results.append(result)
 

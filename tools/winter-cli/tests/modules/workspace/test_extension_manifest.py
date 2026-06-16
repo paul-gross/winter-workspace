@@ -29,6 +29,7 @@ def test_load_returns_defaults_when_manifest_path_is_none() -> None:
     assert manifest.lint == ()
     assert manifest.orchestrate_services is None
     assert manifest.requires == ()
+    assert manifest.provides == {}
 
 
 def test_load_respects_manifest_prefix_and_hooks() -> None:
@@ -164,6 +165,106 @@ def test_load_ignores_non_list_requires_value() -> None:
 
     manifest = loader.load(repo, manifest_path=manifest_path)
     assert manifest.requires == ()
+
+
+def test_load_parses_provides_table() -> None:
+    """`[provides]` is parsed into a dict of slot→entrypoint strings."""
+    manifest_path = WORKSPACE_ROOT / "my-ext" / "winter-ext.toml"
+    config_files = {
+        manifest_path: {
+            "provides": {"service": "workflow/service"},
+        }
+    }
+    loader = ExtensionManifestLoader(config_file_reader=FakeConfigFileReader(config_files))
+    repo = StandaloneRepository(name="my-ext", path=WORKSPACE_ROOT / "my-ext")
+
+    manifest = loader.load(repo, manifest_path=manifest_path)
+    assert manifest.provides == {"service": "workflow/service"}
+
+
+def test_load_provides_empty_when_missing() -> None:
+    """Missing `[provides]` table → empty dict; capability_entrypoint falls back or returns None."""
+    manifest_path = WORKSPACE_ROOT / "my-ext" / "winter-ext.toml"
+    config_files = {manifest_path: {}}
+    loader = ExtensionManifestLoader(config_file_reader=FakeConfigFileReader(config_files))
+    repo = StandaloneRepository(name="my-ext", path=WORKSPACE_ROOT / "my-ext")
+
+    manifest = loader.load(repo, manifest_path=manifest_path)
+    assert manifest.provides == {}
+    assert manifest.capability_entrypoint("service") is None
+    assert manifest.capability_entrypoint("unknown") is None
+
+
+def test_capability_entrypoint_returns_provides_service() -> None:
+    """`capability_entrypoint("service")` returns the `provides.service` value when present."""
+    manifest_path = WORKSPACE_ROOT / "my-ext" / "winter-ext.toml"
+    config_files = {
+        manifest_path: {
+            "provides": {"service": "workflow/service"},
+        }
+    }
+    loader = ExtensionManifestLoader(config_file_reader=FakeConfigFileReader(config_files))
+    repo = StandaloneRepository(name="my-ext", path=WORKSPACE_ROOT / "my-ext")
+
+    manifest = loader.load(repo, manifest_path=manifest_path)
+    assert manifest.capability_entrypoint("service") == "workflow/service"
+
+
+def test_capability_entrypoint_falls_back_to_orchestrate_services() -> None:
+    """`capability_entrypoint("service")` falls back to `orchestrate_services` when `provides` has no `service`."""
+    manifest_path = WORKSPACE_ROOT / "my-ext" / "winter-ext.toml"
+    config_files = {manifest_path: {"orchestrate_services": "workflow/service"}}
+    loader = ExtensionManifestLoader(config_file_reader=FakeConfigFileReader(config_files))
+    repo = StandaloneRepository(name="my-ext", path=WORKSPACE_ROOT / "my-ext")
+
+    manifest = loader.load(repo, manifest_path=manifest_path)
+    assert manifest.capability_entrypoint("service") == "workflow/service"
+
+
+def test_capability_entrypoint_provides_wins_over_orchestrate_services() -> None:
+    """Explicit `provides.service` wins even when `orchestrate_services` is also set."""
+    manifest_path = WORKSPACE_ROOT / "my-ext" / "winter-ext.toml"
+    config_files = {
+        manifest_path: {
+            "provides": {"service": "new/entrypoint"},
+            "orchestrate_services": "old/entrypoint",
+        }
+    }
+    loader = ExtensionManifestLoader(config_file_reader=FakeConfigFileReader(config_files))
+    repo = StandaloneRepository(name="my-ext", path=WORKSPACE_ROOT / "my-ext")
+
+    manifest = loader.load(repo, manifest_path=manifest_path)
+    assert manifest.capability_entrypoint("service") == "new/entrypoint"
+
+
+def test_capability_entrypoint_returns_none_for_unknown_slot() -> None:
+    """`capability_entrypoint` with an unknown slot returns None."""
+    manifest_path = WORKSPACE_ROOT / "my-ext" / "winter-ext.toml"
+    config_files = {
+        manifest_path: {
+            "provides": {"service": "workflow/service"},
+        }
+    }
+    loader = ExtensionManifestLoader(config_file_reader=FakeConfigFileReader(config_files))
+    repo = StandaloneRepository(name="my-ext", path=WORKSPACE_ROOT / "my-ext")
+
+    manifest = loader.load(repo, manifest_path=manifest_path)
+    assert manifest.capability_entrypoint("unknown") is None
+
+
+def test_load_provides_empty_when_non_dict() -> None:
+    """A non-dict `provides` (e.g. a bare string) degrades to empty dict; no raise."""
+    manifest_path = WORKSPACE_ROOT / "my-ext" / "winter-ext.toml"
+    config_files = {
+        manifest_path: {
+            "provides": "workflow/service",
+        }
+    }
+    loader = ExtensionManifestLoader(config_file_reader=FakeConfigFileReader(config_files))
+    repo = StandaloneRepository(name="my-ext", path=WORKSPACE_ROOT / "my-ext")
+
+    manifest = loader.load(repo, manifest_path=manifest_path)
+    assert manifest.provides == {}
 
 
 def test_load_raises_repo_error_on_broken_manifest() -> None:

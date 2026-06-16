@@ -248,3 +248,61 @@ def test_keybindings_overlay_overrides_per_key() -> None:
     # Per-machine overlay wins for the overridden id.
     assert kb.bindings["workspace.refresh"] == "R"
     assert kb.timeoutlen == 1000
+
+
+def test_capabilities_parsed_from_table() -> None:
+    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
+    fs = FakeFilesystem(files={config_path: ""})
+    svc = _service(fs, {config_path: {"capabilities": {"service": "winter-service-tmux"}}})
+
+    assert svc.load().capabilities == {"service": "winter-service-tmux"}
+
+
+def test_capabilities_overlay_overrides_per_key() -> None:
+    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
+    local_path = WORKSPACE_ROOT / WINTER_DIR / LOCAL_CONFIG_FILE
+    fs = FakeFilesystem(files={config_path: "", local_path: ""})
+    svc = _service(
+        fs,
+        {
+            config_path: {"capabilities": {"service": "winter-service-tmux"}},
+            local_path: {"capabilities": {"service": "my-local-orchestrator"}},
+        },
+    )
+
+    # Local overlay wins for the overridden slot.
+    assert svc.load().capabilities == {"service": "my-local-orchestrator"}
+
+
+def test_capabilities_aliased_from_service_orchestrator() -> None:
+    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
+    fs = FakeFilesystem(files={config_path: ""})
+    svc = _service(fs, {config_path: {"service_orchestrator": "winter-service-tmux"}})
+
+    config = svc.load()
+    assert config.capabilities == {"service": "winter-service-tmux"}
+
+
+def test_capabilities_explicit_wins_over_service_orchestrator_alias() -> None:
+    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
+    fs = FakeFilesystem(files={config_path: ""})
+    svc = _service(
+        fs,
+        {
+            config_path: {
+                "capabilities": {"service": "A"},
+                "service_orchestrator": "B",
+            }
+        },
+    )
+
+    config = svc.load()
+    assert config.capabilities["service"] == "A"
+
+
+def test_capabilities_empty_when_neither_key_present() -> None:
+    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
+    fs = FakeFilesystem(files={config_path: ""})
+    svc = _service(fs, {config_path: {}})
+
+    assert svc.load().capabilities == {}

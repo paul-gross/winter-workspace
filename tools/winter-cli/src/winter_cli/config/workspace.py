@@ -116,6 +116,19 @@ class WorkspaceConfigService:
 
         keybindings = self._parse_keybindings(merged.get("keybindings"))
 
+        caps_raw = merged.get("capabilities")
+        capabilities = (
+            {str(k): str(v) for k, v in caps_raw.items() if isinstance(v, str) and v}
+            if isinstance(caps_raw, dict)
+            else {}
+        )
+        if (
+            "service" not in capabilities
+            and isinstance(merged.get("service_orchestrator"), str)
+            and merged["service_orchestrator"]
+        ):
+            capabilities["service"] = merged["service_orchestrator"]
+
         main_branch = merged.get("main_branch") or "main"
 
         adopt_value = merged.get("adopt_extensions", "winter")
@@ -139,6 +152,7 @@ class WorkspaceConfigService:
             service_orchestrator=(
                 merged.get("service_orchestrator") if isinstance(merged.get("service_orchestrator"), str) else None
             ),
+            capabilities=capabilities,
             doctor=merged.get("doctor") if isinstance(merged.get("doctor"), str) else None,
             lint=_coerce_str_list(merged.get("lint")),
             keybindings=keybindings,

@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from winter_cli.core.filesystem import IFilesystemReader
+from winter_cli.modules.capability.capability_registry_service import CapabilityRegistryService
+from winter_cli.modules.capability.models import CapabilitySlot
 from winter_cli.modules.workspace.extension_manifest import EXT_MANIFEST, ExtensionManifestLoader
 from winter_cli.modules.workspace.models import RepoError, StandaloneRepository
 from winter_cli.modules.workspace.repository_factory import IStandaloneRepoProvider
@@ -20,17 +22,23 @@ class ResolvedOrchestrator:
 class ServiceOrchestratorResolver:
     """Resolves the registered service orchestrator entrypoint.
 
-    The four resolution failures each raise a distinct `RepoError`:
-      1. no `service_orchestrator` registered in `.winter/config.toml`,
-      2. the configured name matches no installed extension,
-      3. the matched extension declares no `orchestrate_services` entrypoint,
-      4. the declared entrypoint file is missing on disk.
+    Config/name resolution flows through `CapabilityRegistryService`, which handles
+    the no-provider, invalid-binding, and ambiguous-provider failure cases. The
+    override branch (path-mode and bare-name) is the local-checkout affordance that
+    bypasses the registry entirely.
 
     When `override` is supplied (from `--service-orchestrator` or
-    `WINTER_SERVICE_ORCHESTRATOR`), it takes precedence over the config value and
-    is interpreted as a **local path** when it contains an `os.sep` or resolves to
-    an existing directory on disk — skipping failures 1 and 2. A bare name with no
-    path separator falls through to the normal registered-extension lookup.
+    `WINTER_SERVICE_ORCHESTRATOR`), it takes precedence over the registry and is
+    interpreted as a **local path** when it contains an `os.sep` or resolves to an
+    existing directory on disk. A bare name with no path separator falls through to
+    the normal registered-extension lookup (`_resolve_name`), also bypassing the
+    registry.
+
+    The override branch failures each raise a distinct `RepoError`:
+      1. the path override directory does not exist,
+      2. the path override directory has no `winter-ext.toml`,
+      3. the matched extension declares no `orchestrate_services` entrypoint,
+      4. the declared entrypoint file is missing on disk.
 
     Shared by `ServiceDispatchService` and `ServiceLogsService` so orchestrator
     resolution logic is not duplicated.
@@ -38,14 +46,14 @@ class ServiceOrchestratorResolver:
 
     def __init__(
         self,
-        service_orchestrator: str | None,
+        registry: CapabilityRegistryService,
         repo_factory: IStandaloneRepoProvider,
         manifest_loader: ExtensionManifestLoader,
         fs: IFilesystemReader,
         override: str | None = None,
         workspace_root: Path | None = None,
     ) -> None:
-        self._service_orchestrator = service_orchestrator
+        self._registry = registry
         self._repo_factory = repo_factory
         self._manifest_loader = manifest_loader
         self._fs = fs
@@ -54,19 +62,13 @@ class ServiceOrchestratorResolver:
 
     def resolve(self) -> ResolvedOrchestrator:
         """Return the resolved entrypoint path or raise RepoError."""
-        effective = self._override or self._service_orchestrator
-        if not effective:
-            raise RepoError(
-                "no service orchestrator registered — set "
-                '`service_orchestrator = "<extension-name>"` in .winter/config.toml '
-                "(it must name an installed extension that declares an `orchestrate_services` "
-                "entrypoint in its winter-ext.toml)."
-            )
+        if self._override:
+            if self._is_path(self._override):
+                return self._resolve_path(self._override)
+            return self._resolve_name(self._override)
 
-        if self._is_path(effective):
-            return self._resolve_path(effective)
-
-        return self._resolve_name(effective)
+        resolved = self._registry.resolve(CapabilitySlot.service)
+        return ResolvedOrchestrator(entrypoint=resolved.entrypoint, ext_dir=resolved.ext_dir, prefix=resolved.prefix)
 
     def _is_path(self, value: str) -> bool:
         """Return True when `value` should be treated as a local extension path.
@@ -108,17 +110,18 @@ class ServiceOrchestratorResolver:
         synthetic_repo = StandaloneRepository(name=ext_dir.name, path=ext_dir)
         manifest = self._manifest_loader.load(synthetic_repo, manifest_path)
 
-        if not manifest.orchestrate_services:
+        entrypoint_rel = manifest.capability_entrypoint("service")
+        if not entrypoint_rel:
             raise RepoError(
                 f"service orchestrator override {value!r} declares no `orchestrate_services` entrypoint — "
                 f'add `orchestrate_services = "<path>"` to {manifest_path}.'
             )
 
-        entrypoint = ext_dir / manifest.orchestrate_services
+        entrypoint = ext_dir / entrypoint_rel
         if not self._fs.is_file(entrypoint):
             raise RepoError(
                 f"service orchestrator override {value!r} entrypoint not found at {entrypoint} "
-                f'(declared as `orchestrate_services = "{manifest.orchestrate_services}"` in {manifest_path}).'
+                f'(declared as `orchestrate_services = "{entrypoint_rel}"` in {manifest_path}).'
             )
 
         return ResolvedOrchestrator(entrypoint=entrypoint, ext_dir=ext_dir, prefix=manifest.prefix)
@@ -134,18 +137,19 @@ class ServiceOrchestratorResolver:
             )
 
         manifest = self._manifest_loader.load(repo, repo.path / EXT_MANIFEST)
-        if not manifest.orchestrate_services:
+        entrypoint_rel = manifest.capability_entrypoint("service")
+        if not entrypoint_rel:
             raise RepoError(
                 f"service orchestrator {name!r} declares no `orchestrate_services` entrypoint — "
                 f'add `orchestrate_services = "<path>"` to {repo.path / EXT_MANIFEST}.'
             )
 
-        entrypoint = repo.path / manifest.orchestrate_services
+        entrypoint = repo.path / entrypoint_rel
         if not self._fs.is_file(entrypoint):
             manifest_path = repo.path / EXT_MANIFEST
             raise RepoError(
                 f"service orchestrator {name!r} entrypoint not found at {entrypoint} "
-                f'(declared as `orchestrate_services = "{manifest.orchestrate_services}"` in {manifest_path}).'
+                f'(declared as `orchestrate_services = "{entrypoint_rel}"` in {manifest_path}).'
             )
         return ResolvedOrchestrator(entrypoint=entrypoint, ext_dir=repo.path, prefix=manifest.prefix)
 

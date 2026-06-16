@@ -24,7 +24,9 @@ session_prefix = "my-project"                 # tmux session prefix
 main_branch = "main"                          # workspace-default main branch (per-repo override below)
 adopt_extensions = "winter"                   # how aggressively standalone repos contribute skills/agents
 doctor = "ai/project/doctor.sh"               # optional; workspace-level `winter doctor` probe script (see Doctor below)
-service_orchestrator = "winter-service-tmux"  # optional; extension that handles `winter service` (see Service orchestration below)
+
+[capabilities]
+service = "winter-service-tmux"               # bind the `service` capability slot to an installed provider extension
 
 # Entries appended to every repo's .git/info/exclude on `winter ws init`.
 git_excludes = ["*.Local.csproj"]
@@ -113,8 +115,10 @@ skills_dir = "skills"          # optional; explicit path overrides default disco
 agents_dir = "agents"          # optional; explicit path overrides default discovery
 doctor = "scripts/doctor.sh"   # optional; executable that emits NDJSON probe events for `winter doctor`
 lint = "scripts/lint.sh"       # optional; executable(s) emitting NDJSON findings for `winter lint` (str or list)
-orchestrate_services = "workflow/service"   # optional; executable entrypoint for `winter service` (see Service orchestration below)
 requires = ["winter-product"]  # optional; other modules this one depends on (see `winter graph`)
+
+[provides]
+service = "workflow/service"   # this extension provides the `service` capability; entrypoint relative to repo root
 ```
 
 `requires` declares the other winter modules this one references and therefore needs when installed on its own. Each entry is a module name — the `<context>` half of a `<context>:/path` reference. It is the data `winter graph` aggregates and the module-extractability lint check validates references against.
@@ -200,18 +204,48 @@ The top-level `adopt_extensions` field controls when winter processes a standalo
 | `all` | Process any standalone repo with `skills/`, `agents/`, `.claude/skills/`, or `.claude/agents/` directories, with or without a manifest. Frontmatter validation downgrades from refuse-to-warn — collisions become the user's problem. |
 | `none` | Skip all extension processing. Standalone repos are still cloned, but no symlinks are created. |
 
+## Capability registry
+
+Winter routes capabilities (service orchestration and future slots) through a uniform registry. Three inputs combine to determine the provider for each slot:
+
+1. **Extension manifest** — a `[provides]` table in `winter-ext.toml`, where each key is a slot name and the value is the entrypoint path relative to the extension repo root.
+2. **Workspace config** — a `[capabilities]` table in `.winter/config.toml` (or the `config.local.toml` overlay), where each key is a slot name and the value is the name of an installed extension. The table merges through the overlay key-by-key like every other table.
+3. **Installed-extension set** — the standalone repos on disk that the registry walks at resolve time.
+
+### Resolution rules
+
+| State | Result |
+|-------|--------|
+| Explicit `capabilities.<slot>` binding → valid provider | **explicit** — dispatches to that extension |
+| No binding, exactly one extension provides the slot | **implicit** — dispatches to the sole provider |
+| No binding, exactly one provider but entrypoint file missing | **implicit** (describe) / dispatch error (resolve) — entrypoint validity re-checked at dispatch time |
+| No binding, two or more providers | **ambiguous** — any dispatch errors, naming all candidates and the `capabilities.<slot>` config key |
+| Binding to an extension that is not installed, or installed but not declaring `provides.<slot>`, or entrypoint file missing | **invalid** — any dispatch errors with a specific message |
+| No provider installed | no dispatch possible |
+
+`winter capabilities` introspects the registry (read-only, always exits 0 — see [usage/capabilities.md](./usage/capabilities.md)). `winter doctor`'s `[capabilities]` probe group evaluates each slot: ambiguous or invalid → `fail`, implicit sole provider → `pass` (with a note), explicit valid binding → `pass`, no provider → `warn`.
+
+The only in-scope slot today is `service`. Future slots are added to `CapabilitySlot` in the code and the registry handles them uniformly.
+
+### Deprecated keys
+
+- **`service_orchestrator`** in config — folded into `capabilities.service` automatically at config load; ignored when `capabilities.service` is already set explicitly. Use `[capabilities].service` for new workspaces.
+- **`orchestrate_services`** in manifest — the service-slot-only predecessor of `provides.service`; still read as a fallback via `capability_entrypoint()`. Use `[provides].service` for new extensions.
+
 ## Service orchestration
 
-`winter service` (see [usage/service.md](./usage/service.md)) owns a stable `up`/`down`/`status`/`restart`/`logs` interface and dispatches each invocation to a single orchestrator extension the workspace registers. The interface lives in core winter; the implementation lives in whichever extension the workspace points at (tmux, containers, a daemon), so consumers never depend on the implementation.
+`winter service` (see [usage/service.md](./usage/service.md)) owns a stable `up`/`down`/`status`/`restart`/`logs` interface and dispatches each invocation to the extension bound to the `service` capability slot. The interface lives in core winter; the implementation lives in whichever extension the workspace points at (tmux, containers, a daemon), so consumers never depend on the implementation.
 
 ### Registering an orchestrator
 
-Two distinctly-named keys connect the interface to an implementation:
+Two keys connect the interface to an implementation:
 
-- **Workspace config** — a top-level `service_orchestrator = "<extension-name>"` in `.winter/config.toml` (or the `config.local.toml` overlay) naming an installed extension. The name must match a `[[standalone_repository]]` that ships a `winter-ext.toml`.
-- **Extension manifest** — an `orchestrate_services = "<path>"` key in that extension's `winter-ext.toml`, an executable entrypoint relative to the extension's repo root.
+- **Workspace config** — `capabilities.service = "<extension-name>"` in the `[capabilities]` table in `.winter/config.toml` (or the `config.local.toml` overlay). The name must match a `[[standalone_repository]]` that ships a `winter-ext.toml`. If only one installed extension declares `provides.service`, the binding is implicit and the explicit config entry is optional.
+- **Extension manifest** — `provides.service = "<path>"` in the `[provides]` table in that extension's `winter-ext.toml`, an executable entrypoint relative to the extension's repo root.
 
-With both in place, `winter service <action> <env>` resolves the orchestrator and runs its entrypoint. With either missing — no `service_orchestrator` in config.toml, a name matching no installed extension, or an extension without an `orchestrate_services` entrypoint key in winter-ext.toml — the command fails naming the specific gap. Only one orchestrator is supported; there is no per-env selection.
+With both in place, `winter service <action> <env>` resolves through the capability registry and runs the entrypoint. If the binding is ambiguous (two+ providers, no explicit config entry), the command errors naming all candidates and the `capabilities.service` config key. For the full resolution model and deprecated key handling, see [## Capability registry](#capability-registry) above.
+
+The legacy keys `service_orchestrator` (config) and `orchestrate_services` (manifest) are still accepted as deprecated aliases — see the Capability registry section for the fallback semantics.
 
 ### Entrypoint contract
 

@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import FakeConfigFileReader, FakeFilesystem, FakeSubprocessRunner
+from winter_cli.modules.capability.capability_registry_service import CapabilityRegistryService
 from winter_cli.modules.service.orchestrator_resolver import ServiceOrchestratorResolver
 from winter_cli.modules.service.service_dispatch_service import ServiceDispatchService
 from winter_cli.modules.workspace.extension_manifest import EXT_MANIFEST, ExtensionManifestLoader
@@ -30,11 +31,19 @@ def _resolver(
     files: dict[Path, str],
 ) -> ServiceOrchestratorResolver:
     loader = ExtensionManifestLoader(config_file_reader=FakeConfigFileReader(manifests))
-    return ServiceOrchestratorResolver(
-        service_orchestrator=orchestrator,
+    fs = FakeFilesystem(files=files)
+    bindings: dict[str, str] = {"service": orchestrator} if orchestrator else {}
+    registry = CapabilityRegistryService(
         repo_factory=_StubRepoFactory(repos),
         manifest_loader=loader,
-        fs=FakeFilesystem(files=files),
+        bindings=bindings,
+        fs=fs,
+    )
+    return ServiceOrchestratorResolver(
+        registry=registry,
+        repo_factory=_StubRepoFactory(repos),
+        manifest_loader=loader,
+        fs=fs,
     )
 
 
@@ -117,14 +126,14 @@ def test_dispatch_sets_workspace_context_env_vars() -> None:
 def test_no_orchestrator_registered_raises() -> None:
     res = _resolver(orchestrator=None, repos=[], manifests={}, files={})
     svc = ServiceDispatchService(subprocess_runner=FakeSubprocessRunner(), orchestrator_resolver=res, workspace_root=WS)
-    with pytest.raises(RepoError, match="no service orchestrator registered"):
+    with pytest.raises(RepoError, match="no extension provides"):
         svc.dispatch("up", "alpha")
 
 
 def test_unknown_extension_name_raises() -> None:
     res = _resolver(orchestrator="winter-service-docker", repos=[_tmux_repo()], manifests={}, files={})
     svc = ServiceDispatchService(subprocess_runner=FakeSubprocessRunner(), orchestrator_resolver=res, workspace_root=WS)
-    with pytest.raises(RepoError, match="not an installed extension"):
+    with pytest.raises(RepoError, match="no installed extension named"):
         svc.dispatch("up", "alpha")
 
 
@@ -137,7 +146,7 @@ def test_extension_missing_service_key_raises() -> None:
         files={repo.path / EXT_MANIFEST: ""},
     )
     svc = ServiceDispatchService(subprocess_runner=FakeSubprocessRunner(), orchestrator_resolver=res, workspace_root=WS)
-    with pytest.raises(RepoError, match="declares no `orchestrate_services` entrypoint"):
+    with pytest.raises(RepoError, match=r"declares no provides\.service"):
         svc.dispatch("up", "alpha")
 
 

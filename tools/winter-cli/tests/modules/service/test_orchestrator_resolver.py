@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import FakeConfigFileReader, FakeFilesystem
+from winter_cli.modules.capability.capability_registry_service import CapabilityRegistryService
 from winter_cli.modules.service.orchestrator_resolver import ServiceOrchestratorResolver
 from winter_cli.modules.workspace.extension_manifest import EXT_MANIFEST, ExtensionManifestLoader
 from winter_cli.modules.workspace.models import RepoError, StandaloneRepository
@@ -31,11 +32,19 @@ def _resolver(
     directories: list[Path] | None = None,
 ) -> ServiceOrchestratorResolver:
     loader = ExtensionManifestLoader(config_file_reader=FakeConfigFileReader(manifests))
-    return ServiceOrchestratorResolver(
-        service_orchestrator=orchestrator,
+    fs = FakeFilesystem(files=files, directories=directories or [])
+    bindings: dict[str, str] = {"service": orchestrator} if orchestrator else {}
+    registry = CapabilityRegistryService(
         repo_factory=_StubRepoFactory(repos),
         manifest_loader=loader,
-        fs=FakeFilesystem(files=files, directories=directories or []),
+        bindings=bindings,
+        fs=fs,
+    )
+    return ServiceOrchestratorResolver(
+        registry=registry,
+        repo_factory=_StubRepoFactory(repos),
+        manifest_loader=loader,
+        fs=fs,
         override=override,
     )
 
@@ -67,13 +76,13 @@ def test_resolve_returns_correct_entrypoint_path() -> None:
 
 def test_no_orchestrator_registered_raises() -> None:
     res = _resolver(orchestrator=None, repos=[], manifests={}, files={})
-    with pytest.raises(RepoError, match="no service orchestrator registered"):
+    with pytest.raises(RepoError, match="no extension provides"):
         res.resolve()
 
 
 def test_unknown_extension_name_raises() -> None:
     res = _resolver(orchestrator="winter-service-docker", repos=[_tmux_repo()], manifests={}, files={})
-    with pytest.raises(RepoError, match="not an installed extension"):
+    with pytest.raises(RepoError, match="no installed extension named"):
         res.resolve()
 
 
@@ -85,7 +94,7 @@ def test_extension_missing_orchestrate_services_key_raises() -> None:
         manifests={repo.path / EXT_MANIFEST: {}},
         files={repo.path / EXT_MANIFEST: ""},
     )
-    with pytest.raises(RepoError, match="declares no `orchestrate_services` entrypoint"):
+    with pytest.raises(RepoError, match=r"declares no provides\.service"):
         res.resolve()
 
 
@@ -166,11 +175,18 @@ def test_path_mode_resolves_relative_path_against_workspace_root() -> None:
         sub_dir / "workflow/orchestrate": "",
     }
     loader = ExtensionManifestLoader(config_file_reader=FakeConfigFileReader({sub_dir / EXT_MANIFEST: manifest_data}))
-    res = ServiceOrchestratorResolver(
-        service_orchestrator=None,
+    fs = FakeFilesystem(files=files, directories=[sub_dir])
+    registry = CapabilityRegistryService(
         repo_factory=_StubRepoFactory([]),
         manifest_loader=loader,
-        fs=FakeFilesystem(files=files, directories=[sub_dir]),
+        bindings={},
+        fs=fs,
+    )
+    res = ServiceOrchestratorResolver(
+        registry=registry,
+        repo_factory=_StubRepoFactory([]),
+        manifest_loader=loader,
+        fs=fs,
         override=relative_override,
         workspace_root=ws,
     )
@@ -224,7 +240,7 @@ def test_path_mode_missing_entrypoint_file_raises() -> None:
 
 
 def test_override_beats_config_value() -> None:
-    """When both override and service_orchestrator are set, override wins."""
+    """When both override and registry config are set, override wins."""
     repo = _tmux_repo()
     entrypoint_registered = repo.path / "workflow/service"
     entrypoint_local = EXT / "workflow/orchestrate"
@@ -241,11 +257,18 @@ def test_override_beats_config_value() -> None:
     }
 
     loader = ExtensionManifestLoader(config_file_reader=FakeConfigFileReader(manifests))
-    res = ServiceOrchestratorResolver(
-        service_orchestrator="winter-service-tmux",  # config value
+    fs = FakeFilesystem(files=files, directories=[EXT])
+    registry = CapabilityRegistryService(
         repo_factory=_StubRepoFactory([repo]),
         manifest_loader=loader,
-        fs=FakeFilesystem(files=files, directories=[EXT]),
+        bindings={"service": "winter-service-tmux"},  # config value
+        fs=fs,
+    )
+    res = ServiceOrchestratorResolver(
+        registry=registry,
+        repo_factory=_StubRepoFactory([repo]),
+        manifest_loader=loader,
+        fs=fs,
         override=str(EXT),  # override wins
     )
     resolved = res.resolve()
@@ -262,7 +285,7 @@ def test_no_override_uses_config_value() -> None:
 def test_no_override_no_config_raises() -> None:
     """When both override and config are absent, the no-orchestrator error fires."""
     res = _resolver(orchestrator=None, repos=[], manifests={}, files={}, override=None)
-    with pytest.raises(RepoError, match="no service orchestrator registered"):
+    with pytest.raises(RepoError, match="no extension provides"):
         res.resolve()
 
 

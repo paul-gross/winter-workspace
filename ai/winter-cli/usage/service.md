@@ -18,7 +18,7 @@ winter service logs alpha -t           # prefix each line with its timestamp
 
 `winter service` owns a stable `up`/`down`/`status`/`restart`/`logs` interface and dispatches each invocation to whichever orchestrator the workspace registers. Consumers depend on `winter service …` and never on the orchestrator's implementation, so a workspace can swap tmux for containers or a supervising daemon without re-teaching agents, docs, or habits.
 
-Registering an orchestrator is two config keys — `service_orchestrator` in `.winter/config.toml` (naming the extension) and `orchestrate_services` in the extension's `winter-ext.toml` (the entrypoint path). See [setup.md#service-orchestration](../setup.md#service-orchestration) for the schema and the failure modes when either is missing.
+Registering an orchestrator uses the capability registry: `capabilities.service = "<name>"` in the `[capabilities]` table of `.winter/config.toml` names the extension, and `provides.service = "<path>"` in that extension's `[provides]` table in `winter-ext.toml` declares the entrypoint. When exactly one extension provides the slot, the `capabilities.service` binding is optional (implicit sole-provider). Two providers with no explicit binding is an ambiguity error. The legacy keys `service_orchestrator` (config) and `orchestrate_services` (manifest) are still accepted as **deprecated** aliases — config-load folds `service_orchestrator` into `capabilities.service`; `capability_entrypoint()` falls back to `orchestrate_services` when `provides.service` is absent. See [setup.md#capability-registry](../setup.md#capability-registry) for the full resolution model and [capabilities.md](./capabilities.md) to introspect the current binding.
 
 ## Local-path override
 
@@ -35,7 +35,7 @@ WINTER_SERVICE_ORCHESTRATOR=alpha/winter-service-tmux winter service status alph
 **Precedence (highest wins):** `--service-orchestrator` flag → `WINTER_SERVICE_ORCHESTRATOR` env var → `service_orchestrator` in `.winter/config.toml`.
 
 **Path-vs-name disambiguation:**
-- If the value contains an OS path separator (`/` on POSIX) or resolves to an existing directory → **path mode**: reads `winter-ext.toml` from that directory directly, skipping the config-key-present and matches-an-installed-extension checks. The directory must still declare an `orchestrate_services` entrypoint in its `winter-ext.toml`, and that entrypoint file must exist on disk.
+- If the value contains an OS path separator (`/` on POSIX) or resolves to an existing directory → **path mode**: reads `winter-ext.toml` from that directory directly, skipping the config-key-present and matches-an-installed-extension checks. The directory must still declare a `service` entrypoint (`provides.service`, or the legacy `orchestrate_services`) in its `winter-ext.toml`, and that entrypoint file must exist on disk.
 - Otherwise (bare name like `winter-service-tmux`) → **name mode**: falls through to the normal registered-extension lookup, same as the config key.
 
 **Doctor note:** `winter doctor` reflects the *installed* extension (not the override target), so during an override window, warnings about a lagging or mismatched installed extension are expected and can be ignored.
@@ -51,7 +51,7 @@ winter --service-orchestrator=alpha/winter-service-tmux service status alpha
 winter --service-orchestrator=alpha/winter-service-tmux service down alpha
 
 # Control: without the override, the installed (lagging) copy is used — expect
-# "no orchestrate_services" or "not an installed extension" if it hasn't shipped yet.
+# "declares no service entrypoint" or "not an installed extension" if it hasn't shipped yet.
 winter service up alpha
 ```
 

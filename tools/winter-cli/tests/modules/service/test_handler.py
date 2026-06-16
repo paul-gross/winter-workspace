@@ -11,6 +11,7 @@ from tests.conftest import (
     FakeFilesystem,
     FakeSubprocessRunner,
 )
+from winter_cli.modules.capability.capability_registry_service import CapabilityRegistryService
 from winter_cli.modules.service.handler import ServiceHandler, ServiceParams
 from winter_cli.modules.service.models import LogOptions
 from winter_cli.modules.service.orchestrator_resolver import ServiceOrchestratorResolver
@@ -38,11 +39,18 @@ def _resolver(runner: FakeSubprocessRunner) -> ServiceOrchestratorResolver:
             {repo.path / EXT_MANIFEST: {"orchestrate_services": "workflow/service"}}
         )
     )
-    return ServiceOrchestratorResolver(
-        service_orchestrator="winter-service-tmux",
+    fs = FakeFilesystem(files={repo.path / EXT_MANIFEST: "", repo.path / "workflow/service": ""})
+    registry = CapabilityRegistryService(
         repo_factory=_StubRepoFactory([repo]),
         manifest_loader=loader,
-        fs=FakeFilesystem(files={repo.path / EXT_MANIFEST: "", repo.path / "workflow/service": ""}),
+        bindings={"service": "winter-service-tmux"},
+        fs=fs,
+    )
+    return ServiceOrchestratorResolver(
+        registry=registry,
+        repo_factory=_StubRepoFactory([repo]),
+        manifest_loader=loader,
+        fs=fs,
     )
 
 

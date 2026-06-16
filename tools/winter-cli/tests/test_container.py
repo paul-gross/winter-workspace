@@ -48,3 +48,10 @@ def test_container_resolves_service_handler(container: Container) -> None:
     from winter_cli.modules.service.handler import ServiceHandler
 
     assert isinstance(container.service_handler(), ServiceHandler)
+
+
+def test_container_resolves_capabilities_handler(container: Container) -> None:
+    """The `winter capabilities` dispatch chain wires end-to-end (lazy providers resolve)."""
+    from winter_cli.modules.capability.handler import CapabilitiesHandler
+
+    assert isinstance(container.capabilities_handler(), CapabilitiesHandler)
