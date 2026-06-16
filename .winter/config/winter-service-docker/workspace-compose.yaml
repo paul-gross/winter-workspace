@@ -1,0 +1,33 @@
+# Workspace-scoped singleton services for winter-service-docker — the shared
+# RabbitMQ broker, run once for the whole workspace (compose project
+# wts-workspace). The orchestrator sources .winter.workspace.env before compose.
+# Host ports come from that file (WWS_RABBITMQ_AMQP_PORT / WWS_RABBITMQ_MGMT_PORT),
+# derived from the workspace WINTER_PORT_BASE (4001 / 4002). Singleton scope, so
+# they are constants on the workspace band rather than a per-env sub-band.
+#
+# Runnable by hand — source the workspace env file in a shell first:
+#   set -a; . .winter.workspace.env; set +a
+#   docker compose -p wts-workspace -f .winter/config/winter-service-docker/workspace-compose.yaml up -d
+# See winter-service-docker:/context/provider-contract.md#env-file-sourcing.
+
+services:
+  # Workspace-shared broker (workspace scope, project wts-workspace). Host ports
+  # come from .winter.workspace.env (WWS_RABBITMQ_AMQP_PORT / _MGMT_PORT, derived
+  # from the workspace WINTER_PORT_BASE); the inline :- defaults (4001 / 4002,
+  # assuming base 4000) keep it runnable by hand when the env file is not sourced.
+  # The container's internal ports stay at RabbitMQ's standard 5672 / 15672; only
+  # the host-published side moves onto winter's band. Each env's worker reaches it
+  # via RABBITMQ_PORT (set in <env>/.winter.env). container_name is pinned so the
+  # provision vhost scripts' `docker exec wws-rabbitmq` resolves regardless of the
+  # compose project name.
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: wws-rabbitmq
+    ports:
+      - "${WWS_RABBITMQ_AMQP_PORT:-4001}:5672"
+      - "${WWS_RABBITMQ_MGMT_PORT:-4002}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10

@@ -1,0 +1,36 @@
+# Declarative manifest for winter-service-docker.
+# See winter-service-docker:/workflow/config.toml.example for the annotated schema.
+#
+# Scaffolded for the winter-test-service stack: the per-env Postgres `db` and the
+# workspace-shared `rabbitmq` broker — both formerly raw `docker run` panes in the
+# tmux manifest, now compose-managed services with healthchecks (so
+# `winter service up <env> --wait` is a genuine readiness gate).
+
+# COMPOSE_PROJECT_NAME prefix: per-env project = wts-<env>, workspace = wts-workspace.
+project_prefix = "wts"
+
+# Two scope-pure compose files, each independently runnable by hand. The
+# orchestrator selects the file by scope: project-scoped services run from
+# environment-compose.yaml in wts-<env>; workspace-scoped services run from
+# workspace-compose.yaml in wts-workspace.
+environment_compose_file = "environment-compose.yaml"
+workspace_compose_file = "workspace-compose.yaml"
+
+# --- Per-env Postgres -------------------------------------------------------
+# Project scope → one isolated container + volume per env in wts-<env>. The
+# orchestrator sources <env>/.winter.env before compose, so environment-compose.yaml
+# publishes on ${WTS_DB_PORT} (WINTER_PORT_BASE+12) — the same port api/worker
+# read from DATABASE_URL.
+[[service]]
+name = "db"
+# scope = "project"  # default
+
+# --- Workspace-shared RabbitMQ broker --------------------------------------
+# Workspace scope → one instance in wts-workspace, shared across every env.
+# Sources .winter.workspace.env. Fixed host ports 5672/15672 (workspace scope
+# has no WSD_PORT_*). `workspace/rabbitmq` resolves here for the provision
+# resource's required_services gate; container_name is pinned in workspace-compose.yaml
+# so the provision scripts' `docker exec wws-rabbitmq` keeps working.
+[[service]]
+name = "rabbitmq"
+scope = "workspace"

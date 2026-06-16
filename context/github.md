@@ -19,6 +19,7 @@ Every `paul-gross/winter*` repo carries the same canonical label set. Two famili
 | `type:feature` | `0e8a16` | New capability |
 | `type:refactor` | `1d76db` | Internal restructuring, no behavior change |
 | `type:spike` | `5319e7` | Time-boxed investigation |
+| `type:epic` | `c77dff` | Parent of a set of child issues |
 | `complexity:trivial` | `ededed` | Author estimate: trivial |
 | `complexity:small` | `fbca04` | Author estimate: small |
 | `complexity:large` | `e99695` | Author estimate: large |
@@ -30,6 +31,10 @@ Every `paul-gross/winter*` repo carries the same canonical label set. Two famili
 ### Filing
 
 Use `/wg-issue`. The skill drafts from conversation context, confirms the target repo, probes existing labels, and files via `gh issue create`. Format spec: [issue-format.md](../.winter/ext/github/context/issue-format.md).
+
+### Epics
+
+Large work that decomposes into several child issues is filed as an **epic** — a parent issue with its children linked as GitHub sub-issues. The convention (title prefixes, the `type:epic` label, metadata, and link commands) lives in [epics.md](../.winter/ext/github/context/epics.md).
 
 ### Closing
 

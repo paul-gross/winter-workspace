@@ -1,0 +1,44 @@
+# Per-env (project-scoped) services for winter-service-docker — the
+# winter-test-service Postgres `db`. Host ports come from the winter env file the
+# orchestrator sources before each compose call (<env>/.winter.env). Do NOT
+# hardcode per-env ports here.
+#
+# Runnable by hand — source the env file in a shell first (compose does not
+# evaluate the env file's shell arithmetic via --env-file):
+#   set -a; . alpha/.winter.env; set +a
+#   docker compose -p wts-alpha -f .winter/config/winter-service-docker/environment-compose.yaml up -d
+# See winter-service-docker:/context/provider-contract.md#env-file-sourcing.
+
+services:
+  # Per-env Postgres (project scope). Published on ${WTS_DB_PORT} from
+  # <env>/.winter.env; container + volume are namespaced per env by
+  # COMPOSE_PROJECT_NAME (wts-<env>). Healthcheck makes `up --wait` a real gate.
+  db:
+    image: postgres:16
+    # Explicit per-env container name for organization. ${WINTER_ENV} is
+    # exported from <env>/.winter.env (sourced with `set -a` before compose),
+    # so it renders wts-alpha-db, wts-beta-db, … — unique per env. Compose
+    # would auto-name it <project>-db-1 otherwise; this just makes it legible.
+    container_name: wts-${WINTER_ENV}-db
+    environment:
+      POSTGRES_USER: wts
+      POSTGRES_PASSWORD: wts
+      POSTGRES_DB: wts
+    ports:
+      - "${WTS_DB_PORT}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wts -d wts"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+# Named volume holding Postgres's data directory, so the database survives
+# `winter service down`/`up` (compose down does not remove volumes without -v).
+# Declared with default options (local driver). The logical name `postgres-data`
+# is namespaced per env by COMPOSE_PROJECT_NAME — wts-alpha_postgres-data,
+# wts-beta_postgres-data, … — so each feature env keeps its own isolated data.
+volumes:
+  postgres-data:
+    driver: local
