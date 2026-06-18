@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 
 from winter_cli.config.models import AdoptExtensions, WorkspaceConfig
@@ -10,8 +9,6 @@ from winter_cli.modules.doctor.models import ProbeResult, ProbeStatus
 from winter_cli.modules.doctor.probe_parser import parse_probe_output
 from winter_cli.modules.workspace.extension_manifest import EXT_MANIFEST, ExtensionManifestLoader
 from winter_cli.modules.workspace.models import RepoError, StandaloneRepository
-
-logger = logging.getLogger(__name__)
 
 
 class ExtensionProbeService:

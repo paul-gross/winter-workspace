@@ -104,3 +104,10 @@ python3 -m unittest test_extractability
 
 Stdlib `unittest` only — no third-party dependency, so the whole directory can
 later move into a dedicated `winter-lint` extension intact.
+
+**Testing-standard carve-out:** `test_extractability.py` uses `unittest.TestCase`
+rather than plain pytest functions. This is a documented exception to the
+`winter-harness:/standards/testing.md` pytest-only rule. The rationale: this tool
+directory is intentionally stdlib-only so it can ship standalone without `pytest`
+as an install dependency. If the tool ever gains a proper `pyproject.toml`, the
+tests should be migrated to pytest at that point.

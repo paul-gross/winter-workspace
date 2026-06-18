@@ -83,8 +83,8 @@ def _parse_status_porcelain_v2(out: str) -> _PorcelainStatus:
             header = rec[2:]
             if header.startswith("branch.head "):
                 head = header[len("branch.head ") :]
-                # `(detached)` is git's no-active-branch sentinel — the state the
-                # old code surfaced by catching active_branch raising.
+                # `(detached)` is git's no-active-branch sentinel — branch is None
+                # whenever HEAD is not on a named local branch.
                 branch = None if head == "(detached)" else head
             elif header.startswith("branch.upstream "):
                 tracking_branch = header[len("branch.upstream ") :]
@@ -480,8 +480,8 @@ class ReadRepoRepository:
             return graph_lines, commits[:5]
 
         # HEAD graph: a standalone detail lists its tip commits (capped at 10); a
-        # repo with no main branch graphs HEAD but lists nothing (the old code's
-        # commit_rev was None in that case).
+        # repo with no main branch graphs HEAD but emits an empty commit list
+        # (recent_from_head is False when main_ref is absent).
         graph_lines, commits = self._head_graph(r)
         return graph_lines, (commits[:10] if recent_from_head else [])
 

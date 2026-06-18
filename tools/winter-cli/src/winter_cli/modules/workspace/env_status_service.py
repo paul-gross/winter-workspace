@@ -94,10 +94,9 @@ class EnvStatusService:
         # each `get_worktree_status` opens its own git repo and shells out to
         # `git`, so the work is subprocess/IO-bound and threads parallelize it
         # without contending on the GIL. Futures are collected back in worktree
-        # order, and exceptions are re-raised at `.result()` time, so both the
-        # output ordering and the error semantics below are identical to the
-        # former serial loop (the first failing worktree in order propagates,
-        # or is reported and skipped, exactly as before).
+        # order and exceptions are re-raised at `.result()` time, preserving
+        # both the original worktree order and the fail-fast / skip-on-error
+        # semantics enforced below.
         wt_repo_statuses: list[WorktreeRepoStatus] = []
         if worktrees:
             with ThreadPoolExecutor(max_workers=min(len(worktrees), STATUS_PARALLELISM)) as pool:

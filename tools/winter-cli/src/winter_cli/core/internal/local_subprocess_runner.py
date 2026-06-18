@@ -20,7 +20,8 @@ class _StreamingProcess:
 
     @property
     def stdout_lines(self) -> Iterator[str]:
-        assert self._proc.stdout is not None
+        if self._proc.stdout is None:
+            raise RuntimeError("stdout pipe is not open; _popen_cm always sets stdout=PIPE")
         for line in self._proc.stdout:
             yield line.rstrip("\n")
 

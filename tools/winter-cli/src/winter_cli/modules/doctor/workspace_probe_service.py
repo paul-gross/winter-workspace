@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 
 from winter_cli.config.models import WorkspaceConfig
@@ -8,8 +7,6 @@ from winter_cli.core.filesystem import IFilesystemReader
 from winter_cli.core.subprocess_runner import ISubprocessRunner
 from winter_cli.modules.doctor.models import ProbeResult, ProbeStatus
 from winter_cli.modules.doctor.probe_parser import parse_probe_output
-
-logger = logging.getLogger(__name__)
 
 # Source label shown in `winter doctor` output for workspace probes.
 # Sits between `core` (winter-cli built-ins) and each extension's prefix.

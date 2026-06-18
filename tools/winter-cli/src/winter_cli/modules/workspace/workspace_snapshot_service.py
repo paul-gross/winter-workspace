@@ -126,12 +126,11 @@ class WorkspaceSnapshotService:
                 if effective_patterns and not matches_any_pattern(env.name, repo_name, effective_patterns):
                     continue
 
-                # OPT-OUT (collect-only): get_worktree_repo_statuses maps
-                # RepoStatus → WorktreeRepoStatus (losing the staged/unstaged/
-                # untracked breakdown). Re-probe via get_worktree_status to
-                # recover the fine-grained counts WorktreeSnapshot needs. The
-                # dashboard path deliberately skips this second probe — it has
-                # no field that needs the breakdown.
+                # get_worktree_repo_statuses returns coarse RepoStatus objects
+                # (no staged/unstaged/untracked breakdown). Re-probe via
+                # get_worktree_status to recover the fine-grained counts that
+                # WorktreeSnapshot requires. The dashboard path skips this
+                # second probe because no dashboard field needs the breakdown.
                 try:
                     rs = self._repo_repo.get_worktree_status(wt_status.worktree)
                 except RepoError as exc:

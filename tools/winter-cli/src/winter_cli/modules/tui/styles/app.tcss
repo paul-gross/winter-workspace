@@ -95,11 +95,6 @@ StandaloneDetailScreen {
     height: auto;
 }
 
-ExtensionSlot {
-    width: auto;
-    height: auto;
-}
-
 #loading-label {
     text-align: center;
     width: 1fr;

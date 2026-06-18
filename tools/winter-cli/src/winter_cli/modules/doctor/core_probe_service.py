@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import re
 import sys
 from pathlib import Path
@@ -18,8 +17,6 @@ from winter_cli.modules.workspace.models import (
 from winter_cli.modules.workspace.repo_repository import IWriteRepoRepository
 from winter_cli.modules.workspace.repository_factory import RepositoryFactory
 from winter_cli.modules.workspace.workspace_repository import IReadWorkspaceRepository
-
-logger = logging.getLogger(__name__)
 
 CORE_SOURCE = "core"
 

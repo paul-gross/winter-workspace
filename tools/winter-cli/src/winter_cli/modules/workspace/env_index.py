@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 
+from winter_cli.config.models import _DEFAULT_ENV_ALIASES
 from winter_cli.modules.workspace.env_index_registry import IEnvIndexRegistry
 
 GREEK_LETTERS = [
@@ -32,22 +33,11 @@ GREEK_LETTERS = [
 ]
 
 # Fallback alias list used by resolve_env_index when no config is available.
-# Matches _DEFAULT_ENV_ALIASES from config/models.py (first 10 Greek letters).
+# Imported from config/models.py (first 10 Greek letters) — single source of truth.
 # Used only by: (a) the read-path fallback for pre-registry envs that lack a
-# state.toml entry, and (b) `winter ws index` (Phase 4). Init now always
-# receives real config via EnvIndexAllocator.allocate.
-_DEFAULT_ALIASES = [
-    "alpha",
-    "beta",
-    "gamma",
-    "delta",
-    "epsilon",
-    "zeta",
-    "eta",
-    "theta",
-    "iota",
-    "kappa",
-]
+# state.toml entry, and (b) `winter ws index`. Init always receives real config
+# via EnvIndexAllocator.allocate.
+_DEFAULT_ALIASES = _DEFAULT_ENV_ALIASES
 _DEFAULT_ENVS_PER_WORKSPACE = 48
 
 

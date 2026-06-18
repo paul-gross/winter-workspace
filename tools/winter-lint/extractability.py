@@ -388,7 +388,9 @@ class ExtractabilityLint:
 # ── entry point ─────────────────────────────────────────────────────────────
 
 
-def main(argv: list[str] = sys.argv[1:]) -> int:
+def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
     env = os.environ
     workspace_root = Path(env.get("WINTER_WORKSPACE_DIR") or Path.cwd())
     winter_cli = env.get("WINTER_CLI")

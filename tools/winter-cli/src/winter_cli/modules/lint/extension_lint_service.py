@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 
 from winter_cli.config.models import AdoptExtensions, WorkspaceConfig
@@ -11,8 +10,6 @@ from winter_cli.modules.lint.models import LintCheckOutcome, LintFinding, LintSc
 from winter_cli.modules.lint.scope_env import WINTER_CLI_VAR, lint_scope_env
 from winter_cli.modules.workspace.extension_manifest import EXT_MANIFEST, ExtensionManifestLoader
 from winter_cli.modules.workspace.models import RepoError, StandaloneRepository
-
-logger = logging.getLogger(__name__)
 
 
 class ExtensionLintService:

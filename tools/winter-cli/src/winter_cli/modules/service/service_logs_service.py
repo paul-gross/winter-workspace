@@ -6,7 +6,7 @@ from typing import Any
 
 from winter_cli.core.subprocess_runner import ISubprocessRunner
 from winter_cli.modules.service.log_stream_processor import LogStreamProcessor
-from winter_cli.modules.service.models import LogOptions, parse_rfc3339
+from winter_cli.modules.service.models import LogOptions
 from winter_cli.modules.service.orchestrator_resolver import ServiceOrchestratorResolver
 
 
@@ -46,10 +46,6 @@ class ServiceLogsService:
         resolved = self._orchestrator_resolver.resolve()
         cmd = [str(resolved.entrypoint), "logs", *options.patterns]
 
-        # Parse since/until RFC3339 strings into datetime objects for the processor.
-        since_dt = parse_rfc3339(options.since_rfc3339) if options.since_rfc3339 else None
-        until_dt = parse_rfc3339(options.until_rfc3339) if options.until_rfc3339 else None
-
         # Build env vars for the orchestrator.
         extra_env = dict(os.environ)
         extra_env["WINTER_LOG_FOLLOW"] = "1" if options.follow else "0"
@@ -61,7 +57,7 @@ class ServiceLogsService:
         extra_env["WINTER_EXT_DIR"] = str(resolved.ext_dir)
         extra_env["WINTER_EXT_PREFIX"] = resolved.prefix
 
-        processor = LogStreamProcessor(options, since_dt, until_dt)
+        processor = LogStreamProcessor(options)
 
         exit_code = 0
         try:

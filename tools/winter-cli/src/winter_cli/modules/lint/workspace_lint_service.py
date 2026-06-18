@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 
 from winter_cli.config.models import WorkspaceConfig
@@ -9,8 +8,6 @@ from winter_cli.core.subprocess_runner import ISubprocessRunner
 from winter_cli.modules.lint.finding_parser import parse_lint_output
 from winter_cli.modules.lint.models import LintCheckOutcome, LintFinding, LintScope, LintStatus
 from winter_cli.modules.lint.scope_env import WINTER_CLI_VAR, lint_scope_env
-
-logger = logging.getLogger(__name__)
 
 # Source label shown in `winter lint` output for the workspace-level check.
 # Matches the doctor workspace-probe label so both surfaces read consistently.
