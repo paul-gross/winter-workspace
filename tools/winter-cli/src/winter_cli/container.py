@@ -552,10 +552,23 @@ class Container(containers.DeclarativeContainer):
         workspace_root=workspace_config.provided.workspace_root,
     )
 
+    status_document_parser = providers.Singleton(_lazy("winter_cli.modules.service.status_parser:StatusDocumentParser"))
+
+    service_status_svc = providers.Factory(
+        _lazy("winter_cli.modules.service.service_status_service:ServiceStatusService"),
+        subprocess_runner=subprocess_runner,
+        orchestrator_resolver=service_orchestrator_resolver,
+        status_parser=status_document_parser,
+        cli_output=cli_output_svc,
+        click=providers.Object(click),
+        workspace_root=workspace_config.provided.workspace_root,
+    )
+
     service_handler = providers.Factory(
         _lazy("winter_cli.modules.service.handler:ServiceHandler"),
         dispatch_service=service_dispatch_svc,
         logs_service=service_logs_svc,
+        status_service=service_status_svc,
     )
 
     # ── lint: dispatcher to extension-contributed convention checks ─────────

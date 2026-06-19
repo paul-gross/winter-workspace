@@ -283,7 +283,7 @@ The legacy keys `service_orchestrator` (config) and `orchestrate_services` (mani
 
 ### Entrypoint contract
 
-The full implementer-facing contract — uniform argv rule, per-action env vars, NDJSON wire format, plain-line render format, idempotent backstop filters, tail-with-follow limitation, and exit codes — lives in [usage/service.md#orchestrator-contract](./usage/service.md#orchestrator-contract). A third-party orchestrator can conform without reading winter's source.
+The full implementer-facing contract — uniform argv rule, per-action env vars, NDJSON wire format for `logs`, structured JSON status document (schema, shape-stability rule, and graceful-degradation behavior) for `status`, plain-line and table render formats, idempotent backstop filters, tail-with-follow limitation, and exit codes — lives in [usage/service.md#orchestrator-contract](./usage/service.md#orchestrator-contract). A third-party orchestrator can conform without reading winter's source.
 
 ## Doctor probes
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -11,17 +12,45 @@ from tests.conftest import (
     FakeFilesystem,
     FakeSubprocessRunner,
 )
+from winter_cli.core.internal.click_cli_output_service import ClickCliOutputService
 from winter_cli.modules.capability.capability_registry_service import CapabilityRegistryService
 from winter_cli.modules.service.handler import ServiceHandler, ServiceParams
 from winter_cli.modules.service.models import LogOptions
 from winter_cli.modules.service.orchestrator_resolver import ServiceOrchestratorResolver
 from winter_cli.modules.service.service_dispatch_service import ServiceDispatchService
 from winter_cli.modules.service.service_logs_service import ServiceLogsService
+from winter_cli.modules.service.service_status_service import ServiceStatusService
+from winter_cli.modules.service.status_models import StatusOptions
+from winter_cli.modules.service.status_parser import StatusDocumentParser
 from winter_cli.modules.workspace.extension_manifest import EXT_MANIFEST, ExtensionManifestLoader
 from winter_cli.modules.workspace.models import StandaloneRepository
 
 WS = Path("/ws")
 ENTRYPOINT = str(WS / "winter-service-tmux/workflow/service")
+STATUS_ENTRYPOINT = str(WS / "winter-service-tmux/workflow/service")
+
+_SIMPLE_STATUS_DOC = json.dumps(
+    {
+        "envs": [
+            {
+                "env": "alpha",
+                "session": "mp-alpha",
+                "port_base": 4020,
+                "services": [
+                    {
+                        "name": "api",
+                        "state": "running",
+                        "health": "healthy",
+                        "ports": [7503],
+                        "handle": None,
+                        "log_path": None,
+                        "since": None,
+                    }
+                ],
+            }
+        ]
+    }
+)
 
 
 class _StubRepoFactory:
@@ -59,7 +88,15 @@ def _handler(runner: FakeSubprocessRunner, click: Any = None) -> ServiceHandler:
     dispatch = ServiceDispatchService(subprocess_runner=runner, orchestrator_resolver=res, workspace_root=WS)
     click_obj = click or ClickRecorder()
     logs = ServiceLogsService(subprocess_runner=runner, orchestrator_resolver=res, click=click_obj, workspace_root=WS)
-    return ServiceHandler(dispatch, logs)
+    status = ServiceStatusService(
+        subprocess_runner=runner,
+        orchestrator_resolver=res,
+        status_parser=StatusDocumentParser(),
+        cli_output=ClickCliOutputService(),
+        click=click_obj,
+        workspace_root=WS,
+    )
+    return ServiceHandler(dispatch, logs, status)
 
 
 # ── dispatch actions ──────────────────────────────────────────────────────────
@@ -110,29 +147,27 @@ def test_handler_restart_with_patterns_forwards_them_on_argv() -> None:
 
 
 def test_handler_status_with_patterns_forwards_them_on_argv() -> None:
-    runner = FakeSubprocessRunner()
-    _handler(runner).run(ServiceParams(action="status", patterns=("alpha/web", "alpha/api")))
-    assert runner.call_calls == [([ENTRYPOINT, "status", "alpha/web", "alpha/api"], WS)]
-    assert len(runner.call_envs) == 1
-    env = runner.call_envs[0]
-    assert "WINTER_SERVICE_NAME" not in env
-    assert "WINTER_SERVICE_PATTERNS" not in env
+    runner = FakeSubprocessRunner(
+        popen_responses={f"{STATUS_ENTRYPOINT} status alpha/web alpha/api": ([_SIMPLE_STATUS_DOC], 0)}
+    )
+    _handler(runner).run_status(StatusOptions(patterns=("alpha/web", "alpha/api"), as_json=False))
+    assert len(runner.popen_calls) == 1
+    cmd = runner.popen_calls[0][0]
+    assert cmd == [STATUS_ENTRYPOINT, "status", "alpha/web", "alpha/api"]
 
 
 def test_handler_status_with_no_patterns_sends_bare_action() -> None:
-    runner = FakeSubprocessRunner()
-    _handler(runner).run(ServiceParams(action="status"))
-    assert runner.call_calls == [([ENTRYPOINT, "status"], WS)]
-    assert len(runner.call_envs) == 1
-    env = runner.call_envs[0]
-    assert "WINTER_SERVICE_NAME" not in env
-    assert "WINTER_SERVICE_PATTERNS" not in env
+    runner = FakeSubprocessRunner(popen_responses={f"{STATUS_ENTRYPOINT} status": ([_SIMPLE_STATUS_DOC], 0)})
+    _handler(runner).run_status(StatusOptions(patterns=(), as_json=False))
+    assert len(runner.popen_calls) == 1
+    cmd = runner.popen_calls[0][0]
+    assert cmd == [STATUS_ENTRYPOINT, "status"]
 
 
 def test_handler_adopts_nonzero_exit_code() -> None:
-    runner = FakeSubprocessRunner(call_responses={f"{ENTRYPOINT} status": 7})
+    runner = FakeSubprocessRunner(call_responses={f"{ENTRYPOINT} restart alpha/api": 7})
     with pytest.raises(SystemExit) as excinfo:
-        _handler(runner).run(ServiceParams(action="status"))
+        _handler(runner).run(ServiceParams(action="restart", patterns=("alpha/api",)))
     assert excinfo.value.code == 7
 
 
@@ -143,14 +178,22 @@ def test_handler_adopts_nonzero_exit_code_for_restart() -> None:
     assert excinfo.value.code == 5
 
 
+def test_handler_run_status_adopts_nonzero_exit_code() -> None:
+    """run_status exits with the orchestrator's non-zero exit code regardless of stdout validity."""
+    runner = FakeSubprocessRunner(popen_responses={f"{STATUS_ENTRYPOINT} status": (["not valid json"], 3)})
+    with pytest.raises(SystemExit) as excinfo:
+        _handler(runner).run_status(StatusOptions(patterns=(), as_json=False))
+    assert excinfo.value.code == 3
+
+
 def test_handler_up_exits_zero_without_raising() -> None:
     runner = FakeSubprocessRunner()
     _handler(runner).run(ServiceParams(action="up", env="alpha"))
 
 
 def test_handler_status_exits_zero_without_raising() -> None:
-    runner = FakeSubprocessRunner()
-    _handler(runner).run(ServiceParams(action="status"))
+    runner = FakeSubprocessRunner(popen_responses={f"{STATUS_ENTRYPOINT} status": ([_SIMPLE_STATUS_DOC], 0)})
+    _handler(runner).run_status(StatusOptions(patterns=(), as_json=False))
 
 
 # ── logs via run_logs ─────────────────────────────────────────────────────────

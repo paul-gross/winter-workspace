@@ -8,17 +8,17 @@ from winter_cli.modules.service.orchestrator_resolver import ServiceOrchestrator
 
 
 class ServiceDispatchService:
-    """Dispatches up/down/status/restart to the registered service orchestrator.
+    """Dispatches up/down/restart to the registered service orchestrator.
 
     The orchestrator is invoked as `<entrypoint> <action> [positional...]` (argv),
     with `cwd` at the workspace root. Every dispatch exports `WINTER_WORKSPACE_DIR`,
     `WINTER_EXT_DIR`, and `WINTER_EXT_PREFIX` (matching the doctor/lint/hook
     dispatches).
 
-    For up/down the single positional is `<env>`. For status/restart the positionals
-    are the verbatim `<env>/<service>` selection PATTERNS forwarded unchanged on argv.
-    No per-action selection env vars are set here (logs is handled separately by
-    ServiceLogsService).
+    For up/down the single positional is `<env>`. For restart the positionals are
+    the verbatim `<env>/<service>` selection PATTERNS forwarded unchanged on argv.
+    No per-action selection env vars are set here (status is handled separately by
+    ServiceStatusService; logs is handled separately by ServiceLogsService).
 
     The entrypoint's exit code is returned unmodified; stdout/stderr are
     inherited from the parent process (no capture).

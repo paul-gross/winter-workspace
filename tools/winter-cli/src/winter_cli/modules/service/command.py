@@ -9,6 +9,7 @@ from dependency_injector import providers
 from winter_cli.cli_context import cli_ctx
 from winter_cli.modules.service.handler import ServiceParams
 from winter_cli.modules.service.models import LogOptions, parse_since_until
+from winter_cli.modules.service.status_models import StatusOptions
 
 
 def _service_handler(ctx: click.Context):
@@ -37,10 +38,11 @@ def service_group() -> None:
     """Control workspace services via the registered orchestrator extension.
 
     Each action invokes the entrypoint registered in .winter/config.toml.
-    Selection PATTERNS for status/restart/logs are passed as positional argv
-    tokens to the entrypoint (`<entrypoint> <action> <pattern...>`). Only
-    `logs` render options (-f/-n/--since/--until/-t) use WINTER_LOG_* env vars.
-    `up`/`down` stay `<entrypoint> <action> <env>` (single env, whole-environment).
+    `up`/`down` pass a single `<env>` positional; `restart`/`logs` forward
+    `<env>/<service>` PATTERNS as positional argv tokens. `status` captures the
+    orchestrator's stdout as a structured JSON document and renders it — patterns
+    are forwarded on argv but `--json` is a winter-side render toggle only.
+    `logs` render options (-f/-n/--since/--until/-t) travel via WINTER_LOG_* env vars.
     """
 
 
@@ -64,16 +66,25 @@ def down_cmd(ctx: click.Context, env: str) -> None:
 
 @service_group.command("status", short_help="Report service status.")
 @click.argument("patterns", nargs=-1)
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit the structured status document as JSON.")
 @click.pass_context
-def status_cmd(ctx: click.Context, patterns: tuple[str, ...]) -> None:
+def status_cmd(ctx: click.Context, patterns: tuple[str, ...], as_json: bool) -> None:
     """Report status of services matching <env>/<service> PATTERNS.
+
+    The orchestrator is invoked as ``<entrypoint> status <pattern...>`` and must
+    emit a JSON status document on stdout.  Winter parses and renders the result:
+    a human table by default, or the canonical JSON document under ``--json``.
+    ``--json`` is a pure winter-side render toggle and is never sent to the
+    orchestrator.
 
     PATTERNS are zero or more <env>/<service> segment-glob strings. Omit to
     report all services across all environments. Patterns are forwarded verbatim
-    as positional argv to the orchestrator entrypoint.
+    as positional argv to the orchestrator entrypoint; winter also applies a
+    backstop filter on the parsed document.
     """
     handler = _service_handler(ctx)
-    handler.run(ServiceParams(action="status", patterns=patterns))
+    options = StatusOptions(patterns=patterns, as_json=as_json)
+    handler.run_status(options)
 
 
 @service_group.command("restart", short_help="Restart matched services.")
