@@ -203,6 +203,35 @@ async def test_repos_as_rows_selection():
         assert grid.get_selected_repo() == "lib"
 
 
+@pytest.mark.asyncio
+async def test_repos_as_rows_selection_with_errored_worktree():
+    """A row maps to its displayed repo even when a later env omits an errored worktree.
+
+    Rows are built from env 0's repo order (_repo_keys). If a different env's
+    repo_statuses is shorter (a worktree errored out of status collection),
+    positional indexing into that env would misindex or fall off the end.
+    """
+    statuses = [
+        _overview("alpha", 1, ["app", "lib"]),
+        _overview("beta", 2, ["app"]),  # "lib" errored out — omitted from repo_statuses
+    ]
+    app = _GridApp(statuses, layout=DashboardLayout.repos_as_rows)
+    async with app.run_test(size=(160, 40)) as pilot:
+        await pilot.pause()
+        grid = app.query_one("#grid", FeatureWorktreesGrid)
+
+        # row=1 is the "lib" row; col=2 is beta's column, whose repo_statuses
+        # has only one entry. Selection must still resolve to "lib", not None/misindex.
+        grid.move_cursor(row=1, column=2, animate=False)
+        await pilot.pause()
+        assert grid.get_selected_repo() == "lib"
+
+        # row=0 ("app") in beta's column still resolves correctly too.
+        grid.move_cursor(row=0, column=2, animate=False)
+        await pilot.pause()
+        assert grid.get_selected_repo() == "app"
+
+
 # ── repos-as-columns ───────────────────────────────────────────────────────
 
 

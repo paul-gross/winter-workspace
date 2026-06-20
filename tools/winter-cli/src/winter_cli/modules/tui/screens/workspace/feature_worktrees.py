@@ -355,14 +355,12 @@ class FeatureWorktreesGrid(DataTable):
         col_idx = self.cursor_coordinate.column
 
         if layout is DashboardLayout.repos_as_rows:
-            # rows = repos; col 0 = label col so any col maps to the same row's repo
-            col_idx_env = col_idx - 1 if col_idx >= 1 else 0
-            if col_idx_env >= len(self.statuses):
+            # rows = repos, built from _repo_keys; the column only selects the env.
+            # Resolve from the displayed row order, not a per-env repo_statuses that
+            # may be shorter/reordered when a worktree errored out of status collection.
+            if row_idx < 0 or row_idx >= len(self._repo_keys):
                 return None
-            repo_statuses = self.statuses[col_idx_env].repo_statuses
-            if row_idx < 0 or row_idx >= len(repo_statuses):
-                return None
-            return repo_statuses[row_idx].worktree.repository.name
+            return self._repo_keys[row_idx]
 
         elif layout is DashboardLayout.repos_as_columns:
             # cols 1..N = repos

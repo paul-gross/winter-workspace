@@ -1,9 +1,14 @@
 """Worktree detail screen opens focused on the repo the matrix cursor was on.
 
 Issue/17 acceptance: pressing Enter on repo R in env E opens E's detail screen
-with R's row selected and the per-repo info panel showing R. Also pins the
-`get_selected_repo()` fix — it must resolve the repo from the *selected
-column's* env, not always `statuses[0]`.
+with R's row selected and the per-repo info panel showing R.
+
+Issue #75 supersedes the original `get_selected_repo()` pin: in `repos-as-rows`
+the repo is resolved from the displayed row order (`_repo_keys`), not by
+positional index into the selected column's env `repo_statuses`. Every env has a
+worktree for every repo, so a short/reordered `repo_statuses` only ever means a
+worktree errored out of status collection — selecting that row must still drill
+into the repo the row displays, not misindex or return None.
 """
 
 from __future__ import annotations
@@ -71,8 +76,9 @@ class _GridApp(App):
 
 
 @pytest.mark.asyncio
-async def test_get_selected_repo_resolves_from_selected_column_env():
-    # Env "beta" is missing repo "c"; rows come from the first env ("alpha").
+async def test_get_selected_repo_resolves_from_displayed_row_order():
+    # "beta" is missing repo "c" — its worktree errored out of status collection;
+    # rows still come from the first env's order ("alpha": a, b, c).
     statuses = [
         _overview("alpha", 1, ["a", "b", "c"]),
         _overview("beta", 2, ["a", "b"]),
@@ -82,16 +88,17 @@ async def test_get_selected_repo_resolves_from_selected_column_env():
         await pilot.pause()
         grid = app.query_one("#grid", FeatureWorktreesGrid)
 
-        # Beta column (col 2), repo row 1 -> beta's "b".
+        # Beta column (col 2), repo row 1 -> the "b" row.
         grid.move_cursor(row=1, column=2)
         assert grid.get_selected_repo() == "b"
 
-        # Beta column, row 2: beta has no repo there, so it resolves to None
-        # rather than leaking alpha's "c" (the old statuses[0] bug).
+        # Beta column, row 2: the "c" row. Even though beta's repo_statuses omits
+        # the errored "c" worktree, selection resolves to the repo the row
+        # displays (#75) — not None or a misindexed neighbor.
         grid.move_cursor(row=2, column=2)
-        assert grid.get_selected_repo() is None
+        assert grid.get_selected_repo() == "c"
 
-        # Alpha column (col 1), row 2 -> alpha's "c".
+        # Alpha column (col 1), row 2 -> the "c" row, same answer.
         grid.move_cursor(row=2, column=1)
         assert grid.get_selected_repo() == "c"
 
