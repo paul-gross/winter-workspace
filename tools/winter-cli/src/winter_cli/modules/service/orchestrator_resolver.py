@@ -143,7 +143,9 @@ class ServiceOrchestratorResolver:
             return self._verify_error_entrypoint_missing(value, entrypoint, entrypoint_rel, manifest_path)
 
         config_dir = self._synthetic_config_dir(ext_dir)
-        return ResolvedOrchestrator(entrypoint=entrypoint, ext_dir=ext_dir, prefix=manifest.prefix, config_dir=config_dir)
+        return ResolvedOrchestrator(
+            entrypoint=entrypoint, ext_dir=ext_dir, prefix=manifest.prefix, config_dir=config_dir
+        )
 
     def _try_resolve_name(self, name: str) -> ResolvedOrchestrator | str:
         """Name mode: look up a registered installed extension, returning errors as strings."""
@@ -166,7 +168,9 @@ class ServiceOrchestratorResolver:
             return self._verify_error_entrypoint_missing(name, entrypoint, entrypoint_rel, manifest_path)
 
         config_dir = repo.config_dir if repo.config_dir is not None else self._synthetic_config_dir(repo.path)
-        return ResolvedOrchestrator(entrypoint=entrypoint, ext_dir=repo.path, prefix=manifest.prefix, config_dir=config_dir)
+        return ResolvedOrchestrator(
+            entrypoint=entrypoint, ext_dir=repo.path, prefix=manifest.prefix, config_dir=config_dir
+        )
 
     def _is_path(self, value: str) -> bool:
         """Return True when `value` should be treated as a local extension path.
@@ -223,7 +227,9 @@ class ServiceOrchestratorResolver:
             )
 
         config_dir = self._synthetic_config_dir(ext_dir)
-        return ResolvedOrchestrator(entrypoint=entrypoint, ext_dir=ext_dir, prefix=manifest.prefix, config_dir=config_dir)
+        return ResolvedOrchestrator(
+            entrypoint=entrypoint, ext_dir=ext_dir, prefix=manifest.prefix, config_dir=config_dir
+        )
 
     def _resolve_name(self, name: str) -> ResolvedOrchestrator:
         """Name mode: look up a registered installed extension — the original behavior."""
@@ -251,7 +257,9 @@ class ServiceOrchestratorResolver:
                 f'(declared as `orchestrate_services = "{entrypoint_rel}"` in {manifest_path}).'
             )
         config_dir = repo.config_dir if repo.config_dir is not None else self._synthetic_config_dir(repo.path)
-        return ResolvedOrchestrator(entrypoint=entrypoint, ext_dir=repo.path, prefix=manifest.prefix, config_dir=config_dir)
+        return ResolvedOrchestrator(
+            entrypoint=entrypoint, ext_dir=repo.path, prefix=manifest.prefix, config_dir=config_dir
+        )
 
     def _find_extension(self, name: str) -> StandaloneRepository | None:
         for repo in self._repo_factory.get_standalone_repos():

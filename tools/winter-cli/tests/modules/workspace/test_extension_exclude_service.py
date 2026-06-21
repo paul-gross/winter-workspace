@@ -92,9 +92,7 @@ WINTER_CONFIG_END = "# <<< winter-config"
 WINTER_CONFIG_BODY = ".winter/config/**/*.local.*"
 
 
-def test_winter_config_block_is_written(
-    workspace_config: WorkspaceConfig, init_reporter: FakeInitReporter
-) -> None:
+def test_winter_config_block_is_written(workspace_config: WorkspaceConfig, init_reporter: FakeInitReporter) -> None:
     """finalize_excludes writes the winter-config block with the correct body line."""
     fs = FakeFilesystem(directories=[WORKSPACE_ROOT / ".git" / "info"])
     svc = _service(workspace_config, fs, {})
@@ -108,9 +106,7 @@ def test_winter_config_block_is_written(
     assert WINTER_CONFIG_END in content
 
 
-def test_winter_config_block_is_idempotent(
-    workspace_config: WorkspaceConfig, init_reporter: FakeInitReporter
-) -> None:
+def test_winter_config_block_is_idempotent(workspace_config: WorkspaceConfig, init_reporter: FakeInitReporter) -> None:
     """A second call to finalize_excludes leaves the winter-config block unchanged."""
     fs = FakeFilesystem(directories=[WORKSPACE_ROOT / ".git" / "info"])
     svc = _service(workspace_config, fs, {})

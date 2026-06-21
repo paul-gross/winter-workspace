@@ -70,8 +70,10 @@ class ExtensionLintService:
         if not manifest.lint:
             return None
 
-        config_dir = repo.config_dir if repo.config_dir is not None else (
-            self._config.workspace_root / ".winter" / "config" / repo.name
+        config_dir = (
+            repo.config_dir
+            if repo.config_dir is not None
+            else (self._config.workspace_root / ".winter" / "config" / repo.name)
         )
         env = build_extension_env(
             workspace_root=self._config.workspace_root,

@@ -83,7 +83,9 @@ class CapabilityRegistryService:
                     entrypoint_path=entrypoint_path,
                     ext_dir=repo.path,
                     prefix=manifest.prefix,
-                    config_dir=repo.config_dir if repo.config_dir is not None else repo.path / ".winter" / "config" / repo.name,
+                    config_dir=repo.config_dir
+                    if repo.config_dir is not None
+                    else repo.path / ".winter" / "config" / repo.name,
                     entrypoint_valid=self._fs.is_file(entrypoint_path),
                     implemented_version=manifest.implemented_version(slot.value),
                 )

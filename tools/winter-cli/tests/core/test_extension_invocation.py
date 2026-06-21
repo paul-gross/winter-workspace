@@ -14,13 +14,10 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import pytest
-
 from tests.conftest import FakeSubprocessRunner
 from winter_cli.core.extension_invocation import build_extension_env
 from winter_cli.modules.capability.models import CapabilitySlot, ResolvedCapability
 from winter_cli.modules.service.service_fan_out_service import ServiceFanOutService
-
 
 WS = Path("/workspace")
 EXT_DIR = WS / "winter-service-tmux"
@@ -93,7 +90,6 @@ def test_build_extension_env_custom_config_dir() -> None:
 
 def test_repository_factory_default_config_dir() -> None:
     """get_standalone_repos() resolves config_dir to <ws>/.winter/config/<name> by default."""
-    from tests.conftest import FakeConfigFileReader, FakeFilesystem
     from winter_cli.config.models import StandaloneRepositoryConfig, WorkspaceConfig
     from winter_cli.modules.workspace.repository_factory import RepositoryFactory
 
