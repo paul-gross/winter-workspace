@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from winter_cli.core.subprocess_runner import ISubprocessRunner
 from winter_cli.modules.capability.models import ResolvedCapability
@@ -9,6 +8,7 @@ from winter_cli.modules.service.orchestrator_resolver import ServiceOrchestrator
 from winter_cli.modules.service.provider_invocation import build_provider_env, service_matches_pattern
 from winter_cli.modules.service.service_fan_out_service import ServiceFanOutService
 from winter_cli.modules.service.service_provider_index import ServiceDescribeService
+from winter_cli.modules.service.service_reporter import IServiceReporter
 
 
 class ServiceDispatchService:
@@ -47,14 +47,14 @@ class ServiceDispatchService:
         fan_out_service: ServiceFanOutService,
         describe_service: ServiceDescribeService,
         workspace_root: Path,
-        click: Any = None,
+        reporter: IServiceReporter | None = None,
     ) -> None:
         self._subprocess_runner = subprocess_runner
         self._orchestrator_resolver = orchestrator_resolver
         self._fan_out_service = fan_out_service
         self._describe_service = describe_service
         self._workspace_root = workspace_root
-        self._click = click
+        self._reporter = reporter
 
     def dispatch(self, action: str, positionals: list[str]) -> int:
         """Run the orchestrator's entrypoint and return its exit code unmodified."""
@@ -123,12 +123,9 @@ class ServiceDispatchService:
 
         # Emit no-match diagnostic for patterns that resolved to no known service.
         unmatched = [p for p in patterns if p not in matched_patterns]
-        if unmatched and self._click is not None:
+        if unmatched and self._reporter is not None:
             token_list = ", ".join(repr(p) for p in unmatched)
-            self._click.echo(
-                f"no service matched {token_list}",
-                err=True,
-            )
+            self._reporter.no_match_diagnostic(token_list)
 
         # Dispatch each provider that owns matched patterns.
         exit_code = 0

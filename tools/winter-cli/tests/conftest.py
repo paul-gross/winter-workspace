@@ -147,6 +147,48 @@ class ClickRecorder:
         self.calls.append((message, err))
 
 
+class FakeServiceReporter:
+    """In-memory reporter that records every IServiceReporter event for assertion."""
+
+    def __init__(self) -> None:
+        self.status_documents: list[tuple[Any, Any]] = []
+        self.log_lines: list[str] = []
+        self.no_services_called: int = 0
+        self.no_service_matched_calls: list[str] = []
+        self.follow_multi_provider_error_calls: list[str] = []
+        self.status_parse_error_calls: list[tuple[str, str, str]] = []
+        self.timestamps_warning_called: int = 0
+        self.time_filter_warning_called: int = 0
+        self.no_match_diagnostic_calls: list[str] = []
+
+    def status_document(self, doc: Any, parser: Any) -> None:
+        self.status_documents.append((doc, parser))
+
+    def log_line(self, rendered: str) -> None:
+        self.log_lines.append(rendered)
+
+    def no_services(self) -> None:
+        self.no_services_called += 1
+
+    def no_service_matched(self, token_list: str) -> None:
+        self.no_service_matched_calls.append(token_list)
+
+    def follow_multi_provider_error(self, provider_names: str) -> None:
+        self.follow_multi_provider_error_calls.append(provider_names)
+
+    def status_parse_error(self, entrypoint: str, prefix: str, detail: str) -> None:
+        self.status_parse_error_calls.append((entrypoint, prefix, detail))
+
+    def timestamps_warning(self) -> None:
+        self.timestamps_warning_called += 1
+
+    def time_filter_warning(self) -> None:
+        self.time_filter_warning_called += 1
+
+    def no_match_diagnostic(self, token_list: str) -> None:
+        self.no_match_diagnostic_calls.append(token_list)
+
+
 class FakeFilesystem:
     """In-memory filesystem satisfying IFilesystemReader and IFilesystemWriter.
 

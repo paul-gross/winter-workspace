@@ -4,11 +4,16 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
-from tests.conftest import ClickRecorder, FakeConfigFileReader, FakeFilesystem, FakeSpecLoader, FakeSubprocessRunner
+from tests.conftest import (
+    FakeConfigFileReader,
+    FakeFilesystem,
+    FakeServiceReporter,
+    FakeSpecLoader,
+    FakeSubprocessRunner,
+)
 from winter_cli.core.subprocess_runner import SubprocessResult
 from winter_cli.modules.capability.capability_registry_service import CapabilityRegistryService
 from winter_cli.modules.service.describe_parser import DescribeResultParser
@@ -29,12 +34,6 @@ CMD_KEY = f"{ENTRYPOINT} logs alpha"
 
 def _resolved() -> ResolvedOrchestrator:
     return ResolvedOrchestrator(entrypoint=ENTRYPOINT, ext_dir=EXT, prefix=PREFIX)
-
-
-def _resolver() -> MagicMock:
-    resolver = MagicMock()
-    resolver.resolve.return_value = _resolved()
-    return resolver
 
 
 def _opts(**kwargs: Any) -> LogOptions:
@@ -85,7 +84,6 @@ class _StubRepoFactory:
 
 def _svc(
     runner: FakeSubprocessRunner | None = None,
-    click: ClickRecorder | None = None,
 ) -> ServiceLogsService:
     _runner = runner or FakeSubprocessRunner()
     _registry, res = _make_single_provider_registry(_runner)
@@ -98,9 +96,12 @@ def _svc(
         subprocess_runner=_runner,
         orchestrator_resolver=res,
         describe_service=describe_svc,
-        click=click or ClickRecorder(),
         workspace_root=WS,
     )
+
+
+def _reporter() -> FakeServiceReporter:
+    return FakeServiceReporter()
 
 
 # ── WINTER_LOG_* env mapping ──────────────────────────────────────────────────
@@ -115,7 +116,7 @@ def test_stream_sets_winter_log_env_vars(monkeypatch: pytest.MonkeyPatch) -> Non
     runner = FakeSubprocessRunner(
         popen_responses={multi_cmd_key: (['{"ts":"2026-06-13T10:00:01Z","env":"alpha","svc":"api","msg":"up"}'], 0)}
     )
-    _svc(runner).stream(_opts(patterns=("alpha/api", "alpha/db"), follow=False, tail=50, timestamps=True))
+    _svc(runner).stream(_opts(patterns=("alpha/api", "alpha/db"), follow=False, tail=50, timestamps=True), _reporter())
 
     assert len(runner.popen_envs) == 1
     env = runner.popen_envs[0]
@@ -130,7 +131,7 @@ def test_stream_sets_workspace_context_env_vars(monkeypatch: pytest.MonkeyPatch)
     """WINTER_WORKSPACE_DIR, WINTER_EXT_DIR, and WINTER_EXT_PREFIX are always injected."""
     monkeypatch.setenv("WINTER_TEST_CANARY", "canary")
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY: ([], 0)})
-    _svc(runner).stream(_opts())
+    _svc(runner).stream(_opts(), _reporter())
 
     env = runner.popen_envs[0]
     assert env["WINTER_WORKSPACE_DIR"] == str(WS)
@@ -142,7 +143,7 @@ def test_stream_inherits_parent_environment(monkeypatch: pytest.MonkeyPatch) -> 
     """The orchestrator env starts from os.environ so inherited vars are preserved."""
     monkeypatch.setenv("WINTER_SENTINEL", "hello")
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY: ([], 0)})
-    _svc(runner).stream(_opts())
+    _svc(runner).stream(_opts(), _reporter())
 
     assert runner.popen_envs[0]["WINTER_SENTINEL"] == "hello"
 
@@ -150,7 +151,7 @@ def test_stream_inherits_parent_environment(monkeypatch: pytest.MonkeyPatch) -> 
 def test_stream_sets_follow_flag(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("WINTER_TEST_CANARY", "canary")
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY: ([], 0)})
-    _svc(runner).stream(_opts(follow=True))
+    _svc(runner).stream(_opts(follow=True), _reporter())
     assert runner.popen_envs[0]["WINTER_LOG_FOLLOW"] == "1"
 
 
@@ -159,6 +160,7 @@ def test_stream_sets_since_until_strings(monkeypatch: pytest.MonkeyPatch) -> Non
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY: ([], 0)})
     _svc(runner).stream(
         _opts(since_rfc3339="2026-06-13T10:00:00Z", until_rfc3339="2026-06-13T12:00:00Z"),
+        _reporter(),
     )
     env = runner.popen_envs[0]
     assert env["WINTER_LOG_SINCE"] == "2026-06-13T10:00:00Z"
@@ -169,7 +171,7 @@ def test_stream_sets_since_until_strings(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_stream_renders_ndjson_lines_to_stdout() -> None:
-    """Parsed NDJSON lines are echoed as rendered plain text."""
+    """Parsed NDJSON lines are passed to reporter.log_line as rendered plain text."""
     runner = FakeSubprocessRunner(
         popen_responses={
             CMD_KEY: (
@@ -181,15 +183,14 @@ def test_stream_renders_ndjson_lines_to_stdout() -> None:
             )
         }
     )
-    click = ClickRecorder()
-    _svc(runner, click).stream(_opts())
-    rendered = [msg for msg, _err in click.calls if not _err]
-    assert "alpha/api | started" in rendered
-    assert "alpha/db | ready" in rendered
+    rep = _reporter()
+    _svc(runner).stream(_opts(), rep)
+    assert "alpha/api | started" in rep.log_lines
+    assert "alpha/db | ready" in rep.log_lines
 
 
 def test_stream_does_not_echo_to_stderr_when_no_warnings() -> None:
-    """No stderr output when orchestrator lines all carry timestamps."""
+    """No warning events fired when orchestrator lines all carry timestamps."""
     runner = FakeSubprocessRunner(
         popen_responses={
             CMD_KEY: (
@@ -198,9 +199,10 @@ def test_stream_does_not_echo_to_stderr_when_no_warnings() -> None:
             )
         }
     )
-    click = ClickRecorder()
-    _svc(runner, click).stream(_opts())
-    assert not any(err for _, err in click.calls)
+    rep = _reporter()
+    _svc(runner).stream(_opts(), rep)
+    assert rep.timestamps_warning_called == 0
+    assert rep.time_filter_warning_called == 0
 
 
 # ── exit code passthrough ─────────────────────────────────────────────────────
@@ -208,12 +210,12 @@ def test_stream_does_not_echo_to_stderr_when_no_warnings() -> None:
 
 def test_stream_passes_exit_code_through() -> None:
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY: ([], 42)})
-    assert _svc(runner).stream(_opts()) == 42
+    assert _svc(runner).stream(_opts(), _reporter()) == 42
 
 
 def test_stream_returns_zero_on_clean_exit() -> None:
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY: ([], 0)})
-    assert _svc(runner).stream(_opts()) == 0
+    assert _svc(runner).stream(_opts(), _reporter()) == 0
 
 
 # ── KeyboardInterrupt paths ───────────────────────────────────────────────────
@@ -287,10 +289,9 @@ def test_stream_returns_130_on_keyboard_interrupt_during_iteration() -> None:
         subprocess_runner=interrupt_runner,
         orchestrator_resolver=res,
         describe_service=describe_svc,
-        click=ClickRecorder(),
         workspace_root=WS,
     )
-    assert svc.stream(_opts()) == 130
+    assert svc.stream(_opts(), _reporter()) == 130
 
 
 def test_stream_returns_130_on_keyboard_interrupt_at_popen() -> None:
@@ -306,41 +307,39 @@ def test_stream_returns_130_on_keyboard_interrupt_at_popen() -> None:
         subprocess_runner=interrupt_runner,
         orchestrator_resolver=res,
         describe_service=describe_svc,
-        click=ClickRecorder(),
         workspace_root=WS,
     )
-    assert svc.stream(_opts()) == 130
+    assert svc.stream(_opts(), _reporter()) == 130
 
 
 # ── conditional stderr warnings ───────────────────────────────────────────────
 
 
 def test_stream_emits_timestamps_warning_when_ts_missing_and_timestamps_requested() -> None:
-    """`-t` requested but lines carry no ts field → warning on stderr."""
+    """`-t` requested but lines carry no ts field → timestamps_warning fired on reporter."""
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY: (['{"env":"alpha","svc":"api","msg":"up"}'], 0)})
-    click = ClickRecorder()
-    _svc(runner, click).stream(_opts(timestamps=True))
+    rep = _reporter()
+    _svc(runner).stream(_opts(timestamps=True), rep)
 
-    stderr_msgs = [msg for msg, err in click.calls if err]
-    assert any("timestamp prefixes omitted" in m for m in stderr_msgs)
+    assert rep.timestamps_warning_called == 1
 
 
 def test_stream_emits_time_filter_warning_when_ts_missing_and_since_set() -> None:
-    """--since set but some lines carry no ts → partial filter warning on stderr."""
+    """--since set but some lines carry no ts → time_filter_warning fired on reporter."""
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY: (['{"env":"alpha","svc":"api","msg":"up"}'], 0)})
-    click = ClickRecorder()
-    _svc(runner, click).stream(
+    rep = _reporter()
+    _svc(runner).stream(
         _opts(since_rfc3339="2026-06-13T10:00:00Z"),
+        rep,
     )
 
-    stderr_msgs = [msg for msg, err in click.calls if err]
-    assert any("--since/--until filter is partial" in m for m in stderr_msgs)
+    assert rep.time_filter_warning_called == 1
 
 
 def test_stream_popen_invoked_with_merge_stderr_false() -> None:
     """popen is always called with merge_stderr=False so orchestrator stderr reaches the terminal."""
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY: ([], 0)})
-    _svc(runner).stream(_opts())
+    _svc(runner).stream(_opts(), _reporter())
     assert runner.popen_merge_stderr == [False]
 
 
@@ -351,7 +350,7 @@ def test_stream_workspace_pattern_forwarded_verbatim_on_argv() -> None:
     """'workspace' pattern is forwarded verbatim as a positional argv token."""
     key = f"{ENTRYPOINT} logs workspace"
     runner = FakeSubprocessRunner(popen_responses={key: ([], 0)})
-    _svc(runner).stream(_opts(patterns=("workspace",)))
+    _svc(runner).stream(_opts(patterns=("workspace",)), _reporter())
     assert runner.popen_calls[0][0] == [str(ENTRYPOINT), "logs", "workspace"]
 
 
@@ -359,5 +358,5 @@ def test_stream_workspace_service_pattern_forwarded_verbatim_on_argv() -> None:
     """'workspace/<svc>' pattern is forwarded verbatim as a positional argv token."""
     key = f"{ENTRYPOINT} logs workspace/nginx"
     runner = FakeSubprocessRunner(popen_responses={key: ([], 0)})
-    _svc(runner).stream(_opts(patterns=("workspace/nginx",)))
+    _svc(runner).stream(_opts(patterns=("workspace/nginx",)), _reporter())
     assert runner.popen_calls[0][0] == [str(ENTRYPOINT), "logs", "workspace/nginx"]

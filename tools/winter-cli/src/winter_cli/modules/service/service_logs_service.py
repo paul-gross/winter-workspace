@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
 
 from winter_cli.core.subprocess_runner import ISubprocessRunner
 from winter_cli.modules.capability.models import ResolvedCapability
@@ -11,6 +10,7 @@ from winter_cli.modules.service.models import LogOptions
 from winter_cli.modules.service.orchestrator_resolver import ServiceOrchestratorResolver
 from winter_cli.modules.service.provider_invocation import service_matches_pattern
 from winter_cli.modules.service.service_provider_index import ServiceDescribeService
+from winter_cli.modules.service.service_reporter import IServiceReporter
 
 
 class ServiceLogsService:
@@ -49,22 +49,20 @@ class ServiceLogsService:
         subprocess_runner: ISubprocessRunner,
         orchestrator_resolver: ServiceOrchestratorResolver,
         describe_service: ServiceDescribeService,
-        click: Any,
         workspace_root: Path,
     ) -> None:
         self._subprocess_runner = subprocess_runner
         self._orchestrator_resolver = orchestrator_resolver
         self._describe_service = describe_service
-        self._click = click
         self._workspace_root = workspace_root
 
-    def stream(self, options: LogOptions) -> int:
+    def stream(self, options: LogOptions, reporter: IServiceReporter) -> int:
         """Run the orchestrator logs entrypoint and stream rendered output to stdout."""
         providers = self._orchestrator_resolver.resolve_all()
 
         # D1 short-circuit: single provider — forward verbatim, no describe call.
         if len(providers) == 1:
-            return self._stream_single(providers[0], options, options.patterns)
+            return self._stream_single(providers[0], options, options.patterns, reporter)
 
         # Multi-provider: build the ownership index and route patterns to owners.
         index = self._describe_service.build(providers)
@@ -95,7 +93,7 @@ class ServiceLogsService:
             unmatched = [p for p in options.patterns if p not in matched_patterns]
             if unmatched:
                 token_list = ", ".join(repr(p) for p in unmatched)
-                self._click.echo(f"no service matched {token_list}", err=True)
+                reporter.no_service_matched(token_list)
 
         # If no patterns were requested, route all providers (empty selection = all).
         if not options.patterns:
@@ -106,13 +104,7 @@ class ServiceLogsService:
         # D2: -f with multiple owning providers is an error.
         if options.follow and len(owning_providers) > 1:
             provider_names = ", ".join(p.extension_name for p in owning_providers)
-            self._click.echo(
-                f"error: --follow (-f) cannot span multiple service providers "
-                f"({provider_names}). "
-                f"Narrow your selection to services owned by a single provider, "
-                f"or omit -f to merge non-follow logs across providers.",
-                err=True,
-            )
+            reporter.follow_multi_provider_error(provider_names)
             return 1
 
         # Fan out: drain each owning provider through the shared processor.
@@ -123,7 +115,7 @@ class ServiceLogsService:
             owned_patterns = provider_patterns_map[provider.extension_name]
             # Use the owned service names as patterns; empty list means all.
             patterns_for_provider = tuple(owned_patterns) if owned_patterns else options.patterns
-            code = self._stream_single(provider, options, patterns_for_provider, processor=processor)
+            code = self._stream_single(provider, options, patterns_for_provider, reporter, processor=processor)
             if code == 130:
                 return 130
             if code != 0 and exit_code == 0:
@@ -135,8 +127,8 @@ class ServiceLogsService:
         # that must be flushed (since own_processor=False in _stream_single).
         if owning_providers:
             for rendered in processor.finalize():
-                self._click.echo(rendered)
-            self._emit_warnings(processor)
+                reporter.log_line(rendered)
+            self._emit_warnings(processor, reporter)
 
         return exit_code
 
@@ -145,6 +137,7 @@ class ServiceLogsService:
         provider: ResolvedCapability,
         options: LogOptions,
         patterns: tuple[str, ...],
+        reporter: IServiceReporter,
         *,
         processor: LogStreamProcessor | None = None,
     ) -> int:
@@ -178,34 +171,26 @@ class ServiceLogsService:
             ) as proc:
                 try:
                     for rendered in processor.process_lines(proc.stdout_lines):
-                        self._click.echo(rendered)
+                        reporter.log_line(rendered)
                 except KeyboardInterrupt:
                     return 130
 
                 if own_processor:
                     for rendered in processor.finalize():
-                        self._click.echo(rendered)
+                        reporter.log_line(rendered)
 
                 exit_code = proc.wait()
         except KeyboardInterrupt:
             return 130
 
         if own_processor:
-            self._emit_warnings(processor)
+            self._emit_warnings(processor, reporter)
 
         return exit_code
 
-    def _emit_warnings(self, processor: LogStreamProcessor) -> None:
+    def _emit_warnings(self, processor: LogStreamProcessor, reporter: IServiceReporter) -> None:
         """Emit accumulated processor warnings to stderr (once each)."""
         if processor.timestamps_warning:
-            self._click.echo(
-                "warning: the orchestrator supplies no per-line timestamps — "
-                "timestamp prefixes omitted for affected lines",
-                err=True,
-            )
+            reporter.timestamps_warning()
         if processor.time_filter_warning:
-            self._click.echo(
-                "warning: the orchestrator supplies no per-line timestamps — "
-                "--since/--until filter is partial (applied only to lines with a ts field)",
-                err=True,
-            )
+            reporter.time_filter_warning()

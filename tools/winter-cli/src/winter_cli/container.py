@@ -578,6 +578,18 @@ class Container(containers.DeclarativeContainer):
         workspace_root=workspace_config.provided.workspace_root,
     )
 
+    stream_service_reporter = providers.Factory(
+        _lazy("winter_cli.modules.service.service_reporter:StreamServiceReporter"),
+        click=providers.Object(click),
+        cli_output=cli_output_svc,
+    )
+
+    json_service_reporter = providers.Factory(
+        _lazy("winter_cli.modules.service.service_reporter:JsonServiceReporter"),
+        click=providers.Object(click),
+        cli_output=cli_output_svc,
+    )
+
     service_dispatch_svc = providers.Factory(
         _lazy("winter_cli.modules.service.service_dispatch_service:ServiceDispatchService"),
         subprocess_runner=subprocess_runner,
@@ -585,7 +597,7 @@ class Container(containers.DeclarativeContainer):
         fan_out_service=service_fan_out_svc,
         describe_service=service_describe_svc,
         workspace_root=workspace_config.provided.workspace_root,
-        click=providers.Object(click),
+        reporter=stream_service_reporter,
     )
 
     service_logs_svc = providers.Factory(
@@ -593,7 +605,6 @@ class Container(containers.DeclarativeContainer):
         subprocess_runner=subprocess_runner,
         orchestrator_resolver=service_orchestrator_resolver,
         describe_service=service_describe_svc,
-        click=providers.Object(click),
         workspace_root=workspace_config.provided.workspace_root,
     )
 
@@ -602,8 +613,6 @@ class Container(containers.DeclarativeContainer):
         subprocess_runner=subprocess_runner,
         orchestrator_resolver=service_orchestrator_resolver,
         status_parser=status_document_parser,
-        cli_output=cli_output_svc,
-        click=providers.Object(click),
         workspace_root=workspace_config.provided.workspace_root,
     )
 
@@ -612,6 +621,8 @@ class Container(containers.DeclarativeContainer):
         dispatch_service=service_dispatch_svc,
         logs_service=service_logs_svc,
         status_service=service_status_svc,
+        stream_reporter=stream_service_reporter,
+        json_reporter=json_service_reporter,
     )
 
     # ── lint: dispatcher to extension-contributed convention checks ─────────

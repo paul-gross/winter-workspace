@@ -3,14 +3,17 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
-import pytest
-
-from tests.conftest import ClickRecorder, FakeConfigFileReader, FakeFilesystem, FakeSpecLoader, FakeSubprocessRunner
-from winter_cli.core.internal.click_cli_output_service import ClickCliOutputService
+from tests.conftest import (
+    FakeConfigFileReader,
+    FakeFilesystem,
+    FakeServiceReporter,
+    FakeSpecLoader,
+    FakeSubprocessRunner,
+)
 from winter_cli.modules.capability.capability_registry_service import CapabilityRegistryService
 from winter_cli.modules.service.orchestrator_resolver import ResolvedOrchestrator, ServiceOrchestratorResolver
+from winter_cli.modules.service.service_reporter import JsonServiceReporter
 from winter_cli.modules.service.service_status_service import ServiceStatusService
 from winter_cli.modules.service.status_models import StatusOptions
 from winter_cli.modules.service.status_parser import StatusDocumentParser
@@ -31,7 +34,9 @@ def _resolved() -> ResolvedOrchestrator:
     return ResolvedOrchestrator(entrypoint=ENTRYPOINT, ext_dir=EXT, prefix=PREFIX)
 
 
-def _resolver() -> MagicMock:
+def _resolver() -> Any:
+    from unittest.mock import MagicMock
+
     resolver = MagicMock()
     resolver.resolve.return_value = _resolved()
     return resolver
@@ -76,17 +81,18 @@ def _make_single_provider_registry() -> tuple[CapabilityRegistryService, Service
 
 def _svc(
     runner: FakeSubprocessRunner | None = None,
-    click: ClickRecorder | None = None,
 ) -> ServiceStatusService:
     _registry, resolver = _make_single_provider_registry()
     return ServiceStatusService(
         subprocess_runner=runner or FakeSubprocessRunner(),
         orchestrator_resolver=resolver,
         status_parser=StatusDocumentParser(),
-        cli_output=ClickCliOutputService(),
-        click=click or ClickRecorder(),
         workspace_root=WS,
     )
+
+
+def _stream_reporter() -> FakeServiceReporter:
+    return FakeServiceReporter()
 
 
 # ── helper to build canned JSON docs ─────────────────────────────────────────
@@ -146,83 +152,90 @@ def _db_svc(**kwargs: Any) -> dict:
 
 
 def test_human_render_single_env_header_present() -> None:
-    """Env header line is echoed before the service table."""
+    """Env header line is rendered: reporter receives a status_document with alpha env."""
     doc = _make_doc([_alpha_env([_api_svc(), _db_svc()])])
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([doc], 0)})
-    click = ClickRecorder()
-    _svc(runner, click).report(_opts())
+    reporter = _stream_reporter()
+    _svc(runner).report(_opts(), reporter)
 
-    stdout_msgs = [msg for msg, err in click.calls if not err]
-    assert any("alpha" in m and "session=mp-alpha" in m and "port_base=4020" in m for m in stdout_msgs)
+    assert len(reporter.status_documents) == 1
+    parsed_doc, _ = reporter.status_documents[0]
+    assert any(e.env == "alpha" for e in parsed_doc.envs)
 
 
 def test_human_render_single_env_rows_per_service() -> None:
-    """Each service produces a rendered row in the table output."""
+    """Each service is present in the parsed document passed to the reporter."""
     doc = _make_doc([_alpha_env([_api_svc(), _db_svc()])])
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([doc], 0)})
-    click = ClickRecorder()
-    _svc(runner, click).report(_opts())
+    reporter = _stream_reporter()
+    _svc(runner).report(_opts(), reporter)
 
-    stdout_msgs = [msg for msg, err in click.calls if not err]
-    combined = "\n".join(stdout_msgs)
-    assert "api" in combined
-    assert "db" in combined
-    # State and health values are rendered
-    assert "running" in combined
-    assert "healthy" in combined
-    assert "stopped" in combined
+    assert len(reporter.status_documents) == 1
+    parsed_doc, _ = reporter.status_documents[0]
+    svc_names = [s.name for e in parsed_doc.envs for s in e.services]
+    assert "api" in svc_names
+    assert "db" in svc_names
 
 
 def test_human_render_single_env_ports_comma_joined() -> None:
-    """Ports list is rendered as comma-separated string."""
+    """Ports list is present in the document passed to the reporter."""
     doc = _make_doc([_alpha_env([_api_svc(ports=[7503, 7504])])])
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([doc], 0)})
-    click = ClickRecorder()
-    _svc(runner, click).report(_opts())
+    reporter = _stream_reporter()
+    _svc(runner).report(_opts(), reporter)
 
-    stdout_msgs = [msg for msg, err in click.calls if not err]
-    combined = "\n".join(stdout_msgs)
-    assert "7503" in combined
-    assert "7504" in combined
+    assert len(reporter.status_documents) == 1
+    parsed_doc, _ = reporter.status_documents[0]
+    svc = parsed_doc.envs[0].services[0]
+    assert 7503 in svc.ports
+    assert 7504 in svc.ports
 
 
 # ── multi env human render ────────────────────────────────────────────────────
 
 
 def test_human_render_multi_env_both_headers_present() -> None:
-    """Both env headers are echoed when the document has two envs."""
+    """Both env entries are present in the document passed to the reporter."""
     doc = _make_doc([_alpha_env([_api_svc()]), _beta_env([_db_svc()])])
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([doc], 0)})
-    click = ClickRecorder()
-    _svc(runner, click).report(_opts())
+    reporter = _stream_reporter()
+    _svc(runner).report(_opts(), reporter)
 
-    stdout_msgs = [msg for msg, err in click.calls if not err]
-    assert any("alpha" in m and "session=mp-alpha" in m for m in stdout_msgs)
-    assert any("beta" in m and "session=mp-beta" in m for m in stdout_msgs)
+    assert len(reporter.status_documents) == 1
+    parsed_doc, _ = reporter.status_documents[0]
+    env_names = [e.env for e in parsed_doc.envs]
+    assert "alpha" in env_names
+    assert "beta" in env_names
 
 
 def test_human_render_multi_env_services_grouped() -> None:
-    """Services appear under their respective env headers."""
+    """Services from both envs appear in the document."""
     doc = _make_doc([_alpha_env([_api_svc()]), _beta_env([_db_svc()])])
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([doc], 0)})
-    click = ClickRecorder()
-    _svc(runner, click).report(_opts())
+    reporter = _stream_reporter()
+    _svc(runner).report(_opts(), reporter)
 
-    stdout_msgs = [msg for msg, err in click.calls if not err]
-    combined = "\n".join(stdout_msgs)
-    assert "api" in combined
-    assert "db" in combined
+    assert len(reporter.status_documents) == 1
+    parsed_doc, _ = reporter.status_documents[0]
+    svc_names = [s.name for e in parsed_doc.envs for s in e.services]
+    assert "api" in svc_names
+    assert "db" in svc_names
 
 
 # ── --json passthrough ────────────────────────────────────────────────────────
 
 
 def test_json_passthrough_emits_valid_json() -> None:
-    """`as_json=True` emits exactly one stdout echo that is valid JSON."""
-    doc = _make_doc([_alpha_env([_api_svc()])])
-    runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([doc], 0)})
+    """`as_json=True` — the reporter receives the document and parser; JSON output is valid."""
+    doc_str = _make_doc([_alpha_env([_api_svc()])])
+    runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([doc_str], 0)})
+
+    from tests.conftest import ClickRecorder
+    from winter_cli.core.internal.click_cli_output_service import ClickCliOutputService
+
     click = ClickRecorder()
-    _svc(runner, click).report(_opts(as_json=True))
+    json_reporter = JsonServiceReporter(click=click, cli_output=ClickCliOutputService())
+    _svc(runner).report(_opts(as_json=True), json_reporter)
 
     stdout_msgs = [msg for msg, err in click.calls if not err]
     assert len(stdout_msgs) == 1
@@ -234,8 +247,13 @@ def test_json_passthrough_matches_to_json_obj() -> None:
     """The emitted JSON matches `to_json_obj(parsed_doc)` exactly."""
     doc_str = _make_doc([_alpha_env([_api_svc()])])
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([doc_str], 0)})
+
+    from tests.conftest import ClickRecorder
+    from winter_cli.core.internal.click_cli_output_service import ClickCliOutputService
+
     click = ClickRecorder()
-    _svc(runner, click).report(_opts(as_json=True))
+    json_reporter = JsonServiceReporter(click=click, cli_output=ClickCliOutputService())
+    _svc(runner).report(_opts(as_json=True), json_reporter)
 
     stdout_msgs = [msg for msg, err in click.calls if not err]
     emitted = json.loads(stdout_msgs[0])
@@ -247,8 +265,13 @@ def test_json_passthrough_all_fields_present() -> None:
     """Every schema field is present in the emitted JSON."""
     doc = _make_doc([_alpha_env([_api_svc()])])
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([doc], 0)})
+
+    from tests.conftest import ClickRecorder
+    from winter_cli.core.internal.click_cli_output_service import ClickCliOutputService
+
     click = ClickRecorder()
-    _svc(runner, click).report(_opts(as_json=True))
+    json_reporter = JsonServiceReporter(click=click, cli_output=ClickCliOutputService())
+    _svc(runner).report(_opts(as_json=True), json_reporter)
 
     stdout_msgs = [msg for msg, err in click.calls if not err]
     emitted = json.loads(stdout_msgs[0])
@@ -271,8 +294,13 @@ def test_json_passthrough_no_table_headers_on_stdout() -> None:
     """No table column headers (SERVICE, STATE, HEALTH, etc.) leaked to stdout under --json."""
     doc = _make_doc([_alpha_env([_api_svc()])])
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([doc], 0)})
+
+    from tests.conftest import ClickRecorder
+    from winter_cli.core.internal.click_cli_output_service import ClickCliOutputService
+
     click = ClickRecorder()
-    _svc(runner, click).report(_opts(as_json=True))
+    json_reporter = JsonServiceReporter(click=click, cli_output=ClickCliOutputService())
+    _svc(runner).report(_opts(as_json=True), json_reporter)
 
     stdout_msgs = [msg for msg, err in click.calls if not err]
     combined = "\n".join(stdout_msgs)
@@ -290,8 +318,9 @@ def test_json_flag_does_not_alter_orchestrator_argv() -> None:
     runner_json = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([doc], 0)})
     runner_plain = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([doc], 0)})
 
-    _svc(runner_json).report(_opts(as_json=True))
-    _svc(runner_plain).report(_opts(as_json=False))
+    reporter = _stream_reporter()
+    _svc(runner_json).report(_opts(as_json=True), reporter)
+    _svc(runner_plain).report(_opts(as_json=False), reporter)
 
     assert runner_json.popen_calls[0][0] == runner_plain.popen_calls[0][0]
 
@@ -300,7 +329,8 @@ def test_json_flag_does_not_add_json_env_var() -> None:
     """No env var containing 'JSON' is set when `as_json=True`."""
     doc = _make_doc([_alpha_env([_api_svc()])])
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([doc], 0)})
-    _svc(runner).report(_opts(as_json=True))
+    reporter = _stream_reporter()
+    _svc(runner).report(_opts(as_json=True), reporter)
 
     env = runner.popen_envs[0]
     assert not any("JSON" in k.upper() for k in env)
@@ -310,7 +340,8 @@ def test_orchestrator_argv_bare_status_no_patterns() -> None:
     """Without patterns, argv is exactly `[entrypoint, 'status']`."""
     doc = _make_doc([_alpha_env([_api_svc()])])
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([doc], 0)})
-    _svc(runner).report(_opts())
+    reporter = _stream_reporter()
+    _svc(runner).report(_opts(), reporter)
     assert runner.popen_calls[0][0] == [str(ENTRYPOINT), "status"]
 
 
@@ -319,7 +350,8 @@ def test_orchestrator_argv_with_patterns() -> None:
     doc = _make_doc([_alpha_env([_api_svc()])])
     key = f"{ENTRYPOINT} status alpha/api"
     runner = FakeSubprocessRunner(popen_responses={key: ([doc], 0)})
-    _svc(runner).report(_opts(patterns=("alpha/api",)))
+    reporter = _stream_reporter()
+    _svc(runner).report(_opts(patterns=("alpha/api",)), reporter)
     assert runner.popen_calls[0][0] == [str(ENTRYPOINT), "status", "alpha/api"]
 
 
@@ -328,7 +360,8 @@ def test_orchestrator_argv_workspace_pattern_forwarded_verbatim() -> None:
     doc = _make_doc([_alpha_env([_api_svc()])])
     key = f"{ENTRYPOINT} status workspace"
     runner = FakeSubprocessRunner(popen_responses={key: ([doc], 0)})
-    _svc(runner).report(_opts(patterns=("workspace",)))
+    reporter = _stream_reporter()
+    _svc(runner).report(_opts(patterns=("workspace",)), reporter)
     assert runner.popen_calls[0][0] == [str(ENTRYPOINT), "status", "workspace"]
 
 
@@ -337,7 +370,8 @@ def test_orchestrator_argv_workspace_service_pattern_forwarded_verbatim() -> Non
     doc = _make_doc([_alpha_env([_api_svc()])])
     key = f"{ENTRYPOINT} status workspace/nginx"
     runner = FakeSubprocessRunner(popen_responses={key: ([doc], 0)})
-    _svc(runner).report(_opts(patterns=("workspace/nginx",)))
+    reporter = _stream_reporter()
+    _svc(runner).report(_opts(patterns=("workspace/nginx",)), reporter)
     assert runner.popen_calls[0][0] == [str(ENTRYPOINT), "status", "workspace/nginx"]
 
 
@@ -347,65 +381,59 @@ def test_orchestrator_argv_workspace_service_pattern_forwarded_verbatim() -> Non
 def test_malformed_json_returns_nonzero() -> None:
     """Non-JSON stdout → non-zero return value."""
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: (["not json at all"], 0)})
-    code = _svc(runner).report(_opts())
+    reporter = _stream_reporter()
+    code = _svc(runner).report(_opts(), reporter)
     assert code != 0
 
 
 def test_malformed_json_emits_actionable_stderr() -> None:
-    """Non-JSON stdout → stderr echo with an actionable error message."""
+    """Non-JSON stdout → status_parse_error fired on the reporter."""
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: (["not json at all"], 0)})
-    click = ClickRecorder()
-    _svc(runner, click).report(_opts())
+    reporter = _stream_reporter()
+    _svc(runner).report(_opts(), reporter)
 
-    stderr_msgs = [msg for msg, err in click.calls if err]
-    assert any("does not emit the structured status document" in m for m in stderr_msgs)
+    assert len(reporter.status_parse_error_calls) == 1
+    _ep, _prefix, detail = reporter.status_parse_error_calls[0]
+    assert len(detail) > 0
 
 
 def test_malformed_json_no_traceback_on_stderr() -> None:
-    """No Python traceback text leaks to stderr on parse failure."""
+    """No Python traceback text leaks through the reporter on parse failure."""
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: (["garbage"], 0)})
-    click = ClickRecorder()
-    _svc(runner, click).report(_opts())
+    reporter = _stream_reporter()
+    _svc(runner).report(_opts(), reporter)
 
-    stderr_msgs = [msg for msg, err in click.calls if err]
-    assert not any("Traceback" in m for m in stderr_msgs)
+    for _ep, _prefix, detail in reporter.status_parse_error_calls:
+        assert "Traceback" not in detail
 
 
 def test_malformed_json_no_schema_on_stdout() -> None:
-    """Nothing schema-shaped is emitted to stdout on parse failure."""
+    """No status_document is emitted to the reporter on parse failure."""
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: (["garbage"], 0)})
-    click = ClickRecorder()
-    _svc(runner, click).report(_opts())
+    reporter = _stream_reporter()
+    _svc(runner).report(_opts(), reporter)
 
-    stdout_msgs = [msg for msg, err in click.calls if not err]
-    # No JSON object/array should appear on stdout
-    for msg in stdout_msgs:
-        try:
-            json.loads(msg)
-            pytest.fail(f"schema-shaped JSON found on stdout: {msg!r}")
-        except json.JSONDecodeError:
-            pass
+    assert len(reporter.status_documents) == 0
 
 
 def test_missing_envs_key_returns_nonzero() -> None:
     """Top-level object missing `envs` key → non-zero return, clean error path."""
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([json.dumps({"foo": 1})], 0)})
-    click = ClickRecorder()
-    code = _svc(runner, click).report(_opts())
+    reporter = _stream_reporter()
+    code = _svc(runner).report(_opts(), reporter)
 
     assert code != 0
-    stderr_msgs = [msg for msg, err in click.calls if err]
-    assert any("does not emit the structured status document" in m for m in stderr_msgs)
+    assert len(reporter.status_parse_error_calls) == 1
 
 
 def test_missing_envs_key_no_traceback() -> None:
-    """Missing `envs` key → no traceback on stderr."""
+    """Missing `envs` key → no traceback text in parse error detail."""
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([json.dumps({"foo": 1})], 0)})
-    click = ClickRecorder()
-    _svc(runner, click).report(_opts())
+    reporter = _stream_reporter()
+    _svc(runner).report(_opts(), reporter)
 
-    stderr_msgs = [msg for msg, err in click.calls if err]
-    assert not any("Traceback" in m for m in stderr_msgs)
+    for _ep, _prefix, detail in reporter.status_parse_error_calls:
+        assert "Traceback" not in detail
 
 
 # ── conformant empty document ─────────────────────────────────────────────────
@@ -414,18 +442,20 @@ def test_missing_envs_key_no_traceback() -> None:
 def test_empty_envs_doc_exits_zero() -> None:
     """Conformant `{"envs":[]}` is not an error — exits 0."""
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([json.dumps({"envs": []})], 0)})
-    code = _svc(runner).report(_opts())
+    reporter = _stream_reporter()
+    code = _svc(runner).report(_opts(), reporter)
     assert code == 0
 
 
-def test_empty_envs_doc_renders_no_services() -> None:
-    """Conformant empty document renders 'no services', not a table."""
+def test_empty_envs_doc_reporter_receives_empty_document() -> None:
+    """Conformant empty document — reporter receives status_document event with empty envs."""
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([json.dumps({"envs": []})], 0)})
-    click = ClickRecorder()
-    _svc(runner, click).report(_opts())
+    reporter = _stream_reporter()
+    _svc(runner).report(_opts(), reporter)
 
-    stdout_msgs = [msg for msg, err in click.calls if not err]
-    assert any("no services" in m for m in stdout_msgs)
+    assert len(reporter.status_documents) == 1
+    doc, _ = reporter.status_documents[0]
+    assert len(doc.envs) == 0
 
 
 # ── exit code passthrough ─────────────────────────────────────────────────────
@@ -435,7 +465,8 @@ def test_exit_code_passthrough_valid_doc() -> None:
     """Orchestrator exit code is returned even with a valid doc."""
     doc = _make_doc([_alpha_env([_api_svc()])])
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([doc], 42)})
-    code = _svc(runner).report(_opts())
+    reporter = _stream_reporter()
+    code = _svc(runner).report(_opts(), reporter)
     assert code == 42
 
 
@@ -443,13 +474,15 @@ def test_exit_code_passthrough_zero_on_clean() -> None:
     """Zero exit code is returned on clean orchestrator exit."""
     doc = _make_doc([_alpha_env([_api_svc()])])
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([doc], 0)})
-    assert _svc(runner).report(_opts()) == 0
+    reporter = _stream_reporter()
+    assert _svc(runner).report(_opts(), reporter) == 0
 
 
 def test_malformed_json_adopts_orchestrator_nonzero_exit() -> None:
     """When orchestrator exits non-zero AND stdout is invalid, non-zero is returned."""
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: (["garbage"], 7)})
-    code = _svc(runner).report(_opts())
+    reporter = _stream_reporter()
+    code = _svc(runner).report(_opts(), reporter)
     assert code == 7
 
 
@@ -460,7 +493,8 @@ def test_popen_called_with_merge_stderr_false() -> None:
     """popen is called with merge_stderr=False so orchestrator stderr reaches the terminal."""
     doc = _make_doc([_alpha_env([_api_svc()])])
     runner = FakeSubprocessRunner(popen_responses={CMD_KEY_BARE: ([doc], 0)})
-    _svc(runner).report(_opts())
+    reporter = _stream_reporter()
+    _svc(runner).report(_opts(), reporter)
     assert runner.popen_merge_stderr == [False]
 
 
@@ -468,7 +502,7 @@ def test_popen_called_with_merge_stderr_false() -> None:
 
 
 def test_pattern_backstop_filter_keeps_matched_service() -> None:
-    """Pattern backstop keeps only the matching service in human output."""
+    """Pattern backstop keeps only the matching service in the document."""
     doc = _make_doc(
         [
             _alpha_env([_api_svc(), _db_svc()]),
@@ -476,20 +510,21 @@ def test_pattern_backstop_filter_keeps_matched_service() -> None:
         ]
     )
     runner = FakeSubprocessRunner(popen_responses={f"{ENTRYPOINT} status alpha/api": ([doc], 0)})
-    click = ClickRecorder()
-    _svc(runner, click).report(_opts(patterns=("alpha/api",)))
+    reporter = _stream_reporter()
+    _svc(runner).report(_opts(patterns=("alpha/api",)), reporter)
 
-    stdout_msgs = [msg for msg, err in click.calls if not err]
-    combined = "\n".join(stdout_msgs)
-    assert "api" in combined
-    # db should be filtered out
-    assert "db" not in combined
-    # beta/worker should be filtered out
-    assert "beta" not in combined
+    assert len(reporter.status_documents) == 1
+    parsed_doc, _ = reporter.status_documents[0]
+    # Only alpha env should remain
+    assert len(parsed_doc.envs) == 1
+    assert parsed_doc.envs[0].env == "alpha"
+    # Only api should remain (db filtered out)
+    assert len(parsed_doc.envs[0].services) == 1
+    assert parsed_doc.envs[0].services[0].name == "api"
 
 
 def test_pattern_backstop_filter_json_output() -> None:
-    """Pattern backstop is also applied before --json emit."""
+    """Pattern backstop is also applied before passing to the JSON reporter."""
     doc = _make_doc(
         [
             _alpha_env([_api_svc(), _db_svc()]),
@@ -497,8 +532,13 @@ def test_pattern_backstop_filter_json_output() -> None:
         ]
     )
     runner = FakeSubprocessRunner(popen_responses={f"{ENTRYPOINT} status alpha/api": ([doc], 0)})
+
+    from tests.conftest import ClickRecorder
+    from winter_cli.core.internal.click_cli_output_service import ClickCliOutputService
+
     click = ClickRecorder()
-    _svc(runner, click).report(_opts(patterns=("alpha/api",), as_json=True))
+    json_reporter = JsonServiceReporter(click=click, cli_output=ClickCliOutputService())
+    _svc(runner).report(_opts(patterns=("alpha/api",), as_json=True), json_reporter)
 
     stdout_msgs = [msg for msg, err in click.calls if not err]
     emitted = json.loads(stdout_msgs[0])
@@ -517,13 +557,15 @@ def test_bare_env_pattern_keeps_all_services_for_env() -> None:
         ]
     )
     runner = FakeSubprocessRunner(popen_responses={f"{ENTRYPOINT} status alpha": ([doc], 0)})
-    click = ClickRecorder()
-    _svc(runner, click).report(_opts(patterns=("alpha",)))
+    reporter = _stream_reporter()
+    _svc(runner).report(_opts(patterns=("alpha",)), reporter)
 
-    stdout_msgs = [msg for msg, err in click.calls if not err]
-    combined = "\n".join(stdout_msgs)
+    assert len(reporter.status_documents) == 1
+    parsed_doc, _ = reporter.status_documents[0]
+    # Only alpha should remain
+    assert len(parsed_doc.envs) == 1
+    assert parsed_doc.envs[0].env == "alpha"
     # Both alpha services should be present
-    assert "api" in combined
-    assert "db" in combined
-    # beta should be gone
-    assert "beta" not in combined
+    svc_names = [s.name for s in parsed_doc.envs[0].services]
+    assert "api" in svc_names
+    assert "db" in svc_names

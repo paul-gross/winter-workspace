@@ -23,6 +23,7 @@ from winter_cli.modules.service.service_dispatch_service import ServiceDispatchS
 from winter_cli.modules.service.service_fan_out_service import ServiceFanOutService
 from winter_cli.modules.service.service_logs_service import ServiceLogsService
 from winter_cli.modules.service.service_provider_index import ServiceDescribeService
+from winter_cli.modules.service.service_reporter import JsonServiceReporter, StreamServiceReporter
 from winter_cli.modules.service.service_status_service import ServiceStatusService
 from winter_cli.modules.service.status_models import StatusOptions
 from winter_cli.modules.service.status_parser import StatusDocumentParser
@@ -99,6 +100,7 @@ def _handler(runner: FakeSubprocessRunner, click: Any = None) -> ServiceHandler:
         workspace_root=WS,
     )
     click_obj = click or ClickRecorder()
+    cli_output = ClickCliOutputService()
     fan_out = ServiceFanOutService(
         subprocess_runner=runner,
         workspace_root=WS,
@@ -114,18 +116,17 @@ def _handler(runner: FakeSubprocessRunner, click: Any = None) -> ServiceHandler:
         subprocess_runner=runner,
         orchestrator_resolver=res,
         describe_service=describe_svc,
-        click=click_obj,
         workspace_root=WS,
     )
     status = ServiceStatusService(
         subprocess_runner=runner,
         orchestrator_resolver=res,
         status_parser=StatusDocumentParser(),
-        cli_output=ClickCliOutputService(),
-        click=click_obj,
         workspace_root=WS,
     )
-    return ServiceHandler(dispatch, logs, status)
+    stream_reporter = StreamServiceReporter(click=click_obj, cli_output=cli_output)
+    json_reporter = JsonServiceReporter(click=click_obj, cli_output=cli_output)
+    return ServiceHandler(dispatch, logs, status, stream_reporter=stream_reporter, json_reporter=json_reporter)
 
 
 # ── dispatch actions ──────────────────────────────────────────────────────────

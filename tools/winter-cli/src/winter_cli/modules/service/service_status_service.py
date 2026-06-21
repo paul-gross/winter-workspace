@@ -19,30 +19,17 @@ own non-zero code (or 1 if the orchestrator exited 0).
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any
 
-from winter_cli.core.cli_output_service import Cell, ICliOutputService
 from winter_cli.core.subprocess_runner import ISubprocessRunner
 from winter_cli.modules.capability.models import ResolvedCapability
 from winter_cli.modules.service.orchestrator_resolver import ServiceOrchestratorResolver
 from winter_cli.modules.service.provider_invocation import build_provider_env
+from winter_cli.modules.service.service_reporter import IServiceReporter
 from winter_cli.modules.service.status_filter import filter_status
 from winter_cli.modules.service.status_merge import merge_status_documents
 from winter_cli.modules.service.status_models import StatusDocument, StatusOptions
 from winter_cli.modules.service.status_parser import StatusDocumentParser, StatusParseError
-
-_STATE_STYLE: dict[str, str] = {
-    "running": "green",
-    "stopped": "red",
-    "unknown": "dim",
-}
-_HEALTH_STYLE: dict[str, str] = {
-    "healthy": "green",
-    "unhealthy": "red",
-    "unknown": "dim",
-}
 
 
 class ServiceStatusService:
@@ -70,31 +57,27 @@ class ServiceStatusService:
         subprocess_runner: ISubprocessRunner,
         orchestrator_resolver: ServiceOrchestratorResolver,
         status_parser: StatusDocumentParser,
-        cli_output: ICliOutputService,
-        click: Any,
         workspace_root: Path,
     ) -> None:
         self._subprocess_runner = subprocess_runner
         self._orchestrator_resolver = orchestrator_resolver
         self._status_parser = status_parser
-        self._cli_output = cli_output
-        self._click = click
         self._workspace_root = workspace_root
 
-    def report(self, options: StatusOptions) -> int:
+    def report(self, options: StatusOptions, reporter: IServiceReporter) -> int:
         """Run the orchestrator status entrypoint and render the result."""
         providers = self._orchestrator_resolver.resolve_all()
 
         # D1 short-circuit: single provider — existing behavior unchanged.
         if len(providers) == 1:
-            return self._report_single(providers[0], options)
+            return self._report_single(providers[0], options, reporter)
 
         # Multi-provider: fan out, parse, merge, filter, render.
         docs: list[StatusDocument] = []
         worst_exit = 0
 
         for provider in providers:
-            doc, exit_code = self._fetch_provider_status(provider, options)
+            doc, exit_code = self._fetch_provider_status(provider, options, reporter)
             if exit_code == 130:
                 return 130
             if exit_code != 0 and worst_exit == 0:
@@ -105,17 +88,14 @@ class ServiceStatusService:
         merged = merge_status_documents(docs)
         merged = filter_status(merged, options.patterns)
 
-        if options.as_json:
-            self._click.echo(json.dumps(self._status_parser.to_json_obj(merged), indent=2))
-            return worst_exit
-
-        self._render_human(merged)
+        reporter.status_document(merged, self._status_parser)
         return worst_exit
 
     def _fetch_provider_status(
         self,
         provider: ResolvedCapability,
         options: StatusOptions,
+        reporter: IServiceReporter,
     ) -> tuple[StatusDocument | None, int]:
         """Run one provider's status action and return (parsed doc or None, exit_code).
 
@@ -147,19 +127,16 @@ class ServiceStatusService:
         try:
             doc: StatusDocument = self._status_parser.parse(raw)
         except StatusParseError as exc:
-            self._click.echo(
-                f"error: orchestrator at {provider.entrypoint} (prefix: {provider.prefix!r}) "
-                f"does not emit the structured status document required by the `winter service` contract "
-                f"— ensure the extension is up to date. "
-                f"Schema: ai/winter-cli/usage/service.md#status-wire-contract\n"
-                f"Parse detail: {exc}",
-                err=True,
+            reporter.status_parse_error(
+                str(provider.entrypoint),
+                provider.prefix,
+                str(exc),
             )
             return None, exit_code or 1
 
         return doc, exit_code
 
-    def _report_single(self, provider: ResolvedCapability, options: StatusOptions) -> int:
+    def _report_single(self, provider: ResolvedCapability, options: StatusOptions, reporter: IServiceReporter) -> int:
         """Single-provider path — existing behavior unchanged."""
         cmd = [str(provider.entrypoint), "status", *options.patterns]
 
@@ -183,58 +160,14 @@ class ServiceStatusService:
         try:
             doc: StatusDocument = self._status_parser.parse(raw)
         except StatusParseError as exc:
-            self._click.echo(
-                f"error: orchestrator at {provider.entrypoint} (prefix: {provider.prefix!r}) "
-                f"does not emit the structured status document required by the `winter service` contract "
-                f"— ensure the extension is up to date. "
-                f"Schema: ai/winter-cli/usage/service.md#status-wire-contract\n"
-                f"Parse detail: {exc}",
-                err=True,
+            reporter.status_parse_error(
+                str(provider.entrypoint),
+                provider.prefix,
+                str(exc),
             )
             return exit_code or 1
 
         doc = filter_status(doc, options.patterns)
 
-        if options.as_json:
-            self._click.echo(json.dumps(self._status_parser.to_json_obj(doc), indent=2))
-            return exit_code
-
-        self._render_human(doc)
+        reporter.status_document(doc, self._status_parser)
         return exit_code
-
-    def _render_human(self, doc: StatusDocument) -> None:
-        """Render a grouped, styled human-readable status table."""
-        if not doc.envs:
-            self._click.echo("no services")
-            return
-
-        headers = ["SERVICE", "STATE", "HEALTH", "PORTS", "SINCE", "HANDLE"]
-        first = True
-        for env in doc.envs:
-            if not first:
-                self._click.echo("")
-            first = False
-
-            session_str = env.session if env.session is not None else "-"
-            port_base_str = str(env.port_base) if env.port_base is not None else "-"
-            header_text = f"{env.env}  session={session_str}  port_base={port_base_str}"
-            self._click.echo(self._cli_output.style(header_text, "bold"))
-
-            rows: list[list[str | Cell]] = []
-            for svc in env.services:
-                ports_str = ", ".join(str(p) for p in svc.ports) if svc.ports else "-"
-                state_cell = Cell.of(svc.state, _STATE_STYLE.get(svc.state, "dim"))
-                health_cell = Cell.of(svc.health, _HEALTH_STYLE.get(svc.health, "dim"))
-                rows.append(
-                    [
-                        svc.name,
-                        state_cell,
-                        health_cell,
-                        ports_str,
-                        svc.since or "-",
-                        svc.handle or "-",
-                    ]
-                )
-
-            for line in self._cli_output.render_table(rows, headers=headers):
-                self._click.echo(line)

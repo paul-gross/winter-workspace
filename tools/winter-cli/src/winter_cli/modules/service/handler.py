@@ -7,6 +7,7 @@ from winter_cli.modules.service.models import LogOptions
 from winter_cli.modules.service.scope import WORKSPACE_SCOPE
 from winter_cli.modules.service.service_dispatch_service import ServiceDispatchService
 from winter_cli.modules.service.service_logs_service import ServiceLogsService
+from winter_cli.modules.service.service_reporter import IServiceReporter, JsonServiceReporter, StreamServiceReporter
 from winter_cli.modules.service.service_status_service import ServiceStatusService
 from winter_cli.modules.service.status_models import StatusOptions
 
@@ -36,10 +37,14 @@ class ServiceHandler:
         dispatch_service: ServiceDispatchService,
         logs_service: ServiceLogsService,
         status_service: ServiceStatusService,
+        stream_reporter: StreamServiceReporter,
+        json_reporter: JsonServiceReporter,
     ) -> None:
         self._dispatch_service = dispatch_service
         self._logs_service = logs_service
         self._status_service = status_service
+        self._stream_reporter = stream_reporter
+        self._json_reporter = json_reporter
 
     def _run_up(self, target: str) -> int:
         return self._dispatch_service.dispatch("up", [target])
@@ -73,11 +78,13 @@ class ServiceHandler:
                 sys.exit(exit_code)
 
     def run_logs(self, options: LogOptions) -> None:
-        exit_code = self._logs_service.stream(options)
+        reporter: IServiceReporter = self._stream_reporter
+        exit_code = self._logs_service.stream(options, reporter)
         if exit_code != 0:
             sys.exit(exit_code)
 
     def run_status(self, options: StatusOptions) -> None:
-        exit_code = self._status_service.report(options)
+        reporter: IServiceReporter = self._json_reporter if options.as_json else self._stream_reporter
+        exit_code = self._status_service.report(options, reporter)
         if exit_code != 0:
             sys.exit(exit_code)

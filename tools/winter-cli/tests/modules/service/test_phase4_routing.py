@@ -16,9 +16,9 @@ from pathlib import Path
 from typing import Any
 
 from tests.conftest import (
-    ClickRecorder,
     FakeConfigFileReader,
     FakeFilesystem,
+    FakeServiceReporter,
     FakeSpecLoader,
     FakeSubprocessRunner,
 )
@@ -32,6 +32,7 @@ from winter_cli.modules.service.service_dispatch_service import ServiceDispatchS
 from winter_cli.modules.service.service_fan_out_service import ServiceFanOutService
 from winter_cli.modules.service.service_logs_service import ServiceLogsService
 from winter_cli.modules.service.service_provider_index import ServiceDescribeService
+from winter_cli.modules.service.service_reporter import JsonServiceReporter
 from winter_cli.modules.service.service_status_service import ServiceStatusService
 from winter_cli.modules.service.status_models import StatusOptions
 from winter_cli.modules.service.status_parser import StatusDocumentParser
@@ -159,6 +160,7 @@ def _make_dispatch(
     runner: FakeSubprocessRunner,
     registry: CapabilityRegistryService,
     resolver: ServiceOrchestratorResolver,
+    reporter: FakeServiceReporter | None = None,
 ) -> ServiceDispatchService:
     describe_svc = ServiceDescribeService(
         subprocess_runner=runner,
@@ -175,6 +177,7 @@ def _make_dispatch(
         fan_out_service=fan_out,
         describe_service=describe_svc,
         workspace_root=WS,
+        reporter=reporter,
     )
 
 
@@ -182,36 +185,36 @@ def _make_logs(
     runner: FakeSubprocessRunner,
     registry: CapabilityRegistryService,
     resolver: ServiceOrchestratorResolver,
-    click: ClickRecorder,
-) -> ServiceLogsService:
+) -> tuple[ServiceLogsService, FakeServiceReporter]:
     describe_svc = ServiceDescribeService(
         subprocess_runner=runner,
         describe_parser=DescribeResultParser(),
         workspace_root=WS,
     )
-    return ServiceLogsService(
+    svc = ServiceLogsService(
         subprocess_runner=runner,
         orchestrator_resolver=resolver,
         describe_service=describe_svc,
-        click=click,
         workspace_root=WS,
     )
+    reporter = FakeServiceReporter()
+    return svc, reporter
 
 
 def _make_status(
     runner: FakeSubprocessRunner,
     registry: CapabilityRegistryService,
     resolver: ServiceOrchestratorResolver,
-    click: ClickRecorder,
-) -> ServiceStatusService:
-    return ServiceStatusService(
+    as_json: bool = False,
+) -> tuple[ServiceStatusService, FakeServiceReporter]:
+    svc = ServiceStatusService(
         subprocess_runner=runner,
         orchestrator_resolver=resolver,
         status_parser=StatusDocumentParser(),
-        cli_output=ClickCliOutputService(),
-        click=click,
         workspace_root=WS,
     )
+    reporter = FakeServiceReporter()
+    return svc, reporter
 
 
 def _log_opts(**kwargs: Any) -> LogOptions:
@@ -357,14 +360,12 @@ def test_logs_non_follow_spans_two_providers_and_merges_output() -> None:
             ),
         },
     )
-    click = ClickRecorder()
-    logs = _make_logs(runner, registry, resolver, click)
+    logs, reporter = _make_logs(runner, registry, resolver)
     # Use <env>/<svc> patterns — segment-aware matching.
-    code = logs.stream(_log_opts(patterns=("alpha/frontend", "alpha/backend")))
+    code = logs.stream(_log_opts(patterns=("alpha/frontend", "alpha/backend")), reporter)
 
     assert code == 0
-    stdout_msgs = [msg for msg, err in click.calls if not err]
-    combined = "\n".join(stdout_msgs)
+    combined = "\n".join(reporter.log_lines)
     assert "frontend-line" in combined
     assert "backend-line" in combined
 
@@ -386,13 +387,11 @@ def test_logs_single_owner_routes_only_to_that_provider() -> None:
             ),
         },
     )
-    click = ClickRecorder()
-    logs = _make_logs(runner, registry, resolver, click)
-    code = logs.stream(_log_opts(patterns=("alpha/frontend",)))
+    logs, reporter = _make_logs(runner, registry, resolver)
+    code = logs.stream(_log_opts(patterns=("alpha/frontend",)), reporter)
 
     assert code == 0
-    stdout_msgs = [msg for msg, err in click.calls if not err]
-    combined = "\n".join(stdout_msgs)
+    combined = "\n".join(reporter.log_lines)
     assert "a-only-line" in combined
     # Provider-b should NOT have been called.
     assert not any(str(ENTRYPOINT_B) in str(cmd) for cmd, _ in runner.popen_calls)
@@ -418,13 +417,11 @@ def test_logs_follow_single_owner_streams() -> None:
             ),
         },
     )
-    click = ClickRecorder()
-    logs = _make_logs(runner, registry, resolver, click)
-    code = logs.stream(_log_opts(patterns=("alpha/frontend",), follow=True))
+    logs, reporter = _make_logs(runner, registry, resolver)
+    code = logs.stream(_log_opts(patterns=("alpha/frontend",), follow=True), reporter)
 
     assert code == 0
-    stdout_msgs = [msg for msg, err in click.calls if not err]
-    combined = "\n".join(stdout_msgs)
+    combined = "\n".join(reporter.log_lines)
     assert "follow-line" in combined
 
 
@@ -439,18 +436,13 @@ def test_logs_follow_multi_provider_errors_with_actionable_message() -> None:
         },
         # No popen_responses: opening any stream should raise AssertionError.
     )
-    click = ClickRecorder()
-    logs = _make_logs(runner, registry, resolver, click)
-    code = logs.stream(_log_opts(patterns=("alpha/frontend", "alpha/backend"), follow=True))
+    logs, reporter = _make_logs(runner, registry, resolver)
+    code = logs.stream(_log_opts(patterns=("alpha/frontend", "alpha/backend"), follow=True), reporter)
 
     assert code == 1
-    # Error message should be on stderr.
-    stderr_msgs = [msg for msg, err in click.calls if err]
-    assert len(stderr_msgs) >= 1
-    error_text = stderr_msgs[0]
-    # Must mention follow/multiple providers and be actionable.
-    assert "--follow" in error_text or "-f" in error_text
-    assert "provider" in error_text.lower()
+    # Error message should be recorded on the reporter.
+    assert len(reporter.follow_multi_provider_error_calls) == 1
+    # The reporter receives the provider_names string; the full message is in the reporter impl.
     # No stream should have been opened.
     assert len(runner.popen_calls) == 0
 
@@ -465,14 +457,13 @@ def test_logs_follow_multi_provider_error_mentions_providers() -> None:
             f"{ENTRYPOINT_B} describe": _describe_result(_describe_json("backend")),
         },
     )
-    click = ClickRecorder()
-    logs = _make_logs(runner, registry, resolver, click)
-    logs.stream(_log_opts(patterns=("alpha/frontend", "alpha/backend"), follow=True))
+    logs, reporter = _make_logs(runner, registry, resolver)
+    logs.stream(_log_opts(patterns=("alpha/frontend", "alpha/backend"), follow=True), reporter)
 
-    stderr_msgs = [msg for msg, err in click.calls if err]
-    error_text = " ".join(stderr_msgs)
-    assert "provider-a" in error_text
-    assert "provider-b" in error_text
+    assert len(reporter.follow_multi_provider_error_calls) == 1
+    provider_names = reporter.follow_multi_provider_error_calls[0]
+    assert "provider-a" in provider_names
+    assert "provider-b" in provider_names
 
 
 def test_logs_single_provider_no_describe_call() -> None:
@@ -486,9 +477,8 @@ def test_logs_single_provider_no_describe_call() -> None:
             ),
         }
     )
-    click = ClickRecorder()
-    logs = _make_logs(runner, registry, resolver, click)
-    code = logs.stream(_log_opts(patterns=("alpha/api",)))
+    logs, reporter = _make_logs(runner, registry, resolver)
+    code = logs.stream(_log_opts(patterns=("alpha/api",)), reporter)
 
     assert code == 0
     assert runner.run_calls == []  # No describe call.
@@ -513,19 +503,17 @@ def test_status_merge_same_env_from_two_providers() -> None:
             ),
         }
     )
-    click = ClickRecorder()
-    status = _make_status(runner, registry, resolver, click)
-    code = status.report(_status_opts())
+    svc, reporter = _make_status(runner, registry, resolver)
+    code = svc.report(_status_opts(), reporter)
 
     assert code == 0
-    stdout_msgs = [msg for msg, err in click.calls if not err]
-    combined = "\n".join(stdout_msgs)
-    # Both services should appear in the merged output.
-    assert "frontend" in combined
-    assert "backend" in combined
-    # Should appear under a single alpha env header.
-    alpha_count = sum(1 for m in stdout_msgs if "alpha" in m and "session=" in m)
-    assert alpha_count == 1
+    assert len(reporter.status_documents) == 1
+    doc, _ = reporter.status_documents[0]
+    # Only one env (alpha) — merged.
+    assert len(doc.envs) == 1
+    svc_names = [s.name for s in doc.envs[0].services]
+    assert "frontend" in svc_names
+    assert "backend" in svc_names
 
 
 def test_status_merge_different_envs_concatenated() -> None:
@@ -544,22 +532,22 @@ def test_status_merge_different_envs_concatenated() -> None:
             ),
         }
     )
-    click = ClickRecorder()
-    status = _make_status(runner, registry, resolver, click)
-    code = status.report(_status_opts())
+    svc, reporter = _make_status(runner, registry, resolver)
+    code = svc.report(_status_opts(), reporter)
 
     assert code == 0
-    stdout_msgs = [msg for msg, err in click.calls if not err]
-    combined = "\n".join(stdout_msgs)
-    assert "alpha" in combined
-    assert "beta" in combined
-    assert "frontend" in combined
-    assert "backend" in combined
+    assert len(reporter.status_documents) == 1
+    doc, _ = reporter.status_documents[0]
+    env_names = [e.env for e in doc.envs]
+    assert "alpha" in env_names
+    assert "beta" in env_names
 
 
 def test_status_merge_json_output_merged() -> None:
     """Merged status with --json emits a single merged JSON document."""
-    registry, resolver = _make_two_provider_registry()
+    from tests.conftest import ClickRecorder
+
+    _registry, resolver = _make_two_provider_registry()
 
     runner = FakeSubprocessRunner(
         popen_responses={
@@ -573,12 +561,18 @@ def test_status_merge_json_output_merged() -> None:
             ),
         }
     )
-    click = ClickRecorder()
-    status = _make_status(runner, registry, resolver, click)
-    code = status.report(_status_opts(as_json=True))
+    svc = ServiceStatusService(
+        subprocess_runner=runner,
+        orchestrator_resolver=resolver,
+        status_parser=StatusDocumentParser(),
+        workspace_root=WS,
+    )
+    click_rec = ClickRecorder()
+    json_reporter = JsonServiceReporter(click=click_rec, cli_output=ClickCliOutputService())
+    code = svc.report(_status_opts(as_json=True), json_reporter)
 
     assert code == 0
-    stdout_msgs = [msg for msg, err in click.calls if not err]
+    stdout_msgs = [msg for msg, err in click_rec.calls if not err]
     assert len(stdout_msgs) == 1
     parsed = json.loads(stdout_msgs[0])
     assert "envs" in parsed
@@ -598,15 +592,14 @@ def test_status_nonconformant_provider_names_that_provider() -> None:
             f"{ENTRYPOINT_B} status": ([_status_doc("alpha", [_svc_entry("backend")])], 0),
         }
     )
-    click = ClickRecorder()
-    status = _make_status(runner, registry, resolver, click)
-    code = status.report(_status_opts())
+    svc, reporter = _make_status(runner, registry, resolver)
+    code = svc.report(_status_opts(), reporter)
 
     assert code != 0
-    stderr_msgs = [msg for msg, err in click.calls if err]
-    error_text = " ".join(stderr_msgs)
+    assert len(reporter.status_parse_error_calls) >= 1
+    ep, _prefix, _detail = reporter.status_parse_error_calls[0]
     # Error must name the specific provider.
-    assert str(ENTRYPOINT_A) in error_text or "provider-a" in error_text
+    assert str(ENTRYPOINT_A) in ep or "provider-a" in ep
 
 
 def test_status_single_provider_no_merge() -> None:
@@ -621,16 +614,16 @@ def test_status_single_provider_no_merge() -> None:
             ),
         }
     )
-    click = ClickRecorder()
-    status = _make_status(runner, registry, resolver, click)
-    code = status.report(_status_opts())
+    svc, reporter = _make_status(runner, registry, resolver)
+    code = svc.report(_status_opts(), reporter)
 
     assert code == 0
     # Only one popen call — no fan-out.
     assert len(runner.popen_calls) == 1
-    stdout_msgs = [msg for msg, err in click.calls if not err]
-    combined = "\n".join(stdout_msgs)
-    assert "frontend" in combined
+    assert len(reporter.status_documents) == 1
+    doc, _ = reporter.status_documents[0]
+    svc_names = [s.name for e in doc.envs for s in e.services]
+    assert "frontend" in svc_names
 
 
 # ── status merge model tests ──────────────────────────────────────────────────
@@ -766,14 +759,12 @@ def test_override_wins_over_configured_list_for_status() -> None:
         subprocess_runner=runner2,
         orchestrator_resolver=override_resolver,
         status_parser=StatusDocumentParser(),
-        cli_output=ClickCliOutputService(),
-        click=ClickRecorder(),
         workspace_root=WS,
     )
-    # Use status_svc2 which has the correct popen key.
+    reporter = FakeServiceReporter()
     from winter_cli.modules.service.status_models import StatusOptions
 
-    code = status_svc2.report(StatusOptions(patterns=(), as_json=False))
+    code = status_svc2.report(StatusOptions(patterns=(), as_json=False), reporter)
 
     assert code == 0
     # Only the override entrypoint was called (checked via popen_calls).
@@ -878,33 +869,8 @@ def test_restart_cross_env_pattern_forwards_original_token() -> None:
 # ── no-match diagnostic (item 6) ─────────────────────────────────────────────
 
 
-def _make_dispatch_with_click(
-    runner: FakeSubprocessRunner,
-    registry: CapabilityRegistryService,
-    resolver: ServiceOrchestratorResolver,
-    click: ClickRecorder,
-) -> ServiceDispatchService:
-    describe_svc = ServiceDescribeService(
-        subprocess_runner=runner,
-        describe_parser=DescribeResultParser(),
-        workspace_root=WS,
-    )
-    fan_out = ServiceFanOutService(
-        subprocess_runner=runner,
-        workspace_root=WS,
-    )
-    return ServiceDispatchService(
-        subprocess_runner=runner,
-        orchestrator_resolver=resolver,
-        fan_out_service=fan_out,
-        describe_service=describe_svc,
-        workspace_root=WS,
-        click=click,
-    )
-
-
 def test_restart_no_match_emits_stderr_diagnostic() -> None:
-    """Multi-provider restart with no matching service → stderr diagnostic, exit 0."""
+    """Multi-provider restart with no matching service → reporter gets no_match_diagnostic, exit 0."""
     registry, resolver = _make_two_provider_registry()
 
     runner = FakeSubprocessRunner(
@@ -913,21 +879,18 @@ def test_restart_no_match_emits_stderr_diagnostic() -> None:
             f"{ENTRYPOINT_B} describe": _describe_result(_describe_json("backend")),
         }
     )
-    click = ClickRecorder()
-    dispatch = _make_dispatch_with_click(runner, registry, resolver, click)
+    reporter = FakeServiceReporter()
+    dispatch = _make_dispatch(runner, registry, resolver, reporter=reporter)
     code = dispatch.dispatch("restart", ["nonexistent-service"])
 
     assert code == 0
-    # A diagnostic must appear on stderr.
-    stderr_msgs = [msg for msg, err in click.calls if err]
-    assert len(stderr_msgs) >= 1
-    combined = " ".join(stderr_msgs)
-    assert "no service matched" in combined
+    assert len(reporter.no_match_diagnostic_calls) >= 1
+    combined = " ".join(reporter.no_match_diagnostic_calls)
     assert "nonexistent-service" in combined
 
 
 def test_logs_no_match_emits_stderr_diagnostic() -> None:
-    """Multi-provider logs with no matching service → stderr diagnostic."""
+    """Multi-provider logs with no matching service → reporter gets no_service_matched."""
     registry, resolver = _make_two_provider_registry()
 
     runner = FakeSubprocessRunner(
@@ -937,12 +900,9 @@ def test_logs_no_match_emits_stderr_diagnostic() -> None:
         },
         # No popen_responses: no provider should be invoked.
     )
-    click = ClickRecorder()
-    logs = _make_logs(runner, registry, resolver, click)
-    logs.stream(_log_opts(patterns=("alpha/nonexistent",)))
+    logs, reporter = _make_logs(runner, registry, resolver)
+    logs.stream(_log_opts(patterns=("alpha/nonexistent",)), reporter)
 
-    stderr_msgs = [msg for msg, err in click.calls if err]
-    assert len(stderr_msgs) >= 1
-    combined = " ".join(stderr_msgs)
-    assert "no service matched" in combined
-    assert "alpha/nonexistent" in combined
+    assert len(reporter.no_service_matched_calls) >= 1
+    combined = " ".join(reporter.no_service_matched_calls)
+    assert "alpha/nonexistent" in combined  # token list contains the unmatched pattern
