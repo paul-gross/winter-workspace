@@ -227,7 +227,7 @@ When `skills_dir` and `agents_dir` aren't set explicitly, winter searches for th
 
 That covers both the winter convention (top-level `skills/`/`agents/`) and the Claude Code convention (`.claude/skills/`/`.claude/agents/`), so a vanilla Claude Code repo can be adopted as an extension without modification. Setting `skills_dir`/`agents_dir` explicitly in `winter-ext.toml` skips the fallback and uses exactly the declared path.
 
-For each subdirectory under the resolved skills root, winter creates a symlink at `.claude/skills/<prefix>-<dir>` pointing to it. For each `.md` file or subdirectory under the resolved agents root, winter creates a symlink at `.claude/agents/<prefix>-<name>`.
+For each subdirectory under the resolved skills root, winter creates a symlink under **both** `.claude/skills/<prefix>-<dir>` and `.codex/skills/<prefix>-<dir>` pointing to it. Two targets cover all three supported harnesses: Claude Code and OpenCode both read `.claude/skills` (OpenCode free-rides on it natively), and Codex reads `.codex/skills`. Winter deliberately does **not** also populate `.agents/skills` or `.opencode/skills` — OpenCode reads those too, so a redundant copy there would make it double-load every skill. For each `.md` file or subdirectory under the resolved agents root, winter creates a symlink at `.claude/agents/<prefix>-<name>` (agents are Claude-only for now).
 
 The workspace `.gitignore` is updated with a marker-bracketed block per extension:
 
@@ -235,6 +235,7 @@ The workspace `.gitignore` is updated with a marker-bracketed block per extensio
 # >>> winter-backlog (managed by winter)
 /winter-backlog/
 .claude/skills/wsb-*
+.codex/skills/wsb-*
 .claude/agents/wsb-*
 # <<< winter-backlog
 ```

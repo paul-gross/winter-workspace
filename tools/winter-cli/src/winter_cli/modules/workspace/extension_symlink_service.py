@@ -17,13 +17,14 @@ logger = logging.getLogger(__name__)
 
 
 class ExtensionSymlinkService:
-    """Installs `.claude/skills/<prefix>-*` and `.claude/agents/<prefix>-*` symlinks for an extension repo.
+    """Installs `.{claude,codex}/skills/<prefix>-*` and `.claude/agents/<prefix>-*` symlinks for an extension repo.
 
     For each standalone repo, decides whether it should contribute skills/agents
     (per `adopt_extensions` mode and the presence of `winter-ext.toml`),
     validates SKILL.md frontmatter conforms to the prefix-by-directory
-    convention, and creates per-entry symlinks under
-    `.claude/skills/<prefix>-<dir>` and `.claude/agents/<prefix>-<dir>`.
+    convention, and creates per-entry symlinks. Skills are projected into both
+    `.claude/skills/<prefix>-<dir>` and `.codex/skills/<prefix>-<dir>`; agents into
+    `.claude/agents/<prefix>-<dir>`.
 
     Error-handling shape: `process` is the wrap site. Leaves raise
     `RepoError` / `OSError`; one try/except at the boundary routes the
@@ -64,18 +65,28 @@ class ExtensionSymlinkService:
 
             self._validate_frontmatter(repo, skills_root, reporter, strict=mode == AdoptExtensions.winter)
 
-            # Skills are always directories containing SKILL.md.
-            skills_target = self._config.workspace_root / ".claude" / "skills"
-            skill_links = self._symlink_entries(
-                source_root=skills_root,
-                target_root=skills_target,
-                prefix=manifest.prefix,
-                kind="skill",
-                include_dirs=True,
-                include_files=False,
-                require_marker_file="SKILL.md",
+            # Skills are always directories containing SKILL.md. Project them into
+            # both `.claude/skills` (read by Claude Code — and by OpenCode, which
+            # reads `.claude/skills` natively) and `.codex/skills` (read by Codex).
+            # Two targets cover all three harnesses. Deliberately do NOT also
+            # populate `.agents/skills` or `.opencode/skills`: OpenCode reads those
+            # too, so a redundant copy there would make it double-load every skill.
+            skills_targets = (
+                self._config.workspace_root / ".claude" / "skills",
+                self._config.workspace_root / ".codex" / "skills",
             )
-            self._prune_stale_symlinks(skills_target, manifest.prefix, set(skill_links), kind="skill")
+            skill_links: list[str] = []
+            for skills_target in skills_targets:
+                skill_links = self._symlink_entries(
+                    source_root=skills_root,
+                    target_root=skills_target,
+                    prefix=manifest.prefix,
+                    kind="skill",
+                    include_dirs=True,
+                    include_files=False,
+                    require_marker_file="SKILL.md",
+                )
+                self._prune_stale_symlinks(skills_target, manifest.prefix, set(skill_links), kind="skill")
 
             # Agents are flat .md files (one per agent). Directories are
             # reserved for the nested-agent convention and must carry an

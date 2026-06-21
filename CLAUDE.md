@@ -6,7 +6,7 @@ This workspace is powered by **winter**, a framework that manages the worktrees,
 
 Read [ai/workspace-layout.md](./ai/workspace-layout.md) to understand the directory layout, which directories are source checkouts (never edit directly), and how feature worktrees relate to the project repos.
 
-@ai/project/index.md
+IMPORTANT: always read ./ai/project/index.md
 
 ## Feature environments and Greek letters
 
@@ -30,7 +30,7 @@ Conventional names: alpha, beta, gamma, delta, epsilon, zeta, eta, theta, iota, 
 
 The `winter` command manages feature environments and repositories across the workspace. Use it instead of manual multi-repo git operations. Use raw git for single-repo work (staging, committing, conflict resolution).
 
-@ai/winter-cli/index.md
+IMPORTANT: always read ./ai/winter-cli/index.md
 
 ## Creating a new feature environment
 
@@ -79,8 +79,8 @@ Paths use a `<context>:<path>` prefix to clarify which repo/branch a file lives 
 
 # Winter Extensions
 
-@CLAUDE.winter.md
+IMPORTANT: always read ./CLAUDE.winter.md
 
 # Local Settings
 
-@CLAUDE.local.md
+IMPORTANT: always read ./CLAUDE.local.md

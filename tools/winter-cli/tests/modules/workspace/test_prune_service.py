@@ -147,3 +147,17 @@ def test_find_broken_symlinks_under_claude_dirs(workspace_config: WorkspaceConfi
     broken = [o for o in orphans if o.kind == "broken_symlink"]
     assert len(broken) == 1
     assert broken[0].safe_to_remove is True
+
+
+def test_find_broken_symlinks_under_codex_skills(workspace_config: WorkspaceConfig) -> None:
+    """Broken symlinks under .codex/skills are healed alongside the .claude/ surfaces."""
+    codex_skills = WORKSPACE_ROOT / ".codex" / "skills"
+    fs = FakeFilesystem(directories=[codex_skills])
+    fs.symlinks[codex_skills / "ext-removed"] = Path("../../ext-removed/skills/x")
+    svc = _service(workspace_config, fs)
+
+    orphans = svc.find_orphans()
+    broken = [o for o in orphans if o.kind == "broken_symlink"]
+    assert len(broken) == 1
+    assert broken[0].path == codex_skills / "ext-removed"
+    assert broken[0].safe_to_remove is True

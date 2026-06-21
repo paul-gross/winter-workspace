@@ -250,19 +250,23 @@ class CoreProbeService:
             message=f"{len(project_repos)} worktrees consistent",
         )
 
-    # ── .claude/{agents,skills} symlink health ───────────────────────────
+    # ── .{claude,codex} extension symlink health ─────────────────────────
 
     def _probe_claude_symlinks(self) -> ProbeResult | None:
-        """Detect broken `.claude/{agents,skills}/*` symlinks left by extension renames.
+        """Detect broken extension symlinks under `.claude/{agents,skills}` and `.codex/skills`.
 
-        `ExtensionSymlinkService._prune_stale_symlinks` heals these on the next
-        `winter ws init`, but until then a stale link silently shadows a renamed
-        agent or skill — the failure surfaces only when something tries to spawn
-        the missing target. Returns None when neither directory exists so the
-        probe stays quiet on workspaces that never adopted extensions.
+        Skills are projected into both `.claude/skills` and `.codex/skills`
+        (agents only into `.claude/agents`), so all three install surfaces are
+        audited together. `ExtensionSymlinkService._prune_stale_symlinks` heals
+        these on the next `winter ws init`, but until then a stale link silently
+        shadows a renamed agent or skill — the failure surfaces only when
+        something tries to spawn the missing target. Returns None when none of
+        the directories exist so the probe stays quiet on workspaces that never
+        adopted extensions.
         """
         claude_root = self._config.workspace_root / ".claude"
-        candidates = (claude_root / "agents", claude_root / "skills")
+        codex_root = self._config.workspace_root / ".codex"
+        candidates = (claude_root / "agents", claude_root / "skills", codex_root / "skills")
         any_dir_present = False
         orphans: list[str] = []
         for directory in candidates:
@@ -281,14 +285,14 @@ class CoreProbeService:
         if orphans:
             return ProbeResult(
                 source=CORE_SOURCE,
-                name=".claude symlinks",
+                name="extension symlinks",
                 status=ProbeStatus.fail,
                 message=f"orphaned symlink(s): {', '.join(sorted(orphans))}",
                 remediation="Run `winter ws init` to prune stale extension symlinks.",
             )
         return ProbeResult(
             source=CORE_SOURCE,
-            name=".claude symlinks",
+            name="extension symlinks",
             status=ProbeStatus.pass_,
             message="no orphaned symlinks",
         )

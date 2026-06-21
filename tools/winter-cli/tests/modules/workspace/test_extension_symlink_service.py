@@ -94,6 +94,13 @@ def test_process_symlinks_skills_and_agents(workspace_config: WorkspaceConfig, i
     skill_link = WORKSPACE_ROOT / ".claude" / "skills" / "my-ext-do-thing"
     assert fs.is_symlink(skill_link)
 
+    # And mirrored into .codex/skills so Codex can load it too.
+    codex_skill_link = WORKSPACE_ROOT / ".codex" / "skills" / "my-ext-do-thing"
+    assert fs.is_symlink(codex_skill_link)
+
+    # Agents are Claude-only: no .codex/agents projection.
+    assert not fs.is_symlink(WORKSPACE_ROOT / ".codex" / "agents" / "my-ext-reviewer.md")
+
     # Agent symlink created under .claude/agents/<prefix>-<filename>
     agent_link = WORKSPACE_ROOT / ".claude" / "agents" / "my-ext-reviewer.md"
     assert fs.is_symlink(agent_link)

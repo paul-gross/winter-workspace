@@ -3,8 +3,9 @@
 
 A winter module (an extension shipping a `winter-ext.toml`) is developed inside
 this multi-repo workspace but installed standalone elsewhere. So every outbound
-reference it makes — a `<context>:/path` path-notation reference or a Claude
-`@import` — must resolve to something the module is guaranteed to have when it
+reference it makes — a `<context>:/path` path-notation reference, a Claude
+`@import`, or its rewritten plain-path read instruction (`always read ./path`,
+the cross-harness form from issue #84) — must resolve to something the module is guaranteed to have when it
 ships alone: itself, core (`winter` / `winter-cli` / `workspace`), or a module
 it explicitly declares in its `winter-ext.toml` `requires`. A reference to an
 undeclared sibling is a dead pointer at the consumption edge; a core module
@@ -66,6 +67,12 @@ _REF_RE = re.compile(r"(?<![A-Za-z0-9_./-])([a-z][a-z0-9-]*):/")
 # Claude `@import` at the start of a line. Guarded later to a path-shaped target
 # so `@param`-style mentions don't register.
 _IMPORT_RE = re.compile(r"^\s*@(\S+)")
+
+# Rewritten `@import` (issue #84): a high-emphasis plain-path read instruction
+# emitted for non-Claude harnesses, e.g. `IMPORTANT: always read ./ai/x.md`. The
+# `@` is dropped, so this form is matched by the `read` verb plus a relative
+# (`./` or `../`) path. Optional surrounding backticks are tolerated.
+_READ_REF_RE = re.compile(r"\bread\s+`?(\.{1,2}/[^\s`]+)")
 
 # Same-line illustrative-example exemption marker.
 _MARKER_RE = re.compile(r"<!--\s*winter-lint:\s*example\s*-->", re.IGNORECASE)
@@ -175,6 +182,22 @@ class ReferenceScanner:
         """Winter `<context>:` reference contexts on a line (may repeat)."""
         return [m.group(1) for m in _REF_RE.finditer(line) if self._is_winter_context(m.group(1))]
 
+    def import_raw_path(self, line: str) -> str | None:
+        """Relative path referenced by a line's `@import` or rewritten read instruction.
+
+        Accepts both reference forms as equivalent: a line-leading Claude
+        `@import` (`@ai/x.md`) and the rewritten plain-path read instruction
+        (`IMPORTANT: always read ./ai/x.md`). Returns the raw path string, or
+        None when the line carries neither.
+        """
+        m = _IMPORT_RE.match(line)
+        if m:
+            return m.group(1)
+        m = _READ_REF_RE.search(line)
+        if m:
+            return m.group(1).rstrip(".,;:")
+        return None
+
     def import_target_module(
         self,
         line: str,
@@ -183,16 +206,15 @@ class ReferenceScanner:
         workspace_root: Path,
         manifest_reader: ManifestReader,
     ) -> str | None:
-        """Module a line-leading `@import` points at, if it escapes the owner module.
+        """Module a line's `@import` (or rewritten read instruction) points at, if it escapes the owner module.
 
-        Returns the target module name when the import resolves outside the owning
-        module's root (a cross-module dependency), else None (internal import, or
-        not an import-shaped line).
+        Returns the target module name when the reference resolves outside the
+        owning module's root (a cross-module dependency), else None (internal
+        reference, or not a reference-shaped line).
         """
-        m = _IMPORT_RE.match(line)
-        if not m:
+        raw = self.import_raw_path(line)
+        if raw is None:
             return None
-        raw = m.group(1)
         if "/" not in raw and "." not in raw:  # `@param`-style, not a path import
             return None
         target = (file.parent / raw).resolve()

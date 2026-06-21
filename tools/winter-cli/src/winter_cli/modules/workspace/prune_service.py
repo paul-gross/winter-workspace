@@ -140,6 +140,7 @@ class PruneService:
         roots = [
             self._config.workspace_root / ".claude" / "skills",
             self._config.workspace_root / ".claude" / "agents",
+            self._config.workspace_root / ".codex" / "skills",
         ]
         orphans: list[PruneOrphan] = []
         for root in roots:

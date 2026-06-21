@@ -80,6 +80,8 @@ def test_finalize_excludes_writes_one_block_per_extension(
     assert "# >>> ext-b (managed by winter)" in content
     assert "/ext-a/" in content
     assert ".claude/skills/ext-a-*" in content
+    assert ".codex/skills/ext-a-*" in content
+    assert ".claude/agents/ext-a-*" in content
 
 
 # ---------------------------------------------------------------------------

@@ -199,6 +199,41 @@ class ImportTests(unittest.TestCase):
             )
         )
 
+    def test_import_raw_path_accepts_both_forms(self) -> None:
+        # Claude @import.
+        self.assertEqual(self.scanner.import_raw_path("@ai/x.md"), "ai/x.md")
+        # Rewritten cross-harness read instruction (issue #84).
+        self.assertEqual(
+            self.scanner.import_raw_path("IMPORTANT: always read ./ai/x.md"), "./ai/x.md"
+        )
+        self.assertEqual(
+            self.scanner.import_raw_path("IMPORTANT: always read `../sib/y.md`"), "../sib/y.md"
+        )
+        # Neither form.
+        self.assertIsNone(self.scanner.import_raw_path("just some prose"))
+
+    def test_rewritten_read_ref_resolves_cross_module(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "modA").mkdir()
+            (root / "modA" / "winter-ext.toml").write_text('name = "winter-a"\n')
+            (root / "modB").mkdir()
+            (root / "modB" / "winter-ext.toml").write_text('name = "winter-b"\n')
+            file = root / "modA" / "CLAUDE.md"
+            # A rewritten read instruction pointing into a sibling module.
+            self.assertEqual(
+                self.scanner.import_target_module(
+                    "IMPORTANT: always read ../modB/thing.md",
+                    file,
+                    root / "modA",
+                    root,
+                    self.manifest_reader,
+                ),
+                "winter-b",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

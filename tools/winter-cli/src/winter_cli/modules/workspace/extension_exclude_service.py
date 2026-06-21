@@ -27,8 +27,8 @@ class ExtensionExcludeService:
 
     Each block is bracketed with `# >>> <name> (managed by winter)` markers
     and lists the extension repo path plus the symlink globs under
-    `.claude/skills/` and `.claude/agents/`. Orphan blocks for extensions
-    no longer present are stripped automatically.
+    `.claude/skills/`, `.codex/skills/`, and `.claude/agents/`. Orphan blocks
+    for extensions no longer present are stripped automatically.
     """
 
     def __init__(
@@ -53,7 +53,8 @@ class ExtensionExcludeService:
 
         Called once after all standalones are reconciled. Each block is bracketed
         with `# >>> <name> (managed by winter)` markers and lists the extension
-        repo path plus the symlink globs under `.claude/skills/` and `.claude/agents/`.
+        repo path plus the symlink globs under `.claude/skills/`, `.codex/skills/`,
+        and `.claude/agents/`.
         Orphan blocks for extensions no longer present are stripped automatically;
         if no extensions are eligible, every winter-managed block is removed.
 
@@ -100,6 +101,7 @@ class ExtensionExcludeService:
                 lines.extend(
                     [
                         f".claude/skills/{prefix}-*",
+                        f".codex/skills/{prefix}-*",
                         f".claude/agents/{prefix}-*",
                     ]
                 )

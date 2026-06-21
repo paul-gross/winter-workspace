@@ -17,6 +17,7 @@ from winter_cli.modules.workspace.workspace_repository import IReadWorkspaceRepo
 WORKSPACE_ROOT = Path("/ws")
 CLAUDE_AGENTS = WORKSPACE_ROOT / ".claude" / "agents"
 CLAUDE_SKILLS = WORKSPACE_ROOT / ".claude" / "skills"
+CODEX_SKILLS = WORKSPACE_ROOT / ".codex" / "skills"
 
 
 def _build_service(fs: FakeFilesystem) -> CoreProbeService:
@@ -68,7 +69,7 @@ def test_claude_symlinks_probe_passes_when_all_symlinks_resolve() -> None:
     assert result is not None
     assert result.status == ProbeStatus.pass_
     assert result.source == CORE_SOURCE
-    assert result.name == ".claude symlinks"
+    assert result.name == "extension symlinks"
 
 
 def test_claude_symlinks_probe_fails_and_names_every_orphan() -> None:
@@ -91,6 +92,21 @@ def test_claude_symlinks_probe_fails_and_names_every_orphan() -> None:
     assert ".claude/skills/wf-old-skill" in result.message
     assert result.remediation is not None
     assert "winter ws init" in result.remediation
+
+
+def test_claude_symlinks_probe_flags_broken_codex_skill_symlink() -> None:
+    """A broken symlink under `.codex/skills` is audited alongside `.claude/`."""
+    fs = FakeFilesystem(
+        directories={CODEX_SKILLS},
+        symlinks={CODEX_SKILLS / "wf-gone": Path("../../missing/skill")},
+    )
+    svc = _build_service(fs)
+
+    result = svc._probe_claude_symlinks()
+
+    assert result is not None
+    assert result.status == ProbeStatus.fail
+    assert ".codex/skills/wf-gone" in result.message
 
 
 def test_claude_symlinks_probe_ignores_regular_files_and_dirs() -> None:
