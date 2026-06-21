@@ -19,7 +19,9 @@ def _finding(source: str, status: LintStatus, check: str = "c") -> LintFinding:
     return LintFinding(source=source, check=check, status=status)
 
 
-class _FakeWorkspaceLint:
+class _FakeScalarLint:
+    """A core- or workspace-style lint service: `run(scope) -> outcome | None`."""
+
     def __init__(self, outcome: LintCheckOutcome | None) -> None:
         self._outcome = outcome
         self.calls: list[LintScope] = []
@@ -61,10 +63,13 @@ class _RecordingReporter:
 
 
 def _make(
-    workspace: LintCheckOutcome | None, extensions: list[LintCheckOutcome]
+    workspace: LintCheckOutcome | None,
+    extensions: list[LintCheckOutcome],
+    core: LintCheckOutcome | None = None,
 ) -> tuple[LintService, _RecordingReporter]:
     svc = LintService(
-        workspace_lint_svc=_FakeWorkspaceLint(workspace),  # type: ignore[arg-type]
+        core_lint_svc=_FakeScalarLint(core),  # type: ignore[arg-type]
+        workspace_lint_svc=_FakeScalarLint(workspace),  # type: ignore[arg-type]
         extension_lint_svc=_FakeExtensionLint(extensions),  # type: ignore[arg-type]
         repo_factory=_FakeRepoFactory(),  # type: ignore[arg-type]
     )
@@ -105,6 +110,25 @@ def test_workspace_findings_emit_before_extension_findings() -> None:
     assert [f.source for f in reporter.findings] == ["project", "wln"]
 
 
+def test_core_findings_emit_before_workspace_and_extension_findings() -> None:
+    core = LintCheckOutcome("core", [_finding("core", LintStatus.fail)])
+    workspace = LintCheckOutcome("project", [_finding("project", LintStatus.pass_)])
+    ext = LintCheckOutcome("wln", [_finding("wln", LintStatus.pass_)])
+    svc, reporter = _make(workspace, [ext], core=core)
+    summary = svc.run(SCOPE, reporter)  # type: ignore[arg-type]
+    assert [f.source for f in reporter.findings] == ["core", "project", "wln"]
+    assert summary.contributors == 3
+
+
+def test_core_runs_even_with_no_workspace_or_extension_checks() -> None:
+    core = LintCheckOutcome("core", [_finding("core", LintStatus.fail)])
+    svc, reporter = _make(None, [], core=core)
+    summary = svc.run(SCOPE, reporter)  # type: ignore[arg-type]
+    assert [f.source for f in reporter.findings] == ["core"]
+    assert summary.contributors == 1
+    assert summary.exit_code == 1
+
+
 def test_only_warnings_keeps_exit_zero() -> None:
     ext = LintCheckOutcome("wln", [_finding("wln", LintStatus.warn)])
     svc, reporter = _make(None, [ext])
@@ -116,7 +140,8 @@ def test_only_warnings_keeps_exit_zero() -> None:
 def test_passes_standalone_repos_to_extension_service() -> None:
     ext_svc = _FakeExtensionLint([])
     svc = LintService(
-        workspace_lint_svc=_FakeWorkspaceLint(None),  # type: ignore[arg-type]
+        core_lint_svc=_FakeScalarLint(None),  # type: ignore[arg-type]
+        workspace_lint_svc=_FakeScalarLint(None),  # type: ignore[arg-type]
         extension_lint_svc=ext_svc,  # type: ignore[arg-type]
         repo_factory=_FakeRepoFactory(),  # type: ignore[arg-type]
     )

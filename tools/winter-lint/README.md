@@ -80,17 +80,18 @@ collaborators at construction time:
 services, wires them together, calls `check_paths` and `cycle_findings`, and
 prints NDJSON findings on stdout.
 
-## Wiring it into a workspace
+## How it runs
 
-It is an opt-in workspace lint check. Point `.winter/config.toml` at it:
+It is a **built-in core lint check** — `winter lint` runs it on every
+invocation, with no `.winter/config.toml` registration, the same way
+`winter doctor` runs its built-in core probes. The CLI's `CoreLintService`
+locates this script relative to the winter-cli source tree (its sibling
+`tools/winter-lint/` directory), runs it over the selected scope with the
+standard lint env (`WINTER_LINT_SCOPE`, `WINTER_LINT_PATHS`, `WINTER_CLI`, …),
+and aggregates its NDJSON findings under the `[core]` source group. See
+`workspace:/ai/winter-cli/setup.md` ("Built-in core checks").
 
-```toml
-lint = "<path>/extractability.py"
-```
-
-`winter lint` then runs it over the selected scope with the standard lint env
-(`WINTER_LINT_SCOPE`, `WINTER_LINT_PATHS`, `WINTER_CLI`, …) and aggregates its
-NDJSON findings. It can also be run directly:
+It can also be run directly:
 
 ```bash
 WINTER_CLI=$(command -v winter) python3 extractability.py <path>...

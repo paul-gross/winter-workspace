@@ -393,7 +393,13 @@ Results appear under a `[<ext-prefix>]` source group, one block per installed ex
 
 ## Lint checks
 
-`winter lint` (see [usage/lint.md](./usage/lint.md)) is the convention-checking counterpart of `winter doctor`. It's a dispatcher: it discovers lint scripts contributed by the workspace and by installed extensions, runs the applicable ones over the selected scope, and aggregates their findings. It owns scope selection, aggregation, and reporting — the check logic lives entirely in the contributed scripts.
+`winter lint` (see [usage/lint.md](./usage/lint.md)) is the convention-checking counterpart of `winter doctor`. It aggregates findings from three sources — symmetric with doctor's probe sources: built-in core checks bundled with winter-cli, an optional workspace-level script, and one script per installed extension. The workspace and extension checks are opt-in scripts that follow the same output contract; the core checks always run, with no per-workspace registration. It owns scope selection, aggregation, and reporting — the check logic lives entirely in the checks it dispatches.
+
+### Built-in core checks
+
+These ship with winter-cli and run on every `winter lint`, the same way `winter doctor` runs its built-in core probes — no `.winter/config.toml` or `winter-ext.toml` registration needed. They run first, before the workspace and extension checks, and their findings appear under a `[core]` source group.
+
+The current core check is **module extractability** (`tools/winter-lint/extractability.py`): it validates dependency direction across the ecosystem graph, flagging a `<context>:/path` reference whose target a module isn't guaranteed to have when shipped standalone — a core module pointing at an extension (a layering inversion) or an undeclared sibling (a dead pointer at the consumption edge). It is graph-driven (it calls back into `$WINTER_CLI graph --json` rather than rebuilding the graph) and honors the `<!-- winter-lint:example -->` line exemption and fenced-code-block skip. Full rules in [tools/winter-lint/README.md](../../tools/winter-lint/README.md).
 
 ### Finding output contract
 

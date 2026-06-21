@@ -631,6 +631,21 @@ class Container(containers.DeclarativeContainer):
     # script as WINTER_CLI so checks can call back (e.g. `$WINTER_CLI graph`).
     winter_cli_path = providers.Callable(_lazy("winter_cli.modules.lint.scope_env:resolve_winter_cli_path"))
 
+    # Absolute path to the bundled extractability check, resolved relative to the
+    # winter-cli source tree (its sibling tools/winter-lint/ directory).
+    extractability_script_path = providers.Callable(
+        _lazy("winter_cli.modules.lint.core_lint_service:default_extractability_script_path")
+    )
+
+    core_lint_svc = providers.Factory(
+        _lazy("winter_cli.modules.lint.core_lint_service:CoreLintService"),
+        workspace_root=workspace_config.provided.workspace_root,
+        fs=fs,
+        subprocess_runner=subprocess_runner,
+        winter_cli_path=winter_cli_path,
+        script_path=extractability_script_path,
+    )
+
     workspace_lint_svc = providers.Factory(
         _lazy("winter_cli.modules.lint.workspace_lint_service:WorkspaceLintService"),
         config=workspace_config,
@@ -659,6 +674,7 @@ class Container(containers.DeclarativeContainer):
 
     lint_svc = providers.Factory(
         _lazy("winter_cli.modules.lint.lint_service:LintService"),
+        core_lint_svc=core_lint_svc,
         workspace_lint_svc=workspace_lint_svc,
         extension_lint_svc=extension_lint_svc,
         repo_factory=repo_factory,
