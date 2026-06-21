@@ -4,7 +4,7 @@
   "title": "WsStatusSnapshot",
   "description": "JSON output of `winter ws status --json` (schema_version 1). All diagnostics go to stderr; this document appears on stdout only.",
   "type": "object",
-  "required": ["schema_version", "environments", "source_checkouts", "workspace"],
+  "required": ["schema_version", "environments", "source_checkouts", "workspace", "dashboard"],
   "additionalProperties": false,
   "properties": {
     "schema_version": {
@@ -29,9 +29,30 @@
     "workspace": {
       "$ref": "#/$defs/WorkspaceLevelSnapshot",
       "description": "Workspace-level snapshot — extensions, orphans, config drift. Always the full workspace view."
+    },
+    "dashboard": {
+      "$ref": "#/$defs/DashboardSnapshot",
+      "description": "Configured and resolved dashboard grid layout for the current workspace shape. Reflects the whole-workspace view regardless of patterns."
     }
   },
   "$defs": {
+    "DashboardSnapshot": {
+      "type": "object",
+      "required": ["configured_layout", "resolved_layout"],
+      "additionalProperties": false,
+      "properties": {
+        "configured_layout": {
+          "type": "string",
+          "enum": ["auto", "repos-as-rows", "repos-as-columns", "list"],
+          "description": "The [tui.dashboard] layout config value verbatim."
+        },
+        "resolved_layout": {
+          "type": "string",
+          "enum": ["repos-as-rows", "repos-as-columns", "list"],
+          "description": "Concrete layout the configured value resolves to for the current workspace shape; equals configured_layout unless it is \"auto\", which resolves via the same heuristic the dashboard TUI grid uses (documented in ai/winter-cli/usage/dashboard.md)."
+        }
+      }
+    },
     "EnvSnapshot": {
       "type": "object",
       "required": ["name", "index", "port_base", "feature_branch", "worktrees"],

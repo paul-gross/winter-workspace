@@ -290,6 +290,7 @@ class Container(containers.DeclarativeContainer):
         prune_svc=prune_svc,
         config_lock_repo=config_lock_repo,
         git_repo=git_repo,
+        dashboard_layout=workspace_config.provided.dashboard.layout,
     )
 
     init_svc = providers.Factory(

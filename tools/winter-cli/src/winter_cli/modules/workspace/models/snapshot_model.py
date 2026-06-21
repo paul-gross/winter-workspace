@@ -147,6 +147,26 @@ class SourceCheckoutSnapshot:
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
+class DashboardSnapshot:
+    """Configured and resolved dashboard grid layout for the current workspace shape.
+
+    `configured_layout` is the `[tui.dashboard] layout` config value verbatim
+    (e.g. ``"auto"``, ``"list"``). `resolved_layout` is the concrete layout that
+    value resolves to for the current workspace shape — identical to
+    `configured_layout` unless it is ``"auto"``, in which case the shared
+    `DashboardLayout.resolve` policy (the same one the dashboard TUI grid uses,
+    fed counts derived the same way) picks the concrete layout from the per-env
+    worktree count and the env count. Both are the enum's string value, never the
+    enum object. Exposed on `winter ws status --json` so agents can confirm
+    `auto` resolution without driving the interactive Textual TUI. The resolution
+    reflects the whole-workspace shape and is unaffected by `ws status` patterns.
+    """
+
+    configured_layout: str
+    resolved_layout: str
+
+
+@dataclasses.dataclass(frozen=True, slots=True)
 class WorkspaceSnapshot:
     """Top-level machine-readable workspace state snapshot.
 
@@ -159,3 +179,4 @@ class WorkspaceSnapshot:
     workspace: WorkspaceLevelSnapshot
     environments: list[EnvSnapshot]
     source_checkouts: list[SourceCheckoutSnapshot]
+    dashboard: DashboardSnapshot

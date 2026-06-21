@@ -16,6 +16,7 @@ from winter_cli.modules.workspace.handlers.workspace_handler import (
     compute_status_exit_code,
 )
 from winter_cli.modules.workspace.models import (
+    DashboardSnapshot,
     EnvSnapshot,
     FetchReport,
     OrphanSnapshot,
@@ -772,12 +773,16 @@ def _make_snapshot(
     envs: list[EnvSnapshot] | None = None,
     source_checkouts: list[SourceCheckoutSnapshot] | None = None,
     workspace: WorkspaceLevelSnapshot | None = None,
+    dashboard: DashboardSnapshot | None = None,
 ) -> WorkspaceSnapshot:
     return WorkspaceSnapshot(
         schema_version=1,
         environments=envs if envs is not None else [_clean_env_snapshot()],
         source_checkouts=source_checkouts if source_checkouts is not None else [_clean_sc_snapshot()],
         workspace=workspace if workspace is not None else _clean_workspace_level(),
+        dashboard=dashboard
+        if dashboard is not None
+        else DashboardSnapshot(configured_layout="auto", resolved_layout="repos-as-rows"),
     )
 
 
@@ -889,7 +894,7 @@ def test_status_json_clean_snapshot_exits_zero(capsys: pytest.CaptureFixture[Any
     assert out["schema_version"] == 1
 
 
-def test_status_json_emits_all_four_top_level_keys(capsys: pytest.CaptureFixture[Any]) -> None:
+def test_status_json_emits_all_top_level_keys(capsys: pytest.CaptureFixture[Any]) -> None:
     snapshot = _make_snapshot()
     handler = _make_status_handler(snapshot)
     handler.status(EnvStatusParams(patterns=[], output_json=True))
@@ -898,6 +903,18 @@ def test_status_json_emits_all_four_top_level_keys(capsys: pytest.CaptureFixture
     assert "environments" in out
     assert "source_checkouts" in out
     assert "workspace" in out
+    assert "dashboard" in out
+
+
+def test_status_json_passes_through_dashboard_block(capsys: pytest.CaptureFixture[Any]) -> None:
+    """The snapshot's dashboard block surfaces verbatim in --json output."""
+    snapshot = _make_snapshot(
+        dashboard=DashboardSnapshot(configured_layout="auto", resolved_layout="list"),
+    )
+    handler = _make_status_handler(snapshot)
+    handler.status(EnvStatusParams(patterns=[], output_json=True))
+    out = json.loads(capsys.readouterr().out)
+    assert out["dashboard"] == {"configured_layout": "auto", "resolved_layout": "list"}
 
 
 def test_status_json_emits_nested_worktrees(capsys: pytest.CaptureFixture[Any]) -> None:

@@ -6,11 +6,13 @@ from collections.abc import Callable
 
 import click
 
+from winter_cli.config.models import DashboardLayout
 from winter_cli.modules.workspace.config_lock_repository import IConfigLockRepository
 from winter_cli.modules.workspace.drift import DriftWarningService
 from winter_cli.modules.workspace.env_status_service import EnvStatusService
 from winter_cli.modules.workspace.git_repository import IGitRepository
 from winter_cli.modules.workspace.models import (
+    DashboardSnapshot,
     EnvSnapshot,
     FeatureEnvironment,
     FeatureEnvironmentOverview,
@@ -59,6 +61,7 @@ class WorkspaceSnapshotService:
         prune_svc: PruneService,
         config_lock_repo: IConfigLockRepository,
         git_repo: IGitRepository,
+        dashboard_layout: DashboardLayout = DashboardLayout.auto,
     ) -> None:
         self._workspace = workspace
         self._env_status_svc = env_status_svc
@@ -69,6 +72,7 @@ class WorkspaceSnapshotService:
         self._prune_svc = prune_svc
         self._config_lock_repo = config_lock_repo
         self._git_repo = git_repo
+        self._dashboard_layout = dashboard_layout
 
     def collect(
         self,
@@ -110,6 +114,11 @@ class WorkspaceSnapshotService:
         environments = self._workspace_repo.get_environments(self._workspace, project_repos)
 
         env_snapshots: list[EnvSnapshot] = []
+        # Full (pre-pattern-filter) env overviews, in env order — the same
+        # structure the dashboard TUI grid consumes. The dashboard layout block
+        # is resolved from these so the CLI and the grid feed `resolve` inputs
+        # derived identically (per-env worktree count, env count).
+        overviews: list[FeatureEnvironmentOverview] = []
         total_matched_worktrees = 0
         for env in environments:
             overview = self._collect_env_overview(
@@ -124,6 +133,7 @@ class WorkspaceSnapshotService:
                 # callback). The CLI passes on_repo_error=None, so this never
                 # happens on the `ws status` path — the error propagates instead.
                 continue
+            overviews.append(overview)
             env_status = overview.status
 
             worktree_snapshots: list[WorktreeSnapshot] = []
@@ -276,11 +286,24 @@ class WorkspaceSnapshotService:
             standalone_pins=standalone_pins,
         )
 
+        # Dashboard layout resolution reflects the whole-workspace shape — every
+        # env, and the per-env worktree count — read from the full (pre-pattern)
+        # overviews, so the block is stable regardless of `ws status` patterns
+        # and matches the TUI grid, which derives the same counts from the same
+        # overview structure. `resolve` is the shared policy the grid also calls.
+        n_repos = len(overviews[0].repo_statuses) if overviews else 0
+        resolved_layout = self._dashboard_layout.resolve(n_repos, len(overviews))
+        dashboard = DashboardSnapshot(
+            configured_layout=self._dashboard_layout.value,
+            resolved_layout=resolved_layout.value,
+        )
+
         return WorkspaceSnapshot(
             schema_version=1,
             workspace=workspace_level,
             environments=env_snapshots,
             source_checkouts=source_checkout_snapshots,
+            dashboard=dashboard,
         )
 
     def collect_for_dashboard(

@@ -66,24 +66,10 @@ class FeatureWorktreesGrid(DataTable):
         row, col = self.cursor_coordinate
         self.move_cursor(row=row, column=col + 1, animate=False)
 
-    @staticmethod
-    def _resolve_auto(n_repos: int, n_envs: int) -> DashboardLayout:
-        """Resolve DashboardLayout.auto to a concrete layout given data counts."""
-        if n_repos == 1:
-            return DashboardLayout.list
-        if n_repos > n_envs:
-            return DashboardLayout.repos_as_rows
-        return DashboardLayout.repos_as_columns
-
     def _active_layout(self) -> DashboardLayout:
         """Return the concrete layout to render, resolving auto if needed."""
-        if self._configured_layout is not DashboardLayout.auto:
-            return self._configured_layout
-        if not self.statuses:
-            return DashboardLayout.repos_as_rows
-        n_repos = len(self.statuses[0].repo_statuses)
-        n_envs = len(self.statuses)
-        return self._resolve_auto(n_repos, n_envs)
+        n_repos = len(self.statuses[0].repo_statuses) if self.statuses else 0
+        return self._configured_layout.resolve(n_repos, len(self.statuses))
 
     def active_layout_label(self) -> str:
         """Return a display string for the current layout, e.g. 'auto→list' or 'list'."""

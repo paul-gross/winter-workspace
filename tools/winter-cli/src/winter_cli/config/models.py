@@ -43,6 +43,37 @@ class DashboardLayout(enum.Enum):
     multi-repo groups under each env elide env/service on repeat rows (both env-scoped),
     while remote is per-repo (each worktree's own upstream) and shows on every row."""
 
+    @staticmethod
+    def resolve_auto(n_repos: int, n_envs: int) -> DashboardLayout:
+        """Resolve ``auto`` to a concrete layout given the workspace shape.
+
+        Single source of truth for the ``auto`` heuristic, shared by the
+        dashboard TUI grid (`FeatureWorktreesGrid`) and `winter ws status
+        --json` so the interactive and scripted surfaces cannot drift.
+        """
+        if n_repos == 1:
+            return DashboardLayout.list
+        if n_repos > n_envs:
+            return DashboardLayout.repos_as_rows
+        return DashboardLayout.repos_as_columns
+
+    def resolve(self, n_repos: int, n_envs: int) -> DashboardLayout:
+        """Resolve this configured layout to the concrete one for the given shape.
+
+        The full resolution policy, shared by the dashboard TUI grid and
+        `winter ws status --json` so the formula *and* its guards live in one
+        place. A concrete layout returns itself unchanged. ``auto`` resolves via
+        `resolve_auto`, except an empty workspace (no envs) falls back to
+        `repos_as_rows` — the grid has no env axis to lay out without at least
+        one env. Both surfaces must feed `n_repos`/`n_envs` derived the same way
+        (the per-env worktree count and the env count) so they cannot diverge.
+        """
+        if self is not DashboardLayout.auto:
+            return self
+        if n_envs == 0:
+            return DashboardLayout.repos_as_rows
+        return DashboardLayout.resolve_auto(n_repos, n_envs)
+
 
 class GitIdentity(BaseModel):
     """Git author identity applied to every repo winter-cli manages."""

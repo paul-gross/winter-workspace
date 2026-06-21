@@ -68,6 +68,7 @@ jsonschema.validate(data, schema)
 | `environments` | `array` | One `EnvSnapshot` object per matching feature environment. When patterns are given, only the matched environments appear here; source checkouts and workspace sections remain unfiltered. |
 | `source_checkouts` | `array` | One `SourceCheckoutSnapshot` per source checkout with drift or non-zero counts. Always the full workspace view regardless of patterns. Empty array when everything is clean. |
 | `workspace` | `object` | `WorkspaceLevelSnapshot` — extensions, orphans, config drift. Always the full workspace view regardless of patterns. |
+| `dashboard` | `object` | `DashboardSnapshot` — the configured dashboard grid layout and the concrete layout it resolves to for the current workspace shape. Always the full-workspace view regardless of patterns. |
 
 **`environments[]` — `EnvSnapshot`:**
 
@@ -119,6 +120,15 @@ jsonschema.validate(data, schema)
 | `drift_missing` | `array[string]` | Repo names declared in config but absent on disk (run `winter ws init` to fix). |
 | `drift_undeclared` | `array[string]` | Directory names present under `projects/` but not in config. |
 | `standalone_pins` | `array` | One `StandalonePinSnapshot` per declared standalone repo that has a `ref` configured. Empty array when no standalone repos have a pin. See below. |
+
+**`dashboard` — `DashboardSnapshot`:**
+
+The dashboard grid is interactive-only — its resolved layout is otherwise observable only inside the Textual TUI. This block exposes the resolution non-interactively so scripts and agents can confirm which layout `auto` picks (or that a `[tui.dashboard]` config change took effect) without driving a Textual pilot. The resolution reflects the whole-workspace shape (every env, every project repo) and is **unaffected by `ws status` patterns**.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `configured_layout` | `string` | The `[tui.dashboard] layout` config value verbatim: `"auto"` (default), `"repos-as-rows"`, `"repos-as-columns"`, or `"list"`. |
+| `resolved_layout` | `string` | The concrete layout the configured value resolves to for the current workspace shape — one of `"repos-as-rows"`, `"repos-as-columns"`, `"list"`. Equals `configured_layout` unless it is `"auto"`, which resolves via the same heuristic the dashboard TUI grid uses — see the `auto` row in [dashboard.md](../dashboard.md#layouts). |
 
 **`workspace.standalone_pins[]` — `StandalonePinSnapshot`:**
 

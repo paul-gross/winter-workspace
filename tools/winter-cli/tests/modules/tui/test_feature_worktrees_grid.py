@@ -419,24 +419,43 @@ async def test_list_layout_selection():
 
 def test_auto_1_repo_resolves_to_list():
     """1 repo → list regardless of env count."""
-    assert FeatureWorktreesGrid._resolve_auto(n_repos=1, n_envs=1) is DashboardLayout.list
-    assert FeatureWorktreesGrid._resolve_auto(n_repos=1, n_envs=5) is DashboardLayout.list
+    assert DashboardLayout.resolve_auto(n_repos=1, n_envs=1) is DashboardLayout.list
+    assert DashboardLayout.resolve_auto(n_repos=1, n_envs=5) is DashboardLayout.list
 
 
 def test_auto_repos_gt_envs_resolves_to_rows():
     """repos > envs → repos-as-rows."""
-    assert FeatureWorktreesGrid._resolve_auto(n_repos=5, n_envs=3) is DashboardLayout.repos_as_rows
-    assert FeatureWorktreesGrid._resolve_auto(n_repos=3, n_envs=2) is DashboardLayout.repos_as_rows
+    assert DashboardLayout.resolve_auto(n_repos=5, n_envs=3) is DashboardLayout.repos_as_rows
+    assert DashboardLayout.resolve_auto(n_repos=3, n_envs=2) is DashboardLayout.repos_as_rows
 
 
 def test_auto_repos_eq_envs_resolves_to_columns():
     """repos == envs → repos-as-columns."""
-    assert FeatureWorktreesGrid._resolve_auto(n_repos=3, n_envs=3) is DashboardLayout.repos_as_columns
+    assert DashboardLayout.resolve_auto(n_repos=3, n_envs=3) is DashboardLayout.repos_as_columns
 
 
 def test_auto_repos_lt_envs_resolves_to_columns():
     """repos < envs → repos-as-columns."""
-    assert FeatureWorktreesGrid._resolve_auto(n_repos=2, n_envs=5) is DashboardLayout.repos_as_columns
+    assert DashboardLayout.resolve_auto(n_repos=2, n_envs=5) is DashboardLayout.repos_as_columns
+
+
+def test_resolve_passthrough_for_concrete_layout():
+    """A concrete configured layout resolves to itself, ignoring the shape."""
+    assert DashboardLayout.list.resolve(n_repos=5, n_envs=2) is DashboardLayout.list
+    assert DashboardLayout.repos_as_columns.resolve(n_repos=1, n_envs=1) is DashboardLayout.repos_as_columns
+
+
+def test_resolve_auto_empty_workspace_falls_back_to_rows():
+    """auto with zero envs falls back to repos-as-rows (no env axis to lay out)."""
+    assert DashboardLayout.auto.resolve(n_repos=0, n_envs=0) is DashboardLayout.repos_as_rows
+    assert DashboardLayout.auto.resolve(n_repos=3, n_envs=0) is DashboardLayout.repos_as_rows
+
+
+def test_resolve_auto_delegates_to_resolve_auto():
+    """auto with a non-empty shape delegates to the resolve_auto heuristic."""
+    assert DashboardLayout.auto.resolve(n_repos=1, n_envs=2) is DashboardLayout.list
+    assert DashboardLayout.auto.resolve(n_repos=5, n_envs=3) is DashboardLayout.repos_as_rows
+    assert DashboardLayout.auto.resolve(n_repos=3, n_envs=3) is DashboardLayout.repos_as_columns
 
 
 @pytest.mark.asyncio

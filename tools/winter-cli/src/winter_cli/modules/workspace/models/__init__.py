@@ -42,6 +42,7 @@ from winter_cli.modules.workspace.models.service_model import (
     WorktreeRepoStatus,
 )
 from winter_cli.modules.workspace.models.snapshot_model import (
+    DashboardSnapshot,
     EnvSnapshot,
     OrphanSnapshot,
     SourceCheckoutSnapshot,
@@ -53,6 +54,7 @@ from winter_cli.modules.workspace.models.snapshot_model import (
 
 __all__ = [
     "CheckoutResult",
+    "DashboardSnapshot",
     "DiffMode",
     "EnvCheckoutReport",
     "EnvDiffResult",

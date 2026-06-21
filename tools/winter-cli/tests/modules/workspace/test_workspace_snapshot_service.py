@@ -7,6 +7,7 @@ import pytest
 
 from winter_cli.config.models import (
     AdoptExtensions,
+    DashboardLayout,
     ProjectRepositoryConfig,
     SingletonRepository,
     SingletonType,
@@ -271,6 +272,7 @@ def _service(
     orphans: list[PruneOrphan] | None = None,
     lock_entries: dict[str, LockEntry] | None = None,
     head_commits: dict[str, str] | None = None,
+    dashboard_layout: DashboardLayout = DashboardLayout.auto,
 ) -> WorkspaceSnapshotService:
     """Construct a `WorkspaceSnapshotService` with all fakes wired."""
     from tests.conftest import ClickRecorder, FakeFilesystem
@@ -317,6 +319,7 @@ def _service(
         prune_svc=prune_svc,  # type: ignore[arg-type]
         config_lock_repo=config_lock_repo,  # type: ignore[arg-type]
         git_repo=git_repo,  # type: ignore[arg-type]
+        dashboard_layout=dashboard_layout,
     )
 
 
@@ -1061,3 +1064,116 @@ def test_collect_standalone_pins_only_includes_repos_with_ref(workspace: Workspa
     pins = snapshot.workspace.standalone_pins
     assert len(pins) == 1
     assert pins[0].name == "pinned-ext"
+
+
+# ── dashboard layout block ─────────────────────────────────────────────────────
+
+
+def _two_repo_worktree_statuses() -> dict[str, RepoStatus]:
+    return {
+        "repo-a": _clean_repo_status("repo-a", env_name="alpha"),
+        "repo-b": _clean_repo_status("repo-b", env_name="alpha"),
+    }
+
+
+def test_dashboard_auto_one_repo_resolves_to_list(workspace: Workspace) -> None:
+    """auto boundary: a 1-repo workspace resolves to list regardless of env count."""
+    config = WorkspaceConfig(
+        workspace_root=WORKSPACE_ROOT,
+        session_prefix="t",
+        main_branch="main",
+        adopt_extensions=AdoptExtensions.winter,
+        project_repos=[ProjectRepositoryConfig(name="repo-a", url="git@example.com:org/repo-a.git")],
+        standalone_repos=[],
+    )
+    svc = _service(
+        workspace,
+        config,
+        envs=[_make_env(workspace, "alpha", 1)],
+        worktree_statuses={"repo-a": _clean_repo_status("repo-a", env_name="alpha")},
+    )
+
+    snapshot = svc.collect()
+
+    assert snapshot.dashboard.configured_layout == "auto"
+    assert snapshot.dashboard.resolved_layout == "list"
+
+
+def test_dashboard_auto_repos_gt_envs_resolves_to_rows(workspace: Workspace, workspace_config: WorkspaceConfig) -> None:
+    """auto boundary: 2 repos > 1 env → repos-as-rows."""
+    svc = _service(
+        workspace,
+        workspace_config,
+        envs=[_make_env(workspace, "alpha", 1)],
+        worktree_statuses=_two_repo_worktree_statuses(),
+    )
+
+    snapshot = svc.collect()
+
+    assert snapshot.dashboard.configured_layout == "auto"
+    assert snapshot.dashboard.resolved_layout == "repos-as-rows"
+
+
+def test_dashboard_auto_repos_eq_envs_resolves_to_columns(
+    workspace: Workspace, workspace_config: WorkspaceConfig
+) -> None:
+    """auto boundary: 2 repos == 2 envs → repos-as-columns."""
+    svc = _service(
+        workspace,
+        workspace_config,
+        envs=[_make_env(workspace, "alpha", 1), _make_env(workspace, "beta", 2)],
+        worktree_statuses=_two_repo_worktree_statuses(),
+    )
+
+    snapshot = svc.collect()
+
+    assert snapshot.dashboard.configured_layout == "auto"
+    assert snapshot.dashboard.resolved_layout == "repos-as-columns"
+
+
+def test_dashboard_non_auto_layout_passes_through(workspace: Workspace, workspace_config: WorkspaceConfig) -> None:
+    """A configured concrete layout is reported verbatim and is not re-resolved."""
+    svc = _service(
+        workspace,
+        workspace_config,
+        envs=[_make_env(workspace, "alpha", 1), _make_env(workspace, "beta", 2)],
+        worktree_statuses=_two_repo_worktree_statuses(),
+        dashboard_layout=DashboardLayout.list,
+    )
+
+    snapshot = svc.collect()
+
+    assert snapshot.dashboard.configured_layout == "list"
+    # 2 repos == 2 envs would resolve auto to repos-as-columns; the explicit
+    # config wins instead, proving configured layouts are not re-resolved.
+    assert snapshot.dashboard.resolved_layout == "list"
+
+
+def test_dashboard_resolution_ignores_status_patterns(workspace: Workspace, workspace_config: WorkspaceConfig) -> None:
+    """Resolution reflects the whole-workspace shape, not the pattern-filtered view."""
+    svc = _service(
+        workspace,
+        workspace_config,
+        envs=[_make_env(workspace, "alpha", 1), _make_env(workspace, "beta", 2)],
+        worktree_statuses=_two_repo_worktree_statuses(),
+    )
+
+    # Scope to a single env/repo — were resolution computed from the filtered
+    # snapshot (1 repo, 1 env) it would pick list; the full shape is 2 repos,
+    # 2 envs → repos-as-columns.
+    snapshot = svc.collect(patterns=["alpha/repo-a"])
+
+    assert len(snapshot.environments) == 1
+    assert snapshot.dashboard.resolved_layout == "repos-as-columns"
+
+
+def test_dashboard_auto_empty_workspace_resolves_to_rows(
+    workspace: Workspace, workspace_config: WorkspaceConfig
+) -> None:
+    """auto with no envs falls back to repos-as-rows, matching the TUI grid's empty guard."""
+    svc = _service(workspace, workspace_config, envs=[])
+
+    snapshot = svc.collect()
+
+    assert snapshot.dashboard.configured_layout == "auto"
+    assert snapshot.dashboard.resolved_layout == "repos-as-rows"

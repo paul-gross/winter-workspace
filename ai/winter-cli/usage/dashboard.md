@@ -34,6 +34,8 @@ The feature-worktrees grid can render in four orientations, all projections of t
 
 **Configuring the default:** set `layout` in the `[tui.dashboard]` table in `.winter/config.toml` (or the `config.local.toml` overlay for a per-machine default). See [setup.md#dashboard-layout](../setup.md#dashboard-layout) for the schema and a TOML example.
 
+**Inspecting the resolved layout non-interactively:** the grid renders only inside this interactive Textual TUI, so its `auto` resolution can't be observed from a headless session. To confirm which concrete layout `auto` resolves to — or that a `[tui.dashboard]` config change took effect — read the `dashboard` block of `winter ws status --json` instead (`{ "configured_layout": …, "resolved_layout": … }`). It uses the same heuristic this grid does and reflects the whole-workspace shape. See [ws/status.md](./ws/status.md#json-schema-schema_version-1).
+
 **Cycling layouts live:** the `t` key (`workspace.cycle_layout` action) cycles the active layout for the current session without touching config: `auto → repos-as-columns → repos-as-rows → list → auto`. The configured default is restored on the next launch. See the action-id table in [Keybindings](#keybindings) below.
 
 ## Keybindings

@@ -1012,6 +1012,10 @@ def _snapshot_to_dict(snapshot: WorkspaceSnapshot) -> dict[str, Any]:
         "environments": [_env_snap_to_dict(e) for e in snapshot.environments],
         "source_checkouts": [_sc_snap_to_dict(sc) for sc in snapshot.source_checkouts],
         "workspace": _workspace_level_to_dict(snapshot.workspace),
+        "dashboard": {
+            "configured_layout": snapshot.dashboard.configured_layout,
+            "resolved_layout": snapshot.dashboard.resolved_layout,
+        },
     }
 
 
