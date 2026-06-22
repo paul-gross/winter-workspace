@@ -75,6 +75,10 @@ By default `up` returns as soon as the orchestrator has **launched** the service
 
 The readiness gate lives only on `winter service up` — the canonical readiness door. There is no `--wait` on the env-root `./up` symlink, and no readiness gating for `down` or `restart`.
 
+### Startup retry (tmux orchestrator)
+
+The bundled tmux orchestrator supports an opt-in per-service startup retry policy, configured via a `[service.startup]` subtable in each `[[service]]` entry. When `winter service up` launches a service and the process exits within a short settle window, the orchestrator re-launches it up to `retries` times, sleeping `retry_delay` seconds between attempts (process-exit detection only — not a health probe; composes with but is independent of `[service.health]`). After exhausting retries, `winter service up` exits non-zero and names every service that failed to stay up; surviving services are unaffected. Like `--wait`, this policy is honored on the `winter service up` door but NOT on the env-root `./up` symlink, which is a thin no-retry door. Fields default to `retries = 0` (no retry — opt-in per service) and `retry_delay = 2` seconds. See `winter-service-tmux:/workflow/config.toml.example` for the `[service.startup]` schema and `winter-service-tmux:/ai/workflow-setup.md` for the setup walkthrough.
+
 ### Registering orchestrator(s)
 
 A workspace can bind **one or more** service providers through the capability registry. The simplest form binds a single provider — for multi-provider workspaces, use the ordered list.
