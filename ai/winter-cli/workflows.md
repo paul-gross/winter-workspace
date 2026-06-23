@@ -92,10 +92,11 @@ winter ws checkout alpha feature/new-branch --new   # connect to the not-yet-pus
 
 ### Tear down a feature environment
 ```bash
-winter ws destroy alpha --dry-run    # preview: hooks that will fire, worktrees that will be removed
-winter ws destroy alpha              # standard teardown (fires on_env_destroy hooks, then removes)
-winter ws destroy alpha --force      # bypass dirty-worktree check
-winter ws destroy alpha --strict     # abort if any hook exits non-zero
+winter ws destroy alpha --dry-run              # preview: provision teardown plan, then hooks + worktrees that will be removed
+winter ws destroy alpha                        # standard teardown (provision teardown → hooks → remove)
+winter ws destroy alpha --force                # bypass dirty-worktree check
+winter ws destroy alpha --strict               # abort if provision teardown or any hook exits non-zero
+winter ws destroy alpha --no-provision-teardown  # skip provision teardown; structural teardown only
 ```
 
 ### Clean up orphan disk state

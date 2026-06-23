@@ -9,7 +9,7 @@ Command names below link to a per-command file where one exists; the lighter com
 | Command | Usage | Purpose |
 |---------|-------|---------|
 | [`init`](./init.md) | `winter ws init [TARGET] [--all] [--json]` | Reconcile source checkouts or a feature environment against the config |
-| [`destroy`](./destroy.md) | `winter ws destroy ENV [--force\|--strict\|--dry-run] [--json]` | Tear down a feature env: fire `on_env_destroy` hooks, then remove every per-repo worktree and the env directory |
+| [`destroy`](./destroy.md) | `winter ws destroy ENV [--force\|--strict\|--dry-run] [--no-provision-teardown] [--json]` | Tear down a feature env: run provision teardown (`data --destroy`, `resource --destroy`), fire `on_env_destroy` hooks, then remove every per-repo worktree and the env directory |
 | [`checkout`](./checkout.md) | `winter ws checkout ENV FEATURE_BRANCH [--new] [--force] [--json]` | Connect every non-pinned worktree in ENV to FEATURE_BRANCH and reset to it (or to `origin/<main>` where it doesn't exist), all-or-nothing |
 | `list` | `winter ws list [--json]` | List all feature environments |
 | [`status`](./status.md) | `winter ws status [PATTERNS]... [--json] [--fetch]` | Machine-readable + human-readable workspace state snapshot |

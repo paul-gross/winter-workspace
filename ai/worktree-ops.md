@@ -107,22 +107,24 @@ Each repo pulls from its own tracked upstream: non-pinned worktrees from whateve
 ## Destroying a feature environment
 
 ```bash
-winter ws destroy <name>                # standard teardown
-winter ws destroy <name> --dry-run      # print the plan; no side effects
-winter ws destroy <name> --force        # bypass dirty-worktree check; pass --force to git worktree remove
-winter ws destroy <name> --strict       # abort teardown if any on_env_destroy hook exits non-zero
+winter ws destroy <name>                         # standard teardown (includes provision teardown)
+winter ws destroy <name> --dry-run               # print the plan; no side effects
+winter ws destroy <name> --force                 # bypass dirty-worktree check; pass --force to git worktree remove
+winter ws destroy <name> --strict                # abort teardown if any on_env_destroy hook exits non-zero
+winter ws destroy <name> --no-provision-teardown # skip provision teardown; structural teardown only
 ```
 
-This command:
+This command runs in the following order:
 
-- Fires every installed extension's `on_env_destroy` hook (mirror of `on_env_init`). Hooks receive the same env-var contract — see [winter-cli/setup.md](./winter-cli/setup.md#extension-hooks).
-- `git worktree remove`s every per-repo worktree under `./<name>/`.
-- Removes the env directory.
-- Strips the matching `# >>> winter-dir/<name>` block from the workspace `.git/info/exclude`.
+1. **Provision teardown** — runs `data --destroy` then `resource --destroy` (reverse of apply order) using the same `[[provision.*]]` handlers declared in `.winter/config.toml` and extension manifests. Handlers without a declared `destroy` script warn and no-op without aborting structural teardown. Pass `--no-provision-teardown` to skip this phase entirely. See [winter-cli/usage/provision.md](./winter-cli/usage/provision.md) for the full handler vocabulary and action semantics.
+2. **Extension hooks** — fires every installed extension's `on_env_destroy` hook (mirror of `on_env_init`). Hooks receive the same env-var contract — see [winter-cli/setup.md](./winter-cli/setup.md#extension-hooks).
+3. **Worktree removal** — `git worktree remove`s every per-repo worktree under `./<name>/`.
+4. **Env directory removal** — removes the env directory.
+5. **Exclude cleanup** — strips the matching `# >>> winter-dir/<name>` block from the workspace `.git/info/exclude`.
 
-**Prefer `winter ws destroy` over manual `rm -rf <name>/` + `git worktree remove`.** Manual removal bypasses `on_env_destroy` hooks the same way manual env creation bypasses `on_env_init`, and extensions that need to clean up per-env state (tmux sessions, watchers, provisioned DBs) get skipped.
+**Prefer `winter ws destroy` over manual `rm -rf <name>/` + `git worktree remove`.** Manual removal bypasses provision teardown and `on_env_destroy` hooks, leaving provisioned resources (databases, RMQ vhosts, buckets) and seeded data orphaned.
 
-Raw equivalent, per repo (without firing hooks or stripping the exclude block):
+Raw equivalent, per repo (without provision teardown, hooks, or stripping the exclude block):
 
 ```bash
 git -C ./projects/<repo-name> worktree remove ../../<name>/<repo-name>

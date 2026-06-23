@@ -14,6 +14,7 @@ class DestroyParams:
     strict: bool
     dry_run: bool
     output_json: bool
+    no_provision_teardown: bool = False
 
 
 class DestroyHandler:
@@ -35,6 +36,7 @@ class DestroyHandler:
             strict=params.strict,
             dry_run=params.dry_run,
             reporter=reporter,
+            provision_teardown=not params.no_provision_teardown,
         )
         if not success:
             sys.exit(1)

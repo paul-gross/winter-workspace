@@ -309,16 +309,6 @@ class Container(containers.DeclarativeContainer):
         config_lock_repo=config_lock_repo,
     )
 
-    destroy_svc = providers.Factory(
-        DestroyService,
-        config=workspace_config,
-        repo_factory=repo_factory,
-        extension_hook_svc=extension_hook_svc,
-        fs=fs,
-        git_repo=git_repo,
-        registry=env_index_registry,
-    )
-
     stream_reporter = providers.Factory(
         StreamReporter,
         click=providers.Object(click),
@@ -406,12 +396,6 @@ class Container(containers.DeclarativeContainer):
     init_handler = providers.Factory(
         InitHandler,
         init_service=init_svc,
-        reporter_factory=reporter_factory,
-    )
-
-    destroy_handler = providers.Factory(
-        DestroyHandler,
-        destroy_service=destroy_svc,
         reporter_factory=reporter_factory,
     )
 
@@ -685,6 +669,23 @@ class Container(containers.DeclarativeContainer):
         provision_service=provision_svc,
         stream_reporter=stream_provision_reporter,
         json_reporter=json_provision_reporter,
+    )
+
+    destroy_svc = providers.Factory(
+        DestroyService,
+        config=workspace_config,
+        repo_factory=repo_factory,
+        extension_hook_svc=extension_hook_svc,
+        fs=fs,
+        git_repo=git_repo,
+        registry=env_index_registry,
+        provision_svc=provision_svc,
+    )
+
+    destroy_handler = providers.Factory(
+        DestroyHandler,
+        destroy_service=destroy_svc,
+        reporter_factory=reporter_factory,
     )
 
     # ── lint: dispatcher to extension-contributed convention checks ─────────

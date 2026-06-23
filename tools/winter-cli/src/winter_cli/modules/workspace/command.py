@@ -136,16 +136,36 @@ def ws_init(ctx: click.Context, target: str | None, all_flag: bool, output_json:
     default=False,
     help="Print the plan without running hooks or removing anything.",
 )
+@click.option(
+    "--no-provision-teardown",
+    "no_provision_teardown",
+    is_flag=True,
+    default=False,
+    help="Skip provision teardown (data --destroy / resource --destroy); run structural teardown only.",
+)
 @click.option("--json", "output_json", is_flag=True, default=False, help="Output as JSON.")
 @click.pass_context
-def ws_destroy(ctx: click.Context, env: str, force: bool, strict: bool, dry_run: bool, output_json: bool):
-    """Tear down a feature env: fire on_env_destroy hooks, then remove every per-repo worktree and the env dir.
+def ws_destroy(
+    ctx: click.Context,
+    env: str,
+    force: bool,
+    strict: bool,
+    dry_run: bool,
+    no_provision_teardown: bool,
+    output_json: bool,
+):
+    """Tear down a feature env: run provision teardown, fire on_env_destroy hooks, then remove every per-repo worktree and the env dir.
 
     \b
-      winter ws destroy alpha               # standard teardown
-      winter ws destroy alpha --dry-run     # print the plan; no side effects
-      winter ws destroy alpha --force       # bypass dirty checks and force git worktree remove
-      winter ws destroy alpha --strict      # abort if any hook exits non-zero
+      winter ws destroy alpha                          # standard teardown (includes provision teardown)
+      winter ws destroy alpha --dry-run                # print the plan; no side effects
+      winter ws destroy alpha --force                  # bypass dirty checks and force git worktree remove
+      winter ws destroy alpha --strict                 # abort if any hook exits non-zero
+      winter ws destroy alpha --no-provision-teardown  # skip provision teardown; structural teardown only
+
+    Provision teardown runs `data --destroy` then `resource --destroy` (in reverse of apply order)
+    before extension `on_env_destroy` hooks and worktree removal. Handlers without a declared
+    `destroy` script warn and no-op without aborting structural teardown.
 
     Manual env removal (raw `rm -rf` plus `git worktree remove`) bypasses the
     extension hooks the same way manual env creation bypasses `on_env_init`.
@@ -158,6 +178,7 @@ def ws_destroy(ctx: click.Context, env: str, force: bool, strict: bool, dry_run:
             force=force,
             strict=strict,
             dry_run=dry_run,
+            no_provision_teardown=no_provision_teardown,
             output_json=output_json,
         )
     )
