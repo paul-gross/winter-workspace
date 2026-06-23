@@ -220,6 +220,18 @@ class CopySkillStrategy:
         self._prune(target_root, prefix, set(installed))
         return installed
 
+    def content_hash(self, root: Path, *, skill_name: str | None = None) -> str:
+        """Return the deterministic SHA-256 content hash for a skill directory tree.
+
+        Accepts an ``IFilesystemReader`` (``self._fs`` is typed as writer but is a
+        superset in practice). Both the installer (``_sync``) and
+        ``SkillProbeService._check_copy`` call this method so the hash computation
+        is shared in one place. Pass ``skill_name`` when hashing a source tree so
+        vendor transforms are applied consistently; omit it (or pass ``None``) when
+        hashing an already-installed destination tree.
+        """
+        return self._hash_tree(root, skill_name=skill_name)
+
     def _sync(self, source_dir: Path, dest_dir: Path, *, skill_name: str) -> None:
         """Copy `source_dir` to `dest_dir`, skipping the copy when content matches."""
         dest_present = self._fs.is_dir(dest_dir)

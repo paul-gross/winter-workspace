@@ -463,6 +463,13 @@ class Container(containers.DeclarativeContainer):
         config_file_reader=config_file_reader,
     )
 
+    skill_probe_svc = providers.Factory(
+        _lazy("winter_cli.modules.doctor.skill_probe_service:SkillProbeService"),
+        config=workspace_config,
+        fs=fs,
+        manifest_loader=extension_manifest_loader,
+    )
+
     doctor_svc = providers.Factory(
         _lazy("winter_cli.modules.doctor.doctor_service:DoctorService"),
         core_probe_svc=core_probe_svc,
@@ -472,6 +479,7 @@ class Container(containers.DeclarativeContainer):
         capability_probe_svc=capability_probe_svc,
         port_probe_svc=port_probe_svc,
         provision_manifest_probe_svc=provision_manifest_probe_svc,
+        skill_probe_svc=skill_probe_svc,
     )
 
     stream_doctor_reporter = providers.Factory(
