@@ -575,10 +575,26 @@ class Container(containers.DeclarativeContainer):
         workspace_root=workspace_config.provided.workspace_root,
     )
 
+    service_manifest_collector_svc = providers.Factory(
+        _lazy("winter_cli.modules.service.service_manifest_collector:ServiceManifestCollectorService"),
+        workspace_root=workspace_config.provided.workspace_root,
+        workspace_service_defs_raw=workspace_config.provided.service_defs_raw,
+        manifest_loader=extension_manifest_loader,
+        repo_factory=repo_factory,
+        fs=fs,
+    )
+
+    service_catalog_svc = providers.Factory(
+        _lazy("winter_cli.modules.service.service_catalog_service:ServiceCatalogService"),
+        subprocess_runner=subprocess_runner,
+        workspace_root=workspace_config.provided.workspace_root,
+    )
+
     service_fan_out_svc = providers.Factory(
         _lazy("winter_cli.modules.service.service_fan_out_service:ServiceFanOutService"),
         subprocess_runner=subprocess_runner,
         workspace_root=workspace_config.provided.workspace_root,
+        manifest_collector=service_manifest_collector_svc,
     )
 
     stream_service_reporter = providers.Factory(
@@ -717,6 +733,7 @@ class Container(containers.DeclarativeContainer):
         script_path=extractability_script_path,
         file_size_config=workspace_config.provided.file_size_lint,
         orchestrator_resolver=service_orchestrator_resolver,
+        catalog_service=service_catalog_svc,
     )
 
     workspace_lint_svc = providers.Factory(

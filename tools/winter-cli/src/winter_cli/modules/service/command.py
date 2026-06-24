@@ -56,7 +56,10 @@ _HELP_DESCRIBE = _SPEC_SUMMARIES.get(
     "describe",
     "Emit a JSON object listing the service names owned by this provider.",
 )
-_HELP_CATALOG = "Emit scope-qualified service names from all providers as JSON."
+_HELP_CATALOG = _SPEC_SUMMARIES.get(
+    "catalog",
+    "Emit scope-qualified service names declared by this provider as JSON.",
+)
 
 
 def _service_handler(ctx: click.Context):
@@ -280,8 +283,6 @@ def catalog_cmd(ctx: click.Context) -> None:
     Used by ``winter lint`` to validate ``required_services`` references in
     provision manifests.
     """
-    from winter_cli.modules.service.service_catalog_service import ServiceCatalogService
-
     cli_context = cli_ctx(ctx)
     container = cli_context.container
     override = cli_context.service_orchestrator_override
@@ -293,18 +294,39 @@ def catalog_cmd(ctx: click.Context) -> None:
         all_providers = resolver.resolve_all()
     except Exception as exc:
         print(json.dumps({"services": [], "error": str(exc)}))
-        if override is not None:
-            container.service_orchestrator_override.reset_override()
         return
     finally:
         if override is not None:
             container.service_orchestrator_override.reset_override()
 
-    subprocess_runner = container.subprocess_runner()
-    workspace_config = container.workspace_config()
-    catalog_svc = ServiceCatalogService(subprocess_runner, workspace_config.workspace_root)
+    catalog_svc = container.service_catalog_svc()
     catalog = catalog_svc.build(all_providers)
     print(json.dumps({"services": catalog.all_qualified_names()}))
+
+
+@service_group.command("ext-services", short_help="List extension-declared service definitions.", hidden=True)
+@click.pass_context
+def ext_services_cmd(ctx: click.Context) -> None:
+    """Emit the aggregated extension-declared service definitions as JSON.
+
+    Walks the workspace manifest and every installed extension's ``winter-ext.toml``
+    for ``[[service]]`` blocks, aggregates them in deterministic order (workspace
+    defs first, then extensions in declaration order), and emits a single JSON
+    object::
+
+        {"services": [{"name": "...", "scope": "...", "source": "..."}, ...]}
+
+    The ``source`` field names the contributing source: ``"workspace"`` for the
+    workspace-level config, or the extension prefix for an extension.
+
+    Used by ``winter service up/down`` to build the ``WINTER_SERVICE_MANIFEST``
+    that is passed to each provider.  Also useful for debugging service aggregation.
+    """
+    container = cli_ctx(ctx).container
+    svc = container.service_manifest_collector_svc()
+    collected = svc.collect()
+    payload = [{"name": d.name, "scope": d.scope, "source": d.source} for d in collected.aggregated.defs]
+    print(json.dumps({"services": payload}))
 
 
 @service_group.command("describe", short_help=_HELP_DESCRIBE, hidden=True)

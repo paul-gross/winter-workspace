@@ -192,9 +192,11 @@ winter invokes the entrypoint differently depending on the action:
 
 **Patterns are raw user tokens on argv.** There is no `--` guard between the action and the patterns, so an orchestrator must tolerate a pattern that begins with `-`. (In practice, valid `<env>/<service>` patterns never start with `-`, but a robust implementation should not assume this.) Note: at the winter CLI boundary, Click rejects a bare `-`-leading token as an unknown option (exit 2); pass it after `--` (e.g. `winter service restart -- -weird`) so Click treats it as a positional. Winter then forwards the token verbatim to the orchestrator — without a `--` guard — so the orchestrator still receives the raw token and must tolerate it.
 
-An implementation **must accept all six action words** even if only to refuse one it does not implement: for an unsupported action it should exit non-zero with a message, which winter passes through.
+An implementation **must accept all seven action words** even if only to refuse one it does not implement: for an unsupported action it should exit non-zero with a message, which winter passes through.
 
 The `describe` action takes no positionals and is called by winter internally when multiple providers are bound.  It returns a JSON object listing the service names owned by this provider.
+
+The `catalog` action takes no positionals and is called by winter internally during `winter lint` to build the merged service catalog for the `required-services` lint check.  It returns a JSON object listing every scope-qualified service name declared by this provider.  See [`catalog` wire contract](#catalog-wire-contract) below.
 
 ### Always-present environment variables
 
@@ -209,9 +211,50 @@ Every dispatch — regardless of action — sets these four variables and runs t
 
 These four form the winter base extension contract, set uniformly by `core/extension_invocation.py::build_extension_env`. They are defined for the hook/doctor/lint dispatches in [setup.md](../setup.md#hook-env-var-contract); `winter service` provides them identically. Working directory varies by surface: `winter service`, `doctor`, `lint`, and the `on_workspace_reconcile` hook run at the workspace root, while the `on_env_*` hooks run at the env root.
 
+### Per-action env var: `WINTER_SERVICE_MANIFEST`
+
+On `up` only, winter injects one additional environment variable when any installed extension (or the workspace itself) declares `[[service]]` blocks in its `winter-ext.toml`:
+
+| Var | When set | Meaning |
+|-----|----------|---------|
+| `WINTER_SERVICE_MANIFEST` | `up` only, when extension-declared services exist | Absolute path to a temporary TOML file listing every extension-declared service definition aggregated from the workspace config and all installed extensions. |
+
+The TOML file written to `WINTER_SERVICE_MANIFEST` contains an array of service entries:
+
+```toml
+[[service]]
+name    = "worker"
+scope   = "feature-environment"
+source  = "my-extension"
+command = "python -m worker"
+target  = "2.0"
+# image and ports are optional; absent when not declared
+
+[[service]]
+name    = "postgres"
+scope   = "workspace"
+source  = "workspace"
+command = "pg_ctl start"
+target  = "1.0"
+```
+
+Fields per entry:
+
+| Field | Always present | Meaning |
+|-------|---------------|---------|
+| `name` | yes | Service name (unique across all sources). |
+| `scope` | yes | `"feature-environment"` or `"workspace"`. |
+| `source` | yes | Contributing source: `"workspace"` for workspace config, or the extension name. |
+| `command` | yes | The command to run. |
+| `image` | no | Container image (docker-style providers). |
+| `target` | no | Provider-specific routing target (e.g. tmux window.pane address `"2.0"`). |
+| `ports` | no | List of port numbers declared by the service. |
+
+**Consume or ignore rule:** a provider that understands `WINTER_SERVICE_MANIFEST` reads the file and merges the extension-declared service definitions into its live session configuration. A provider that predates this contract or does not implement it ignores the env var — the variable's presence is never an error. `down` never sets `WINTER_SERVICE_MANIFEST`; providers MUST NOT depend on it during shutdown.
+
 ### Per-action parameters
 
-No action sets per-action environment variables — only the four always-present base vars above are exported on any dispatch. All action parameters travel on argv.
+The four always-present base vars above are exported on every dispatch. `WINTER_SERVICE_MANIFEST` is additionally set on `up` when extension-declared services exist (see above). All action parameters travel on argv.
 
 Service selection for `status`, `restart`, and `logs` is positional argv. The `logs` action additionally carries its render options as CLI flags appended **after** the positional patterns, mirroring `winter service logs`' own surface:
 
@@ -304,6 +347,23 @@ The orchestrator **must emit a single JSON object on stdout** for the `describe`
 `services` is the list of service names this provider owns. Unknown or empty → `{"services": []}`. Winter uses this to build a service-name → provider ownership index when multiple providers are bound (`capabilities.service = [...]`, or two or more self-registered candidates). Missing or non-list `services` key is treated as empty (shape-stability).
 
 `describe` is called **only when two or more providers are bound** (an explicit `capabilities.service` list of 2+, or 2+ self-registered candidates with no explicit binding). Single-provider workspaces are never asked to `describe`.
+
+#### `catalog` wire contract
+
+The orchestrator **must emit a single JSON object on stdout** for the `catalog` action:
+
+```json
+{"services": ["workspace/postgres", "*/api", "*/worker"]}
+```
+
+`services` is the list of scope-qualified service names declared by this provider. Scope prefixes:
+
+- `workspace/<name>` — the service runs in the shared workspace scope.
+- `*/<name>` — the service runs per feature env (any env name matches).
+
+Unknown or empty → `{"services": []}`. Missing or non-list `services` key is treated as empty (shape-stability). Names using any other prefix form are silently ignored for forward compatibility.
+
+`catalog` is called by winter during `winter lint` (once per bound provider) to build the merged service catalog used by the `required-services` lint check. If a provider exits non-zero or emits malformed JSON, winter silently omits that provider's names from the catalog — causing `required_services` references to those services to be flagged as unknown by the lint check. Implement `catalog` on every provider that declares services.
 
 ### Render contract (winter stdout → user/pipe)
 

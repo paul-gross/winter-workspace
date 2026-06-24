@@ -426,6 +426,14 @@ class WorkspaceConfig(BaseModel):
     ``parse_provision`` to run the strict ``ProvisionManifestParser`` on demand.
     """
 
+    service_defs_raw: list = Field(default_factory=list)
+    """Raw ``[[service]]`` array from the merged workspace config.
+
+    Stored without strict parsing so a malformed entry does not break unrelated
+    commands.  Call ``parse_service_defs`` to run the strict
+    ``ExtServiceManifestParser`` on demand.
+    """
+
     def port_base_for_index(self, index: int) -> int:
         """Return the per-env port base for the given env index.
 

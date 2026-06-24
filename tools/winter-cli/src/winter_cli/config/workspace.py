@@ -20,6 +20,7 @@ from winter_cli.config.workspace_locator import IWorkspaceLocator
 from winter_cli.core.config_file import ConfigError, IConfigFileReader
 from winter_cli.core.filesystem import IFilesystemReader
 from winter_cli.modules.provision.manifest import ProvisionHandler, ProvisionManifestParser
+from winter_cli.modules.service.ext_service_manifest import ExtServiceDef, ExtServiceManifestParser
 from winter_cli.util import deep_merge
 
 WINTER_DIR = ".winter"
@@ -50,6 +51,7 @@ def _coerce_int(value: object, default: int) -> int:
 
 
 _PROVISION_PARSER = ProvisionManifestParser()
+_SERVICE_DEF_PARSER = ExtServiceManifestParser()
 
 
 def parse_provision(config: WorkspaceConfig, source: str = "project") -> list[ProvisionHandler]:
@@ -62,6 +64,18 @@ def parse_provision(config: WorkspaceConfig, source: str = "project") -> list[Pr
     not break unrelated commands.
     """
     return _PROVISION_PARSER.parse(config.provision_raw or None, source)
+
+
+def parse_service_defs(config: WorkspaceConfig, source: str = "workspace") -> list[ExtServiceDef]:
+    """Strictly parse the ``[[service]]`` array stored on *config*.
+
+    Runs the ``ExtServiceManifestParser`` on the raw list stored during config
+    load.  Raises ``ConfigError`` on any structural or semantic violation
+    (including unknown keys).  Call this on demand — not at config-load time —
+    so a malformed entry does not break unrelated commands.
+    """
+    raw = config.service_defs_raw or None
+    return _SERVICE_DEF_PARSER.parse(raw, source)
 
 
 class WorkspaceConfigService:
@@ -219,6 +233,10 @@ class WorkspaceConfigService:
         if not isinstance(provision_raw, dict):
             provision_raw = {}
 
+        service_defs_raw = merged.get("service")
+        if not isinstance(service_defs_raw, list):
+            service_defs_raw = []
+
         file_size_lint = self._parse_file_size_lint(merged.get("core_checks"))
 
         return WorkspaceConfig(
@@ -245,6 +263,7 @@ class WorkspaceConfigService:
             env_aliases=env_aliases,
             envs_per_workspace=envs_per_workspace,
             provision_raw=provision_raw,
+            service_defs_raw=service_defs_raw,
         )
 
     @staticmethod

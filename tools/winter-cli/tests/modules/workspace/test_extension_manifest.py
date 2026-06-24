@@ -383,3 +383,78 @@ def test_load_provision_source_uses_resolved_prefix() -> None:
     assert len(manifest.provision) == 1
     assert manifest.provision[0].source == "manifest-name"
     assert manifest.provision[0].scope == ProvisionScope.feature_worktree
+
+
+# ── [[service]] parsing in ExtensionManifest ──────────────────────────────────
+
+
+def test_load_service_defs_defaults_to_empty_tuple_when_absent() -> None:
+    """A manifest without a [[service]] array yields an empty service_defs tuple."""
+    manifest_path = WORKSPACE_ROOT / "my-ext" / "winter-ext.toml"
+    config_files = {manifest_path: {}}
+    loader = ExtensionManifestLoader(config_file_reader=FakeConfigFileReader(config_files))
+    repo = StandaloneRepository(name="my-ext", path=WORKSPACE_ROOT / "my-ext")
+
+    manifest = loader.load(repo, manifest_path=manifest_path)
+    assert manifest.service_defs == ()
+
+
+def test_load_service_defs_parses_valid_entries() -> None:
+    """Valid [[service]] entries are parsed into ExtServiceDef tuples."""
+    manifest_path = WORKSPACE_ROOT / "my-ext" / "winter-ext.toml"
+    config_files = {
+        manifest_path: {
+            "prefix": "my-ext",
+            "service": [
+                {"name": "api", "scope": "feature-environment", "command": "uvicorn"},
+                {"name": "db", "scope": "workspace"},
+            ],
+        }
+    }
+    loader = ExtensionManifestLoader(config_file_reader=FakeConfigFileReader(config_files))
+    repo = StandaloneRepository(name="my-ext", path=WORKSPACE_ROOT / "my-ext")
+
+    manifest = loader.load(repo, manifest_path=manifest_path)
+
+    assert len(manifest.service_defs) == 2
+    api = manifest.service_defs[0]
+    assert api.name == "api"
+    assert api.scope == "feature-environment"
+    assert api.command == "uvicorn"
+    assert api.source == "my-ext"
+
+    db = manifest.service_defs[1]
+    assert db.name == "db"
+    assert db.scope == "workspace"
+    assert db.source == "my-ext"
+
+
+def test_load_service_defs_raises_repo_error_on_malformed_entry() -> None:
+    """A malformed [[service]] entry (unknown key) raises RepoError."""
+    manifest_path = WORKSPACE_ROOT / "my-ext" / "winter-ext.toml"
+    config_files = {
+        manifest_path: {
+            "service": [{"name": "api", "unknown_key": "bad"}],
+        }
+    }
+    loader = ExtensionManifestLoader(config_file_reader=FakeConfigFileReader(config_files))
+    repo = StandaloneRepository(name="my-ext", path=WORKSPACE_ROOT / "my-ext")
+
+    with pytest.raises(RepoError, match=r"winter-ext\.toml"):
+        loader.load(repo, manifest_path=manifest_path)
+
+
+def test_load_service_defs_source_uses_resolved_prefix() -> None:
+    """The source label on each ExtServiceDef is the resolved prefix."""
+    manifest_path = WORKSPACE_ROOT / "my-ext" / "winter-ext.toml"
+    config_files = {
+        manifest_path: {
+            "name": "resolved-name",
+            "service": [{"name": "svc"}],
+        }
+    }
+    loader = ExtensionManifestLoader(config_file_reader=FakeConfigFileReader(config_files))
+    repo = StandaloneRepository(name="my-ext", path=WORKSPACE_ROOT / "my-ext")
+
+    manifest = loader.load(repo, manifest_path=manifest_path)
+    assert manifest.service_defs[0].source == "resolved-name"

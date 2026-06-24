@@ -11,6 +11,7 @@ from winter_cli.core.subprocess_runner import ISubprocessRunner
 from winter_cli.modules.lint.finding_parser import parse_lint_output
 from winter_cli.modules.lint.models import LintCheckOutcome, LintFinding, LintScope, LintStatus
 from winter_cli.modules.lint.scope_env import WINTER_CLI_VAR, lint_scope_env
+from winter_cli.modules.service.service_catalog_service import ServiceCatalogService
 
 # Source label shown in `winter lint` output for built-in core checks. Matches
 # doctor's `CORE_SOURCE` so both surfaces read consistently — core checks ship
@@ -91,9 +92,7 @@ class FileSizeLintCheck:
                         source=CORE_SOURCE,
                         check=FILE_SIZE_CHECK,
                         status=LintStatus.fail,
-                        message=(
-                            f"{rel}: {size} bytes exceeds the {kind} threshold of {threshold} bytes"
-                        ),
+                        message=(f"{rel}: {size} bytes exceeds the {kind} threshold of {threshold} bytes"),
                         file=rel,
                         remediation=(
                             f"Trim or split this file to bring it under {threshold} bytes. "
@@ -210,6 +209,7 @@ class CoreLintService:
         script_path: Path,
         file_size_config: FileSizeLintConfig | None = None,
         orchestrator_resolver: object | None = None,
+        catalog_service: ServiceCatalogService | None = None,
     ) -> None:
         self._workspace_root = workspace_root
         self._fs = fs
@@ -217,6 +217,7 @@ class CoreLintService:
         self._winter_cli_path = winter_cli_path
         self._script_path = script_path
         self._orchestrator_resolver = orchestrator_resolver
+        self._catalog_service = catalog_service
         self._file_size_check = FileSizeLintCheck(
             workspace_root,
             file_size_config if file_size_config is not None else FileSizeLintConfig(),
@@ -281,7 +282,6 @@ class CoreLintService:
     def _run_required_services_check(self, scope: LintScope) -> list[LintFinding]:
         """Build and run the required-services lint check."""
         from winter_cli.modules.lint.required_services_check import RequiredServicesLintCheck
-        from winter_cli.modules.service.service_catalog_service import ServiceCatalogService
 
         # Resolve providers from the orchestrator resolver; gracefully degrade
         # to an empty list if none is registered or resolution fails.
@@ -294,7 +294,11 @@ class CoreLintService:
                 # handles the empty-providers case by emitting a warning finding.
                 providers = []
 
-        catalog_svc = ServiceCatalogService(self._subprocess, self._workspace_root)
+        catalog_svc = (
+            self._catalog_service
+            if self._catalog_service is not None
+            else ServiceCatalogService(self._subprocess, self._workspace_root)
+        )
         check = RequiredServicesLintCheck(
             workspace_root=self._workspace_root,
             catalog_service=catalog_svc,

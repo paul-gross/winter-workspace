@@ -5,6 +5,7 @@ from pathlib import Path
 
 from winter_cli.core.config_file import ConfigError, ConfigFileReadError, IConfigFileReader
 from winter_cli.modules.provision.manifest import ProvisionHandler, ProvisionManifestParser
+from winter_cli.modules.service.ext_service_manifest import ExtServiceDef, ExtServiceManifestParser
 from winter_cli.modules.workspace.models import RepoError, StandaloneRepository
 
 EXT_MANIFEST = "winter-ext.toml"
@@ -91,6 +92,13 @@ class ExtensionManifest:
     `[provision]` table in `winter-ext.toml`. The source label on each handler
     is the extension prefix. Empty by default; raises `RepoError` on malformed
     entries (caught and reported at each call site like other manifest errors).
+
+    `service_defs` is the tuple of `ExtServiceDef` objects parsed from the
+    `[[service]]` array in `winter-ext.toml`.  Each entry declares a bare service
+    that winter-cli aggregates across all extensions and hands to the bound
+    orchestrator(s) via the ``WINTER_SERVICE_MANIFEST`` env var.  Unknown keys
+    REJECT at parse time.  Empty by default; raises `RepoError` on malformed
+    entries (caught and reported at each call site like other manifest errors).
     """
 
     prefix: str
@@ -104,6 +112,7 @@ class ExtensionManifest:
     provides: dict[str, str] = field(default_factory=dict)
     implements: dict[str, str] = field(default_factory=dict)
     provision: tuple[ProvisionHandler, ...] = ()
+    service_defs: tuple[ExtServiceDef, ...] = ()
 
     def capability_entrypoint(self, slot: str) -> str | None:
         """Resolve the entrypoint for a capability slot.
@@ -196,6 +205,11 @@ class ExtensionManifestLoader:
         except ConfigError as exc:
             raise RepoError(f"reading {EXT_MANIFEST} — {exc}") from exc
 
+        try:
+            service_defs = tuple(ExtServiceManifestParser().parse(data.get("service"), source=prefix))
+        except ConfigError as exc:
+            raise RepoError(f"reading {EXT_MANIFEST} — {exc}") from exc
+
         return ExtensionManifest(
             prefix=prefix,
             skills_dirs=skills_dirs,
@@ -208,4 +222,5 @@ class ExtensionManifestLoader:
             provides=provides,
             implements=implements,
             provision=provision,
+            service_defs=service_defs,
         )
