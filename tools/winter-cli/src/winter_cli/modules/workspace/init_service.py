@@ -165,9 +165,11 @@ class InitService:
                 continue
             ready_repos.append(repo)
 
+        inferred_upstream = self._infer_env_upstream(ready_repos, env_root)
+
         if not self._run_per_repo(
             ready_repos,
-            lambda r: self._reconcile_worktree_repo(r, name, env_root, reporter),
+            lambda r: self._reconcile_worktree_repo(r, name, env_root, reporter, inferred_upstream),
         ):
             success = False
 
@@ -402,6 +404,7 @@ class InitService:
         branch_name: str,
         env_root: Path,
         reporter: IInitReporter,
+        inferred_upstream: str | None = None,
     ) -> bool:
         worktree_path = env_root / repo.name
         location = str(worktree_path)
@@ -417,11 +420,65 @@ class InitService:
             self._apply_identity(worktree_path)
             self._write_excludes(worktree_path, repo, reporter, location)
             self._configure_pinned_tracking(repo, worktree_path, reporter)
+            self._connect_inferred_upstream(repo, worktree_path, inferred_upstream, reporter)
             self._run_cmds(worktree_path, repo, reporter)
         except (RepoError, OSError) as exc:
             reporter.repo_error(label, str(exc))
             return False
         return True
+
+    def _infer_env_upstream(
+        self,
+        repos: list[ProjectRepository],
+        env_root: Path,
+    ) -> str | None:
+        """Infer a single consistent upstream from the non-pinned worktrees that already have one.
+
+        Returns the common upstream ref string (e.g. `origin/master` for a disconnected env
+        or `origin/<feature-branch>` for a connected env) when every non-pinned worktree that
+        exists on disk and has a tracking branch agrees on the same ref. Returns None when
+        there are no such worktrees or when their upstreams diverge — callers must not guess
+        in the ambiguous case.
+        """
+        upstreams: set[str] = set()
+        for repo in repos:
+            if repo.pinned:
+                continue
+            worktree_path = env_root / repo.name
+            if not self._fs.exists(worktree_path):
+                continue
+            upstream = self._git_repo.get_tracking_branch(worktree_path)
+            if upstream is not None:
+                upstreams.add(upstream)
+        if len(upstreams) == 1:
+            return next(iter(upstreams))
+        return None
+
+    def _connect_inferred_upstream(
+        self,
+        repo: ProjectRepository,
+        worktree_path: Path,
+        inferred_upstream: str | None,
+        reporter: IInitReporter,
+    ) -> None:
+        """Wire a non-pinned worktree to `inferred_upstream` when it has no upstream yet.
+
+        Skips pinned repos entirely — their tracking is owned by
+        `_configure_pinned_tracking`. Idempotent: a worktree that already has an
+        upstream is left unchanged. When `inferred_upstream` is None (ambiguous or
+        no siblings), leaves the worktree unconnected for the user to wire
+        explicitly with `winter ws connect`.
+        """
+        if repo.pinned:
+            return
+        if inferred_upstream is None:
+            return
+        current = self._git_repo.get_tracking_branch(worktree_path)
+        if current is not None:
+            return
+        self._git_repo.set_upstream_to(worktree_path, inferred_upstream)
+        self._git_repo.set_push_default_upstream(worktree_path)
+        reporter.repo_action(repo.name, str(worktree_path), "upstream_inferred", inferred_upstream)
 
     def _configure_pinned_tracking(
         self,

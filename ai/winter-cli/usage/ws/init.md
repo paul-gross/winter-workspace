@@ -10,7 +10,7 @@ One idempotent command with three modes. Safe to re-run any time.
 | `winter ws init <name>` | The `./<name>/` feature environment. |
 | `winter ws init --all` | Source checkouts, standalones, and every existing feature environment. |
 
-Each mode applies the same per-repo reconcile steps (git identity, excludes, `cmd` list, extension processing, pinned-repo tracking on worktrees). See [worktree-ops.md](../../../worktree-ops.md) for the full step list and the pinned-repo specifics.
+Each mode applies the same per-repo reconcile steps (git identity, excludes, `cmd` list, extension processing, pinned-repo tracking on worktrees). For the env-init path, init also infers and wires an upstream for non-pinned newly-added worktrees when their connected siblings agree on one; ambiguous or divergent siblings are left for explicit `winter ws connect`. See [worktree-ops.md](../../../worktree-ops.md) for the full step list, the pinned-repo specifics, and the upstream-inference contract.
 
 **Standalone repo pin behavior.** When a standalone repo has a `ref` configured (see [setup.md — ref](../../setup.md#ref--standalone-repo-pins)), `init` applies the pin during reconcile:
 

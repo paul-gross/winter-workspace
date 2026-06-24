@@ -856,3 +856,286 @@ def test_pin_dirty_stale_lock_refuses_re_resolve(
     assert git.detached_checkouts == []
     assert git.branch_checkouts == []
     assert lock_repo.write_calls == []
+
+
+# ── Upstream inference tests ──────────────────────────────────────────────────
+
+
+def _two_repo_config() -> WorkspaceConfig:
+    """WorkspaceConfig with two non-pinned repos (existing + newly-added)."""
+    return WorkspaceConfig(
+        workspace_root=WORKSPACE_ROOT,
+        session_prefix="t",
+        main_branch="main",
+        adopt_extensions=AdoptExtensions.winter,
+        git_identity=GitIdentity(name="Bot", email="bot@example.com"),
+        project_repos=[
+            ProjectRepositoryConfig(name="alpha-repo", url="git@example.com:org/alpha-repo.git"),
+            ProjectRepositoryConfig(name="beta-repo", url="git@example.com:org/beta-repo.git"),
+        ],
+    )
+
+
+def _pinned_two_repo_config() -> WorkspaceConfig:
+    """WorkspaceConfig with one pinned repo and one non-pinned repo."""
+    return WorkspaceConfig(
+        workspace_root=WORKSPACE_ROOT,
+        session_prefix="t",
+        main_branch="main",
+        adopt_extensions=AdoptExtensions.winter,
+        git_identity=GitIdentity(name="Bot", email="bot@example.com"),
+        project_repos=[
+            ProjectRepositoryConfig(name="alpha-repo", url="git@example.com:org/alpha-repo.git", pinned=True),
+            ProjectRepositoryConfig(name="beta-repo", url="git@example.com:org/beta-repo.git"),
+        ],
+    )
+
+
+def test_reconcile_env_infers_upstream_for_newly_added_repo(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """Newly-added repo gains the inferred upstream when siblings share a single consistent upstream.
+
+    Scenario: env 'myenv' already has 'alpha-repo' worktree tracking 'origin/master'.
+    'beta-repo' is newly added — its worktree does not exist yet. After reconcile,
+    'beta-repo' should be connected to 'origin/master' inferred from 'alpha-repo'.
+    """
+    cfg = _two_repo_config()
+    alpha_main = WORKSPACE_ROOT / "projects" / "alpha-repo"
+    beta_main = WORKSPACE_ROOT / "projects" / "beta-repo"
+    alpha_worktree = WORKSPACE_ROOT / "myenv" / "alpha-repo"
+    beta_worktree = WORKSPACE_ROOT / "myenv" / "beta-repo"
+
+    fs = FakeFilesystem(
+        directories=[
+            WORKSPACE_ROOT / "projects",
+            alpha_main,
+            beta_main,
+            # alpha-repo worktree already exists; beta-repo is absent (newly added)
+            alpha_worktree,
+        ]
+    )
+    fs.directories.add(WORKSPACE_ROOT / ".git" / "info")
+    fs.files[WORKSPACE_ROOT / ".git" / "info" / "exclude"] = ""
+
+    git = FakeGitRepository()
+    git.local_branches[alpha_main] = ["myenv"]
+    git.local_branches[beta_main] = ["main"]
+    # alpha-repo worktree already has an upstream
+    git.tracking_branches[alpha_worktree] = "origin/master"
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("myenv", init_reporter)
+
+    assert ok is True
+    # beta-repo worktree was created
+    assert any(wt == beta_main for wt, _, _, _ in git.added_worktrees)
+    # upstream inferred and set for beta-repo
+    assert (beta_worktree, "origin/master") in git.upstreams_set
+    assert beta_worktree in git.push_default_set
+    # reporter recorded the auto-connect action
+    auto_connect_actions = [a for a in init_reporter.actions if a[2] == "upstream_inferred"]
+    assert len(auto_connect_actions) == 1
+    assert auto_connect_actions[0][0] == "beta-repo"
+    assert auto_connect_actions[0][3] == "origin/master"
+    # alpha-repo upstream left unchanged (was already set)
+    alpha_upstreams = [(p, ref) for p, ref in git.upstreams_set if p == alpha_worktree]
+    assert alpha_upstreams == []
+
+
+def test_reconcile_env_leaves_repo_unconnected_when_siblings_diverge(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """Divergent sibling upstreams → newly-added repo left unconnected.
+
+    Scenario: env has 'alpha-repo' on 'origin/master' and 'gamma-repo' on 'origin/develop'.
+    A newly-added 'beta-repo' cannot infer a consensus upstream, so it is left unconnected.
+    """
+    cfg = WorkspaceConfig(
+        workspace_root=WORKSPACE_ROOT,
+        session_prefix="t",
+        main_branch="main",
+        adopt_extensions=AdoptExtensions.winter,
+        git_identity=None,
+        project_repos=[
+            ProjectRepositoryConfig(name="alpha-repo", url="git@example.com:org/alpha-repo.git"),
+            ProjectRepositoryConfig(name="beta-repo", url="git@example.com:org/beta-repo.git"),
+            ProjectRepositoryConfig(name="gamma-repo", url="git@example.com:org/gamma-repo.git"),
+        ],
+    )
+    alpha_main = WORKSPACE_ROOT / "projects" / "alpha-repo"
+    beta_main = WORKSPACE_ROOT / "projects" / "beta-repo"
+    gamma_main = WORKSPACE_ROOT / "projects" / "gamma-repo"
+    alpha_worktree = WORKSPACE_ROOT / "myenv" / "alpha-repo"
+    beta_worktree = WORKSPACE_ROOT / "myenv" / "beta-repo"
+    gamma_worktree = WORKSPACE_ROOT / "myenv" / "gamma-repo"
+
+    fs = FakeFilesystem(
+        directories=[
+            WORKSPACE_ROOT / "projects",
+            alpha_main,
+            beta_main,
+            gamma_main,
+            alpha_worktree,
+            gamma_worktree,
+        ]
+    )
+    fs.directories.add(WORKSPACE_ROOT / ".git" / "info")
+    fs.files[WORKSPACE_ROOT / ".git" / "info" / "exclude"] = ""
+
+    git = FakeGitRepository()
+    git.local_branches[alpha_main] = ["myenv"]
+    git.local_branches[beta_main] = ["main"]
+    git.local_branches[gamma_main] = ["myenv"]
+    # siblings have divergent upstreams → no consensus
+    git.tracking_branches[alpha_worktree] = "origin/master"
+    git.tracking_branches[gamma_worktree] = "origin/develop"
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("myenv", init_reporter)
+
+    assert ok is True
+    # beta-repo worktree was created
+    assert any(wt == beta_main for wt, _, _, _ in git.added_worktrees)
+    # no upstream set for beta-repo (divergent siblings → leave unconnected)
+    beta_upstreams = [(p, ref) for p, ref in git.upstreams_set if p == beta_worktree]
+    assert beta_upstreams == []
+    assert beta_worktree not in git.push_default_set
+    # no upstream_inferred action reported
+    auto_connect_actions = [a for a in init_reporter.actions if a[2] == "upstream_inferred"]
+    assert auto_connect_actions == []
+
+
+def test_reconcile_env_pinned_repo_not_touched_by_inference(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """Pinned repo is never touched by upstream inference — its tracking is owned by _configure_pinned_tracking."""
+    cfg = _pinned_two_repo_config()
+    alpha_main = WORKSPACE_ROOT / "projects" / "alpha-repo"
+    beta_main = WORKSPACE_ROOT / "projects" / "beta-repo"
+    alpha_worktree = WORKSPACE_ROOT / "myenv" / "alpha-repo"
+    beta_worktree = WORKSPACE_ROOT / "myenv" / "beta-repo"
+
+    # Both worktrees already exist; beta has an upstream, alpha (pinned) does not
+    fs = FakeFilesystem(
+        directories=[
+            WORKSPACE_ROOT / "projects",
+            alpha_main,
+            beta_main,
+            alpha_worktree,
+            beta_worktree,
+        ]
+    )
+    fs.directories.add(WORKSPACE_ROOT / ".git" / "info")
+    fs.files[WORKSPACE_ROOT / ".git" / "info" / "exclude"] = ""
+
+    git = FakeGitRepository()
+    git.local_branches[alpha_main] = ["myenv"]
+    git.local_branches[beta_main] = ["myenv"]
+    # alpha-repo is pinned — no upstream (inference must not touch it)
+    git.tracking_branches[alpha_worktree] = None
+    # beta-repo has an upstream — serves as the only sibling
+    git.tracking_branches[beta_worktree] = "origin/master"
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("myenv", init_reporter)
+
+    assert ok is True
+    # No upstream_inferred action at all (alpha is pinned, beta already has one)
+    auto_connect_actions = [a for a in init_reporter.actions if a[2] == "upstream_inferred"]
+    assert auto_connect_actions == []
+    # Inference must not have reported an upstream_inferred action for alpha-repo (pinned)
+    inferred_for_alpha = [a for a in init_reporter.actions if a[2] == "upstream_inferred" and a[0] == "alpha-repo"]
+    assert inferred_for_alpha == []
+
+
+def test_reconcile_env_pinned_newly_added_repo_not_connected_by_inference(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """Newly-added repo that is itself pinned is not touched by upstream inference.
+
+    The pinned guard in _connect_inferred_upstream fires for the target repo itself,
+    leaving _configure_pinned_tracking as the sole owner of that worktree's upstream.
+    """
+    cfg = _pinned_two_repo_config()
+    alpha_main = WORKSPACE_ROOT / "projects" / "alpha-repo"
+    beta_main = WORKSPACE_ROOT / "projects" / "beta-repo"
+    beta_worktree = WORKSPACE_ROOT / "myenv" / "beta-repo"
+
+    # beta-repo (non-pinned) worktree already exists with an upstream.
+    # alpha-repo (pinned) worktree is absent — it is the "newly-added" repo.
+    fs = FakeFilesystem(
+        directories=[
+            WORKSPACE_ROOT / "projects",
+            alpha_main,
+            beta_main,
+            beta_worktree,
+        ]
+    )
+    fs.directories.add(WORKSPACE_ROOT / ".git" / "info")
+    fs.files[WORKSPACE_ROOT / ".git" / "info" / "exclude"] = ""
+
+    git = FakeGitRepository()
+    git.local_branches[alpha_main] = ["main"]
+    git.local_branches[beta_main] = ["myenv"]
+    # beta-repo (non-pinned) already tracks origin/master — provides the inferred upstream
+    git.tracking_branches[beta_worktree] = "origin/master"
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("myenv", init_reporter)
+
+    assert ok is True
+    # alpha-repo worktree was created (it was newly added)
+    alpha_main_path = WORKSPACE_ROOT / "projects" / "alpha-repo"
+    assert any(wt == alpha_main_path for wt, _, _, _ in git.added_worktrees)
+    alpha_worktree = WORKSPACE_ROOT / "myenv" / "alpha-repo"
+    # upstream_inferred must NOT have fired for alpha-repo (pinned guard must return early)
+    auto_connect_actions = [a for a in init_reporter.actions if a[2] == "upstream_inferred" and a[0] == "alpha-repo"]
+    assert auto_connect_actions == [], "upstream_inferred must not fire for a pinned repo"
+    # _configure_pinned_tracking still fires and sets the correct pinned upstream
+    pinned_actions = [a for a in init_reporter.actions if a[2] == "pinned_tracking_set" and a[0] == "alpha-repo"]
+    assert len(pinned_actions) == 1
+    # the upstream set for alpha must be the pinned ref (origin/<main-branch>), not the inferred one
+    alpha_upstreams = [(p, ref) for p, ref in git.upstreams_set if p == alpha_worktree]
+    assert alpha_upstreams == [(alpha_worktree, "origin/main")]
+
+
+def test_reconcile_env_already_connected_repo_unchanged(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """A worktree that already has an upstream is left unchanged (idempotent re-run)."""
+    cfg = _two_repo_config()
+    alpha_main = WORKSPACE_ROOT / "projects" / "alpha-repo"
+    beta_main = WORKSPACE_ROOT / "projects" / "beta-repo"
+    alpha_worktree = WORKSPACE_ROOT / "myenv" / "alpha-repo"
+    beta_worktree = WORKSPACE_ROOT / "myenv" / "beta-repo"
+
+    # Both worktrees already exist and both already have upstreams
+    fs = FakeFilesystem(
+        directories=[
+            WORKSPACE_ROOT / "projects",
+            alpha_main,
+            beta_main,
+            alpha_worktree,
+            beta_worktree,
+        ]
+    )
+    fs.directories.add(WORKSPACE_ROOT / ".git" / "info")
+    fs.files[WORKSPACE_ROOT / ".git" / "info" / "exclude"] = ""
+
+    git = FakeGitRepository()
+    git.local_branches[alpha_main] = ["myenv"]
+    git.local_branches[beta_main] = ["myenv"]
+    git.tracking_branches[alpha_worktree] = "origin/master"
+    git.tracking_branches[beta_worktree] = "origin/master"
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("myenv", init_reporter)
+
+    assert ok is True
+    # No upstreams set during this reconcile (both already connected)
+    assert git.upstreams_set == []
+    assert git.push_default_set == []
+    # No upstream_inferred action
+    auto_connect_actions = [a for a in init_reporter.actions if a[2] == "upstream_inferred"]
+    assert auto_connect_actions == []

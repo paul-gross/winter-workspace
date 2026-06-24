@@ -42,6 +42,7 @@ This command:
 - Copies git identity into each worktree.
 - Writes git-exclude entries.
 - For pinned repos, wires the upstream to `origin/<main-branch>` — see [Pinned repos](#pinned-repos).
+- For non-pinned repos that are **newly added** (worktree absent before this run) and have no upstream: if every non-pinned sibling worktree that already exists agrees on the same upstream, init connects the new worktree to that inferred ref (e.g. `origin/master` or `origin/<feature-branch>`). When siblings diverge or there is no connected sibling to infer from, the worktree is left unconnected — use `winter ws connect` explicitly in that case. See [Connecting a feature environment](#connecting-a-feature-environment-to-a-remote-feature-branch).
 - Runs each repo's `cmd` list.
 - Seeds `./<name>/.winter.env` with `WINTER_ENV`, `WINTER_ENV_INDEX`, `WINTER_PORT_BASE`, and `WINTER_WORKSPACE_PORT_BASE` (the index-0 base shared by every env).
 - Runs every installed extension's `on_env_init` hook.
@@ -82,6 +83,8 @@ git -C "./<name>/<repo-name>" push -u origin <name>:<feature-branch>
 **Before pushing**, ask the user: "Want me to run pre-release checks (lint, format, tests) on the changed repos before pushing?" If a project repo documents pre-release checks in its `CONTRIBUTING.md` or `ai/`, run them for every repo with changes and fix any issues before pushing.
 
 Pinned repos are skipped during connect/disconnect (no feature branch tracking to set/unset) and excluded from `push` by default. See the [Pinned repos](#pinned-repos) section for how to include them.
+
+**Shortcut for newly-added repos:** If you added a repo to `.winter/config.toml` and its env siblings already all share the same upstream, re-running `winter ws init <env>` will auto-connect the new worktree to that inferred ref — no manual `winter ws connect` needed. Manual connect is only required when siblings have divergent upstreams or there is no connected sibling to infer from.
 
 ## Disconnecting a feature environment
 
@@ -164,7 +167,7 @@ winter ws push --all                    # non-pinned worktrees + standalone
 
 Each non-pinned worktree pushes to the branch *its own* tracking config names — resolved per worktree from what `winter ws connect` recorded, not from one env-wide value (`HEAD:refs/heads/<branch>`, upstream set on first push). Worktrees in one env can therefore track different remote branches and each lands on its own, independent of repo order. Pinned worktrees (when included) and standalone repos plain-push to whatever their local branch tracks. Only repos with commits ahead of upstream are pushed.
 
-A non-pinned worktree with no upstream is reported per-repo as `no upstream — run winter ws connect first` (each repo individually, not an env-wide group skip); its connected siblings — and any matched pinned repos — still push. Run `winter ws connect` for the unconnected repo, then retry.
+A non-pinned worktree with no upstream is reported per-repo as `no upstream — run winter ws connect first` (each repo individually, not an env-wide group skip); its connected siblings — and any matched pinned repos — still push. If the repo is newly added and its env siblings all share the same upstream, re-running `winter ws init <env>` will auto-connect it; otherwise run `winter ws connect` for the unconnected repo, then retry.
 
 If the only matched repos with commits to push are pinned (so the default scope excludes them), the report shows a `! <env>: N pinned repo(s) with commits skipped` line rather than silently doing nothing — re-run with `--include-pinned`/`--only-pinned`. See [winter-cli/usage/ws/push.md](./winter-cli/usage/ws/push.md) ("Output signal — pinned repos skipped").
 

@@ -54,6 +54,8 @@ class StreamReporter:
             self._echo(f"[{repo}] excludes updated: {detail}")
         elif action == "pinned_tracking_set":
             self._echo(f"[{repo}] pinned tracking set: {detail}")
+        elif action == "upstream_inferred":
+            self._echo(f"[{repo}] inferred upstream set: {detail}")
         elif action == "extension_installed":
             self._echo(f"[{repo}] extension installed: {detail}")
         elif action == "extension_warning":
