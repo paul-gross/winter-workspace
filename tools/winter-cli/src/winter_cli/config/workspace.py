@@ -240,6 +240,8 @@ class WorkspaceConfigService:
 
         file_size_lint = self._parse_file_size_lint(merged.get("core_checks"))
 
+        env_vars = self._parse_env_vars(merged.get("env"))
+
         return WorkspaceConfig(
             workspace_root=workspace_root,
             session_prefix=merged.get("session_prefix", "winter"),
@@ -265,6 +267,7 @@ class WorkspaceConfigService:
             envs_per_workspace=envs_per_workspace,
             provision_raw=provision_raw,
             service_defs_raw=service_defs_raw,
+            env_vars=env_vars,
         )
 
     @staticmethod
@@ -331,6 +334,29 @@ class WorkspaceConfigService:
         if isinstance(reference, int) and not isinstance(reference, bool):
             kwargs["reference_bytes"] = reference
         return FileSizeLintConfig(**kwargs)
+
+    @staticmethod
+    def _parse_env_vars(env_raw: object) -> dict[str, str]:
+        """Build the ``env_vars`` map from the ``[env.vars]`` sub-table.
+
+        Falls back to an empty dict when the table is absent or ``vars`` is
+        missing.  Non-scalar values (e.g. TOML arrays, tables, or booleans)
+        raise ``ConfigError`` with an actionable message naming the key.
+        """
+        if not isinstance(env_raw, dict):
+            return {}
+        vars_raw = env_raw.get("vars")
+        if not isinstance(vars_raw, dict):
+            return {}
+        result: dict[str, str] = {}
+        for k, v in vars_raw.items():
+            if isinstance(v, bool) or not isinstance(v, (str, int, float)):
+                raise ConfigError(
+                    f"[env.vars] key {k!r} has an unsupported value type "
+                    f"({type(v).__name__}); only string, integer, and float values are allowed."
+                )
+            result[str(k)] = str(v)
+        return result
 
     def _read_config(self, path: Path) -> dict:
         if not self._fs.is_file(path):

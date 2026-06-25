@@ -434,6 +434,15 @@ class WorkspaceConfig(BaseModel):
     ``ExtServiceManifestParser`` on demand.
     """
 
+    env_vars: dict[str, str] = Field(default_factory=dict)
+    """Per-env variables from the ``[env.vars]`` table in ``.winter/config.toml``.
+
+    Each value may contain ``${WINTER_PORT_BASE+N}`` tokens that are resolved
+    against the env's computed ``port_base_for_index(index)`` at ``winter ws
+    init`` time.  Literal values (no token) pass through unchanged.  An absent
+    table is a no-op (empty dict).
+    """
+
     def port_base_for_index(self, index: int) -> int:
         """Return the per-env port base for the given env index.
 

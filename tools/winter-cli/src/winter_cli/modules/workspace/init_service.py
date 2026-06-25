@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from concurrent.futures import as_completed
 from pathlib import Path
 
@@ -37,7 +38,39 @@ logger = logging.getLogger(__name__)
 WINTER_ENV_FILE = ".winter.env"
 WINTER_WORKSPACE_ENV_FILE = ".winter.workspace.env"
 WINTER_ENV_BEGIN = "# >>> winter (managed) — base environment variables; do not edit by hand"
-WINTER_ENV_END = "# <<< winter (managed) — project-specific variables go below this marker"
+WINTER_ENV_END = "# <<< winter (managed) — base block end; hand-managed vars go below the last managed block"
+WINTER_ENV_VARS_BEGIN = "# >>> winter (managed) — [env.vars] derived variables; do not edit by hand"
+WINTER_ENV_VARS_END = "# <<< winter (managed) — end of [env.vars] derived variables"
+
+# Matches ${WINTER_PORT_BASE+N} or ${WINTER_PORT_BASE+0} (N is a non-negative integer).
+_PORT_OFFSET_RE = re.compile(r"\$\{WINTER_PORT_BASE\+(\d+)\}")
+# Matches any ${...} token that is NOT the above, to detect unsupported substitutions.
+_UNKNOWN_TOKEN_RE = re.compile(r"\$\{[^}]*\}")
+
+
+def _render_env_var_value(key: str, template: str, port_base: int) -> str:
+    """Resolve ``${WINTER_PORT_BASE+N}`` tokens in *template* against *port_base*.
+
+    Literal values (no ``${...}`` token) pass through unchanged.  Any
+    ``${...}`` token that is not ``${WINTER_PORT_BASE+<non-negative int>}`` is
+    a fatal substitution error — raises ``ValueError`` with a clear message.
+    """
+    # First pass: replace every ${WINTER_PORT_BASE+N} with port_base + N.
+    def _replace(m: re.Match[str]) -> str:
+        offset = int(m.group(1))
+        return str(port_base + offset)
+
+    rendered = _PORT_OFFSET_RE.sub(_replace, template)
+
+    # Second pass: if any ${...} remains it is an unsupported token.
+    unknown = _UNKNOWN_TOKEN_RE.search(rendered)
+    if unknown:
+        raise ValueError(
+            f"[env.vars] key {key!r}: unsupported substitution token {unknown.group()!r}. "
+            f"Only ${{WINTER_PORT_BASE+N}} (N ≥ 0) is supported."
+        )
+    return rendered
+
 
 TUI_SUPPRESS_ENV = {
     "CI": "1",
@@ -621,6 +654,11 @@ class InitService:
         (set by the project's project-setup.md) live below the closing marker
         and are preserved across re-runs. The block itself is rewritten in full
         each time, so changing the worktree's index updates the file cleanly.
+
+        When the workspace config has an ``[env.vars]`` table, a second managed
+        block with the rendered ``export KEY=value`` lines is appended below the
+        base block.  ``${WINTER_PORT_BASE+N}`` tokens are resolved against this
+        env's port base.  Any unsupported token is a fatal per-env error.
         """
         index = EnvIndexAllocator(self._registry).allocate(
             env_name,
@@ -630,7 +668,7 @@ class InitService:
         port_base = self._config.port_base_for_index(index)
         workspace_port_base = self._config.port_base_for_index(0)
 
-        block_lines = [
+        base_block_lines = [
             WINTER_ENV_BEGIN,
             f"WINTER_ENV={env_name}",
             f"WINTER_ENV_INDEX={index}",
@@ -646,9 +684,30 @@ class InitService:
                 existing,
                 WINTER_ENV_BEGIN,
                 WINTER_ENV_END,
-                block_lines,
+                base_block_lines,
                 position="prepend",
             )
+
+            # Render and write the [env.vars] block when the table is non-empty.
+            if self._config.env_vars:
+                rendered_lines: list[str] = []
+                for key, template in self._config.env_vars.items():
+                    try:
+                        value = _render_env_var_value(key, template, port_base)
+                    except ValueError as exc:
+                        reporter.repo_error("winter", f"{WINTER_ENV_FILE} — {exc}")
+                        return False
+                    rendered_lines.append(f"export {key}={value}")
+
+                vars_block_lines = [WINTER_ENV_VARS_BEGIN, *rendered_lines, WINTER_ENV_VARS_END]
+                new_content = replace_or_append_block(
+                    new_content,
+                    WINTER_ENV_VARS_BEGIN,
+                    WINTER_ENV_VARS_END,
+                    vars_block_lines,
+                    position="append",
+                )
+
             if new_content == existing:
                 return True
             self._fs.write_text(env_path, new_content)

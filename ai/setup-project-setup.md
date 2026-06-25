@@ -81,9 +81,11 @@ Probe for:
 
 The env-file *generation logic* (heredocs that write per-environment values into env files) goes into `project-setup.md` as numbered steps.
 
-#### `.winter.env` — append, don't overwrite
+#### `.winter.env` — config-driven vars via `[env.vars]`
 
-`winter ws init <name>` seeds `<name>/.winter.env` with `WINTER_ENV`, `WINTER_ENV_INDEX`, `WINTER_PORT_BASE`, and `WINTER_WORKSPACE_PORT_BASE`, bracketed in a managed block at the top:
+`winter ws init <name>` seeds `<name>/.winter.env` with two marker-bracketed managed blocks:
+
+1. **Base block** (written first, at the top) — the env's identity and port window:
 
 ```
 # >>> winter (managed) — base environment variables; do not edit by hand
@@ -91,29 +93,37 @@ WINTER_ENV=alpha
 WINTER_ENV_INDEX=1
 WINTER_PORT_BASE=4020
 WINTER_WORKSPACE_PORT_BASE=4000
-# <<< winter (managed) — project-specific variables go below this marker
+# <<< winter (managed) — base block end; hand-managed vars go below the last managed block
 ```
 
 (`WINTER_WORKSPACE_PORT_BASE` is the index-0 base shared by every env — the port band reserved for workspace-scope singleton services. The workspace root also gets its own `.winter.workspace.env` carrying `WINTER_PORT_BASE` for that scope.)
 
-Project-specific variables go *below* the closing marker. The shape for `project-setup.md` is an `>>` (append) heredoc that derives values from the seeded vars:
+2. **Derived-vars block** (written below the base block, when `[env.vars]` is declared in `.winter/config.toml`) — project-specific derived variables:
 
-```bash
-# Run from the worktree root after `winter ws init <name>`:
-source .winter.env
-cat >> .winter.env <<EOF
-
-BACKEND_PORT=$((WINTER_PORT_BASE + 0))
-FRONTEND_PORT=$((WINTER_PORT_BASE + 1))
-DATABASE_URL=postgres://localhost/myapp_$WINTER_ENV
-EOF
+```
+# >>> winter (managed) — [env.vars] derived variables; do not edit by hand
+export BACKEND_PORT=4020
+export FRONTEND_PORT=4021
+export DATABASE_URL=postgres://localhost/myapp_4022
+# <<< winter (managed) — end of [env.vars] derived variables
 ```
 
-Two patterns for port offsets:
-- **Worktree base + service offset:** `BACKEND_PORT=$((WINTER_PORT_BASE + 0))`, `FRONTEND_PORT=$((WINTER_PORT_BASE + 1))` — every environment gets a port window starting at its base (default 20 ports per env). Default this when the project doesn't already have a port table.
-- **Service base + index:** `BACKEND_PORT=$((3000 + WINTER_ENV_INDEX))` — backend runs on 3001/3002/3003 in alpha/beta/gamma. Use this when the project pre-assigns service slots by index rather than by port-window offset.
+Both blocks are rewritten idempotently on every `winter ws init` run. Hand-managed lines go below **both** managed blocks (below the `[env.vars]` block closing marker when present, or below the base block otherwise) and are preserved across re-runs.
 
-Never `>` (overwrite) `.winter.env` — that clobbers the managed block. Always `>>`.
+**Declare project-specific port offsets in `[env.vars]`** rather than appending them by hand per environment:
+
+```toml
+# .winter/config.toml
+[env.vars]
+BACKEND_PORT  = "${WINTER_PORT_BASE+0}"
+FRONTEND_PORT = "${WINTER_PORT_BASE+1}"
+DB_PORT       = "${WINTER_PORT_BASE+2}"
+DATABASE_URL  = "postgres://localhost:${WINTER_PORT_BASE+2}/myapp"
+```
+
+This means every new environment gets the right ports automatically on `winter ws init <name>`, without any manual step in `project-setup.md`. Use this for any variable whose value is entirely determined by `port_base + fixed_offset`. For variables that depend on other per-env state (database name from `WINTER_ENV`, secrets, etc.), document them in `project-setup.md` instead.
+
+For the full `[env.vars]` token grammar and supported substitutions, see [winter-cli/setup.md — `[env.vars]`](../ai/winter-cli/setup.md#shared-config-winterconfigtoml).
 
 #### Other env files
 

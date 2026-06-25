@@ -1139,3 +1139,243 @@ def test_reconcile_env_already_connected_repo_unchanged(
     # No upstream_inferred action
     auto_connect_actions = [a for a in init_reporter.actions if a[2] == "upstream_inferred"]
     assert auto_connect_actions == []
+
+
+# ── [env.vars] block rendering tests ─────────────────────────────────────────
+
+
+def _env_vars_config(env_vars: dict[str, str]) -> WorkspaceConfig:
+    """WorkspaceConfig with [env.vars] populated, base_port=4000, ports_per_env=20."""
+    return WorkspaceConfig(
+        workspace_root=WORKSPACE_ROOT,
+        session_prefix="t",
+        main_branch="main",
+        adopt_extensions=AdoptExtensions.winter,
+        git_identity=None,
+        project_repos=[
+            ProjectRepositoryConfig(name="demo", url="git@example.com:org/demo.git"),
+        ],
+        env_vars=env_vars,
+    )
+
+
+def _env_vars_fs() -> FakeFilesystem:
+    demo_path = WORKSPACE_ROOT / "projects" / "demo"
+    fs = FakeFilesystem(directories=[WORKSPACE_ROOT / "projects", demo_path])
+    fs.directories.add(WORKSPACE_ROOT / ".git" / "info")
+    fs.files[WORKSPACE_ROOT / ".git" / "info" / "exclude"] = ""
+    return fs
+
+
+def test_env_vars_renders_port_offset_tokens(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """${WINTER_PORT_BASE+N} tokens resolve to port_base + N for the env's index."""
+    cfg = _env_vars_config(
+        {
+            "WTS_WEB_PORT": "${WINTER_PORT_BASE+10}",
+            "WTS_API_PORT": "${WINTER_PORT_BASE+11}",
+            "LITERAL": "no-token",
+        }
+    )
+    fs = _env_vars_fs()
+    git = FakeGitRepository()
+    git.local_branches[WORKSPACE_ROOT / "projects" / "demo"] = ["main"]
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("alpha", init_reporter)
+
+    assert ok is True
+    env_file = WORKSPACE_ROOT / "alpha" / ".winter.env"
+    content = fs.files[env_file]
+    # alpha is index 1 → port_base = 4000 + 1*20 = 4020
+    assert "export WTS_WEB_PORT=4030" in content  # 4020 + 10
+    assert "export WTS_API_PORT=4031" in content  # 4020 + 11
+    assert "export LITERAL=no-token" in content
+
+
+def test_env_vars_zero_offset(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """${WINTER_PORT_BASE+0} resolves to the exact port_base (offset zero)."""
+    cfg = _env_vars_config({"MY_PORT": "${WINTER_PORT_BASE+0}"})
+    fs = _env_vars_fs()
+    git = FakeGitRepository()
+    git.local_branches[WORKSPACE_ROOT / "projects" / "demo"] = ["main"]
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("alpha", init_reporter)
+
+    assert ok is True
+    content = fs.files[WORKSPACE_ROOT / "alpha" / ".winter.env"]
+    assert "export MY_PORT=4020" in content
+
+
+def test_env_vars_literal_passthrough(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """Values with no ${...} token pass through unchanged."""
+    cfg = _env_vars_config({"DATABASE_URL": "postgresql://user:pass@localhost/mydb"})
+    fs = _env_vars_fs()
+    git = FakeGitRepository()
+    git.local_branches[WORKSPACE_ROOT / "projects" / "demo"] = ["main"]
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("alpha", init_reporter)
+
+    assert ok is True
+    content = fs.files[WORKSPACE_ROOT / "alpha" / ".winter.env"]
+    assert "export DATABASE_URL=postgresql://user:pass@localhost/mydb" in content
+
+
+def test_env_vars_no_table_is_noop(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """Absent [env.vars] table writes no second block — base block only."""
+    cfg = _env_vars_config({})  # empty dict = no [env.vars] table
+    fs = _env_vars_fs()
+    git = FakeGitRepository()
+    git.local_branches[WORKSPACE_ROOT / "projects" / "demo"] = ["main"]
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("alpha", init_reporter)
+
+    assert ok is True
+    content = fs.files[WORKSPACE_ROOT / "alpha" / ".winter.env"]
+    # Second-block markers must not appear
+    assert "WINTER_ENV_VARS" not in content
+    assert "[env.vars]" not in content
+    # Base block still written
+    assert "WINTER_ENV=alpha" in content
+
+
+def test_env_vars_idempotent_rerun(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """Re-running reconcile_env overwrites the [env.vars] block and stays idempotent."""
+    cfg = _env_vars_config({"WTS_WEB_PORT": "${WINTER_PORT_BASE+10}"})
+    fs = _env_vars_fs()
+    git = FakeGitRepository()
+    git.local_branches[WORKSPACE_ROOT / "projects" / "demo"] = ["main"]
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    assert svc.reconcile_env("alpha", init_reporter) is True
+
+    content_after_first = fs.files[WORKSPACE_ROOT / "alpha" / ".winter.env"]
+
+    # Second run — should be idempotent (returns True but doesn't re-write).
+    assert svc.reconcile_env("alpha", init_reporter) is True
+    content_after_second = fs.files[WORKSPACE_ROOT / "alpha" / ".winter.env"]
+
+    assert content_after_first == content_after_second
+    # Block appears exactly once
+    assert content_after_first.count("export WTS_WEB_PORT=4030") == 1
+
+
+def test_env_vars_index_change_rewrites_block(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """Changing the env index (re-running with a different persisted index) rewrites the vars block.
+
+    Uses a non-alias env name so the registry controls the index (aliases always
+    get their fixed slot regardless of registry state).
+    """
+    cfg = _env_vars_config({"MY_PORT": "${WINTER_PORT_BASE+5}"})
+    fs = _env_vars_fs()
+    git = FakeGitRepository()
+    git.local_branches[WORKSPACE_ROOT / "projects" / "demo"] = ["main"]
+
+    # First run with "myenv" at index 15 (port_base = 4000 + 15*20 = 4300)
+    registry1 = FakeEnvIndexRegistry(assignments={"myenv": 15})
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git, registry=registry1)
+    assert svc.reconcile_env("myenv", init_reporter) is True
+    assert "export MY_PORT=4305" in fs.files[WORKSPACE_ROOT / "myenv" / ".winter.env"]  # 4300 + 5
+
+    # Second run with "myenv" at index 20 (port_base = 4000 + 20*20 = 4400)
+    registry2 = FakeEnvIndexRegistry(assignments={"myenv": 20})
+    svc2 = _service(cfg, fs, FakeSubprocessRunner(), git, registry=registry2)
+    assert svc2.reconcile_env("myenv", init_reporter) is True
+
+    content = fs.files[WORKSPACE_ROOT / "myenv" / ".winter.env"]
+    # Old value must be gone; new value must appear exactly once
+    assert "export MY_PORT=4305" not in content
+    assert "export MY_PORT=4405" in content  # 4400 + 5
+
+
+def test_env_vars_preserves_manual_lines_outside_blocks(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """Lines outside both managed blocks are preserved across re-runs."""
+    cfg = _env_vars_config({"API_PORT": "${WINTER_PORT_BASE+1}"})
+    fs = _env_vars_fs()
+    git = FakeGitRepository()
+    git.local_branches[WORKSPACE_ROOT / "projects" / "demo"] = ["main"]
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    assert svc.reconcile_env("alpha", init_reporter) is True
+
+    env_path = WORKSPACE_ROOT / "alpha" / ".winter.env"
+    # Append a hand-managed line below both blocks
+    fs.files[env_path] = fs.files[env_path] + "MY_MANUAL_VAR=keep\n"
+
+    assert svc.reconcile_env("alpha", init_reporter) is True
+
+    content = fs.files[env_path]
+    assert "MY_MANUAL_VAR=keep" in content
+    # Both blocks still present exactly once
+    assert content.count("export API_PORT=4021") == 1
+
+
+def test_env_vars_malformed_token_fails_with_error(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """An unsupported ${...} token fails the init step with a clear per-env error."""
+    cfg = _env_vars_config({"BAD": "${UNKNOWN_VAR}"})
+    fs = _env_vars_fs()
+    git = FakeGitRepository()
+    git.local_branches[WORKSPACE_ROOT / "projects" / "demo"] = ["main"]
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("alpha", init_reporter)
+
+    assert ok is False
+    errors = [msg for _, msg in init_reporter.errors]
+    assert any("unsupported substitution token" in msg for msg in errors)
+    assert any("${UNKNOWN_VAR}" in msg for msg in errors)
+
+
+def test_env_vars_mixed_token_and_literal_in_value(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """A value mixing a token with surrounding literal text resolves correctly."""
+    cfg = _env_vars_config(
+        {"DATABASE_URL": "postgresql://wts:wts@localhost:${WINTER_PORT_BASE+12}/wts"}
+    )
+    fs = _env_vars_fs()
+    git = FakeGitRepository()
+    git.local_branches[WORKSPACE_ROOT / "projects" / "demo"] = ["main"]
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("alpha", init_reporter)
+
+    assert ok is True
+    content = fs.files[WORKSPACE_ROOT / "alpha" / ".winter.env"]
+    # alpha → index 1, port_base = 4020; offset 12 → 4032
+    assert "export DATABASE_URL=postgresql://wts:wts@localhost:4032/wts" in content
+
+
+def test_env_vars_malformed_no_offset_token_fails(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """${WINTER_PORT_BASE} without +N is an unsupported token and must fail."""
+    cfg = _env_vars_config({"MY_PORT": "${WINTER_PORT_BASE}"})
+    fs = _env_vars_fs()
+    git = FakeGitRepository()
+    git.local_branches[WORKSPACE_ROOT / "projects" / "demo"] = ["main"]
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("alpha", init_reporter)
+
+    assert ok is False
+    errors = [msg for _, msg in init_reporter.errors]
+    assert any("unsupported substitution token" in msg for msg in errors)

@@ -41,6 +41,16 @@ env_aliases = [           # fixed-index env names (1..N); aliases get stable slo
 ]
 envs_per_workspace = 48   # max feature-env index (1..envs_per_workspace); must be >= len(env_aliases) + 2
 
+# Per-env derived variables — written into each env's .winter.env as a second
+# managed block on `winter ws init`. ${WINTER_PORT_BASE+N} resolves to
+# port_base_for_index(env_index) + N. Literal values pass through unchanged.
+# An unsupported ${...} token is a fatal error at init time.
+[env.vars]
+WTS_WEB_PORT = "${WINTER_PORT_BASE+10}"
+WTS_API_PORT = "${WINTER_PORT_BASE+11}"
+WTS_DB_PORT  = "${WINTER_PORT_BASE+12}"
+DATABASE_URL = "postgresql://wts:wts@localhost:${WINTER_PORT_BASE+12}/wts"
+
 # Entries appended to every repo's .git/info/exclude on `winter ws init`.
 git_excludes = ["*.Local.csproj"]
 

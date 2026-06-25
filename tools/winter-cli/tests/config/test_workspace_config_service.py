@@ -746,3 +746,31 @@ def test_project_and_standalone_same_name_is_valid() -> None:
     assert config.project_repos[0].name == "winter-github"
     assert len(config.standalone_repos) == 1
     assert config.standalone_repos[0].name == "winter-github"
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [
+        ["a", "b"],  # TOML array
+        {"nested": "table"},  # TOML table
+        True,  # boolean
+        False,  # boolean
+    ],
+)
+def test_env_vars_non_scalar_value_raises_config_error(bad_value: object) -> None:
+    """A non-scalar [env.vars] value (array, table, bool) raises ConfigError naming the key."""
+    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
+    fs = FakeFilesystem(files={config_path: ""})
+    svc = _service(
+        fs,
+        {
+            config_path: {
+                "env": {"vars": {"MY_KEY": bad_value}},
+            },
+        },
+    )
+
+    with pytest.raises(ConfigError) as exc_info:
+        svc.load()
+
+    assert "MY_KEY" in str(exc_info.value)
