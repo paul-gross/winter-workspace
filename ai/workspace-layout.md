@@ -23,7 +23,7 @@ This workspace manages **multiple project repositories** as peers. All repos are
 │   ├── config.local.toml       # Optional local override (gitignored)
 │   ├── state.toml              # Machine-local env-index registry (gitignored, managed by winter)
 │   └── ext/<short-name>/       # Standalone clones for installed extensions
-├── .winter.workspace.env       # Workspace-scope shell env (WINTER_PORT_BASE for index 0); gitignored, managed by winter
+├── .winter.workspace.env       # Workspace-scope shell env (WINTER_WORKSPACE_PORT_BASE for index 0); gitignored, managed by winter
 ├── tools/                      # Workspace tooling
 │   └── winter-cli/             # The `winter` CLI source
 ├── projects/                   # All project repositories (source checkouts)
@@ -64,7 +64,7 @@ Each Greek letter directory (e.g., `alpha/`) contains a git worktree for **every
 
 When working on a feature in `alpha/`:
 - Repo code is at `./alpha/<repo-name>/`
-- Environment shell vars are at `./alpha/.winter.env` — `WINTER_ENV`, `WINTER_ENV_INDEX`, `WINTER_PORT_BASE`, and `WINTER_WORKSPACE_PORT_BASE` are seeded by `winter ws init`; project-specific vars (per-service ports, database URLs, etc.) are appended below the managed block by `project-setup.md`. Workspace-scope services read their own band from `.winter.workspace.env` at the workspace root (`WINTER_PORT_BASE` = the index-0 base).
+- Environment shell vars are at `./alpha/.winter.env` — `WINTER_ENV`, `WINTER_ENV_INDEX`, `WINTER_PORT_BASE`, and `WINTER_WORKSPACE_PORT_BASE` are seeded by `winter ws init`; project-specific vars (per-service ports, database URLs, etc.) are appended below the managed block by `project-setup.md`. Workspace-scope services read their own band from `.winter.workspace.env` at the workspace root (`WINTER_WORKSPACE_PORT_BASE` = the index-0 base).
 
 ## Repo Inventory
 

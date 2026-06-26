@@ -192,7 +192,9 @@ def test_reconcile_projects_seeds_workspace_env_and_excludes(
     ws_env = WORKSPACE_ROOT / ".winter.workspace.env"
     assert ws_env in fs.files
     ws_content = fs.files[ws_env]
-    assert "WINTER_PORT_BASE=4000" in ws_content
+    assert "WINTER_WORKSPACE_PORT_BASE=4000" in ws_content
+    # The workspace file must NOT define the per-env WINTER_PORT_BASE name.
+    assert "\nWINTER_PORT_BASE=" not in ws_content
     # Both workspace-root artifacts are git-excluded in one managed block.
     exclude = fs.files[WORKSPACE_ROOT / ".git" / "info" / "exclude"]
     assert "# >>> winter-workspace/artifacts (managed by winter)" in exclude
@@ -224,7 +226,7 @@ def test_reconcile_projects_workspace_artifacts_idempotent_and_preserve_local(
     ws_content = fs.files[ws_env]
     # User var preserved; managed block not duplicated.
     assert "MY_LOCAL_VAR=keep" in ws_content
-    assert ws_content.count("WINTER_PORT_BASE=4000") == 1
+    assert ws_content.count("WINTER_WORKSPACE_PORT_BASE=4000") == 1
     exclude = fs.files[WORKSPACE_ROOT / ".git" / "info" / "exclude"]
     assert exclude.count("# >>> winter-workspace/artifacts (managed by winter)") == 1
 

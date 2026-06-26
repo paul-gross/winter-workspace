@@ -660,7 +660,9 @@ def test_workspace_scope_env_trio_uses_index_zero() -> None:
     env = runner.popen_envs[idx]
     assert env.get("WINTER_ENV") == "workspace"
     assert env.get("WINTER_ENV_INDEX") == "0"
-    assert env.get("WINTER_PORT_BASE") == "4000"  # base_port + 0 * 20
+    # The workspace band is exposed only as WINTER_WORKSPACE_PORT_BASE; the per-env
+    # WINTER_PORT_BASE name is deliberately not injected for the workspace scope.
+    assert env.get("WINTER_WORKSPACE_PORT_BASE") == "4000"  # base_port + 0 * 20
 
 
 # ── EnvFileSourcerError resilience ───────────────────────────────────────────
@@ -999,7 +1001,7 @@ def tmp_workspace(tmp_path: Path) -> Path:
         <tmp>/
           alpha/.winter.env          (WINTER_PORT_BASE=4020, MY_APP_VAR=from-alpha-file)
           beta/.winter.env           (WINTER_PORT_BASE=4040)
-          .winter.workspace.env      (WINTER_PORT_BASE=4000, MY_APP_VAR=from-workspace-file)
+          .winter.workspace.env      (WINTER_WORKSPACE_PORT_BASE=4000, MY_APP_VAR=from-workspace-file)
           provider-a/workflow/service  (executable: describe -> */probe; status -> echo env)
           provider-b/workflow/service  (executable: describe -> workspace/probe; status -> echo env)
     """
@@ -1010,7 +1012,7 @@ def tmp_workspace(tmp_path: Path) -> Path:
     (ws / "alpha" / ".winter.env").write_text("WINTER_PORT_BASE=4020\nMY_APP_VAR=from-alpha-file\n")
     (ws / "beta").mkdir()
     (ws / "beta" / ".winter.env").write_text("WINTER_PORT_BASE=4040\n")
-    (ws / ".winter.workspace.env").write_text("WINTER_PORT_BASE=4000\nMY_APP_VAR=from-workspace-file\n")
+    (ws / ".winter.workspace.env").write_text("WINTER_WORKSPACE_PORT_BASE=4000\nMY_APP_VAR=from-workspace-file\n")
 
     # Create provider-a: owns */probe (per-env).
     ep_a = ws / "provider-a" / "workflow"
@@ -1030,7 +1032,7 @@ fi
 if [ "$1" = "status" ]; then
     pattern="${2:-workspace/*}"
     env_seg="${pattern%%/*}"
-    observed="${WINTER_PORT_BASE:-MISSING}"
+    observed="${WINTER_WORKSPACE_PORT_BASE:-MISSING}"
     my_var="${MY_APP_VAR:-ABSENT}"
     echo "{\\\"envs\\\": [{\\\"env\\\": \\\"$env_seg\\\", \\\"session\\\": null, \\\"port_base\\\": null, \\\"services\\\": [{\\\"name\\\": \\\"probe\\\", \\\"state\\\": \\\"running\\\", \\\"health\\\": \\\"healthy\\\", \\\"ports\\\": [], \\\"handle\\\": \\\"$observed|$my_var\\\", \\\"log_path\\\": null, \\\"since\\\": null}]}]}"
     exit 0
@@ -1138,7 +1140,14 @@ def test_subprocess_env_injection_observed_by_provider(tmp_workspace: Path) -> N
 
 
 def test_subprocess_sourced_env_file_var_reaches_provider(tmp_workspace: Path) -> None:
-    """MY_APP_VAR from .winter.workspace.env reaches provider-b via sourcing."""
+    """Workspace band + MY_APP_VAR from .winter.workspace.env reach provider-b.
+
+    provider-b echoes ``WINTER_WORKSPACE_PORT_BASE|MY_APP_VAR``.  The band (4000)
+    arrives both by core injection (the workspace cell injects
+    ``WINTER_WORKSPACE_PORT_BASE``) and by sourcing the workspace env file, and
+    ``MY_APP_VAR`` arrives only by sourcing — so a non-MISSING band proves the
+    new name resolves on the workspace status path end to end.
+    """
     matrix_svc, providers = _real_matrix_svc(
         tmp_workspace,
         assignments={"alpha": 1},
@@ -1156,8 +1165,9 @@ def test_subprocess_sourced_env_file_var_reaches_provider(tmp_workspace: Path) -
                 for svc in env_status.services:
                     ws_handles.append(svc.handle or "")
 
-    # handle is "WINTER_PORT_BASE|MY_APP_VAR"; workspace env file sets both.
-    assert any("from-workspace-file" in h for h in ws_handles), f"ws handles: {ws_handles}"
+    # handle is "WINTER_WORKSPACE_PORT_BASE|MY_APP_VAR"; the band resolves to 4000
+    # (injection + sourcing) and MY_APP_VAR flows through from the workspace file.
+    assert any(h == "4000|from-workspace-file" for h in ws_handles), f"ws handles: {ws_handles}"
 
 
 def test_subprocess_scope_qualified_filter_narrows_to_one_env(tmp_workspace: Path) -> None:

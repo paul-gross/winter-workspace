@@ -467,14 +467,22 @@ class ServiceStatusMatrixService:
         supplied (``report`` path) the error is surfaced via ``status_parse_error``.
         """
         # Build env: base provider vars → env trio → sourced env-file vars (wins).
-        # For the workspace scope, index 0 is reserved; port_base = base_port + 0 * ports_per_env
-        # = base_port.  The workspace env file is .winter.workspace.env (no port band).
+        # For the workspace scope, index 0 is reserved; its band = base_port
+        # (base_port + 0 * ports_per_env).  The workspace env file is
+        # .winter.workspace.env (no per-env port band).  The workspace band is
+        # exposed ONLY as WINTER_WORKSPACE_PORT_BASE — the name
+        # .winter.workspace.env seeds and the name workspace-compose files
+        # reference — so it resolves identically whether the env arrives via
+        # injection (status) or file sourcing (up/down/restart/logs).  The per-env
+        # WINTER_PORT_BASE name is deliberately NOT set for the workspace scope:
+        # that name means the env's own band, and exposing it here under the
+        # workspace value collides with that meaning.
         base_env = build_provider_env(cell.provider, self._workspace_root)
         if cell.scope == WORKSPACE_SCOPE:
             env_trio = {
                 "WINTER_ENV": WORKSPACE_SCOPE,
                 "WINTER_ENV_INDEX": "0",
-                "WINTER_PORT_BASE": str(self._workspace_config.base_port),
+                "WINTER_WORKSPACE_PORT_BASE": str(self._workspace_config.base_port),
             }
         else:
             env_trio = build_env_trio(cell.scope, self._workspace_config, self._env_index_registry)

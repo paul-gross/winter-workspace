@@ -129,7 +129,7 @@ With a single provider, `describe` is never called — the sole provider implici
 
 ### `status` (multi-provider)
 
-`status` is always built as a **two-dimensional call-matrix** (rows = scope instances, columns = owning providers), regardless of whether one or many providers are bound.  Core enumerates the matrix, sources per-scope env files, injects `WINTER_ENV`/`WINTER_ENV_INDEX`/`WINTER_PORT_BASE` and the sourced vars into each provider subprocess, runs cells in parallel, and merges the per-cell `StatusDocument` results into a single document before filtering and rendering.
+`status` is always built as a **two-dimensional call-matrix** (rows = scope instances, columns = owning providers), regardless of whether one or many providers are bound.  Core enumerates the matrix, sources per-scope env files, injects `WINTER_ENV`/`WINTER_ENV_INDEX` plus the scope's port band and the sourced vars into each provider subprocess, runs cells in parallel, and merges the per-cell `StatusDocument` results into a single document before filtering and rendering. The port band is `WINTER_PORT_BASE` for a feature-env cell and `WINTER_WORKSPACE_PORT_BASE` for the `workspace` cell (index-0 band); the workspace cell does not inject `WINTER_PORT_BASE`, matching what `.winter.workspace.env` seeds.
 
 **Registry-driven enumeration:** scope rows are the **configured env names** from the workspace env-index registry (not a filesystem scan) plus the `workspace` scope.  Core owns enumeration — the orchestrator is called once per `(provider, scope)` cell with an explicit `<scope>/*` pattern so that it can report configured-but-stopped envs without needing to scan the file system itself.
 

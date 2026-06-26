@@ -21,7 +21,7 @@ The CLI treats pinned repos specially across commands:
 winter ws init
 ```
 
-This reads `.winter/config.toml`, clones every declared repo that's missing into `projects/`, applies git identity, writes git-exclude entries, and runs each repo's `cmd` list. Safe to re-run. It also seeds `.winter.workspace.env` at the workspace root with `WINTER_PORT_BASE` for the workspace (index-0) scope, and git-excludes both that file and the runtime `.winter/logs/` capture dir.
+This reads `.winter/config.toml`, clones every declared repo that's missing into `projects/`, applies git identity, writes git-exclude entries, and runs each repo's `cmd` list. Safe to re-run. It also seeds `.winter.workspace.env` at the workspace root with `WINTER_WORKSPACE_PORT_BASE` for the workspace (index-0) scope, and git-excludes both that file and the runtime `.winter/logs/` capture dir.
 
 Raw equivalent for a single repo:
 

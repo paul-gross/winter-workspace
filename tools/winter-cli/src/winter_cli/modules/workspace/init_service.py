@@ -765,12 +765,19 @@ class InitService:
         (`port_base_for_index(0)`) is never allocated to any feature env. Mirrors
         `_seed_winter_env`: a marker-bracketed managed block holds the base
         variables; anything below the closing marker is preserved across re-runs.
+
+        The band is exposed only as ``WINTER_WORKSPACE_PORT_BASE`` — the same
+        name the per-env `.winter.env` uses for it — so the variable carries one
+        meaning everywhere. It deliberately does NOT define ``WINTER_PORT_BASE``:
+        that name is the *per-env* base, and emitting it here under the workspace
+        value (index-0 band) collides with the per-env meaning whenever both
+        files are in play.
         """
         workspace_port_base = self._config.port_base_for_index(0)
 
         block_lines = [
             WINTER_ENV_BEGIN,
-            f"WINTER_PORT_BASE={workspace_port_base}",
+            f"WINTER_WORKSPACE_PORT_BASE={workspace_port_base}",
             WINTER_ENV_END,
         ]
 
@@ -795,7 +802,7 @@ class InitService:
             "winter",
             str(env_path),
             "winter_workspace_env_seeded",
-            f"WINTER_PORT_BASE={workspace_port_base}",
+            f"WINTER_WORKSPACE_PORT_BASE={workspace_port_base}",
         )
         return True
 

@@ -96,7 +96,7 @@ WINTER_WORKSPACE_PORT_BASE=4000
 # <<< winter (managed) — base block end; hand-managed vars go below the last managed block
 ```
 
-(`WINTER_WORKSPACE_PORT_BASE` is the index-0 base shared by every env — the port band reserved for workspace-scope singleton services. The workspace root also gets its own `.winter.workspace.env` carrying `WINTER_PORT_BASE` for that scope.)
+(`WINTER_WORKSPACE_PORT_BASE` is the index-0 base shared by every env — the port band reserved for workspace-scope singleton services. The workspace root also gets its own `.winter.workspace.env` carrying `WINTER_WORKSPACE_PORT_BASE` for that scope.)
 
 2. **Derived-vars block** (written below the base block, when `[env.vars]` is declared in `.winter/config.toml`) — project-specific derived variables:
 
