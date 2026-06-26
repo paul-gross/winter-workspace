@@ -42,32 +42,55 @@ WINTER_ENV_END = "# <<< winter (managed) — base block end; hand-managed vars g
 WINTER_ENV_VARS_BEGIN = "# >>> winter (managed) — [env.vars] derived variables; do not edit by hand"
 WINTER_ENV_VARS_END = "# <<< winter (managed) — end of [env.vars] derived variables"
 
-# Matches ${WINTER_PORT_BASE+N} or ${WINTER_PORT_BASE+0} (N is a non-negative integer).
-_PORT_OFFSET_RE = re.compile(r"\$\{WINTER_PORT_BASE\+(\d+)\}")
-# Matches any ${...} token that is NOT the above, to detect unsupported substitutions.
+# Matches ${NAME} or ${NAME+N}: a reference to an in-scope variable, optionally
+# plus a non-negative integer offset. NAME is an env-var-style identifier.
+_REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?:\+(\d+))?\}")
+# Matches any ${...} token the reference form did not consume — malformed/unsupported.
 _UNKNOWN_TOKEN_RE = re.compile(r"\$\{[^}]*\}")
 
 
-def _render_env_var_value(key: str, template: str, port_base: int) -> str:
-    """Resolve ``${WINTER_PORT_BASE+N}`` tokens in *template* against *port_base*.
+def _render_env_var_value(key: str, template: str, scope: dict[str, str]) -> str:
+    """Resolve ``${NAME}`` / ``${NAME+N}`` references in *template* against *scope*.
 
-    Literal values (no ``${...}`` token) pass through unchanged.  Any
-    ``${...}`` token that is not ``${WINTER_PORT_BASE+<non-negative int>}`` is
-    a fatal substitution error — raises ``ValueError`` with a clear message.
+    *scope* holds the variables visible to this entry: the managed base vars
+    (``WINTER_ENV``, ``WINTER_ENV_INDEX``, ``WINTER_PORT_BASE``,
+    ``WINTER_WORKSPACE_PORT_BASE``) plus every earlier ``[env.vars]`` entry
+    already rendered, in declaration order.
+
+    - ``${NAME}``   → NAME's resolved string value.
+    - ``${NAME+N}`` → ``int(NAME) + N`` (NAME must parse as an int; N ≥ 0).
+
+    Literal values (no ``${...}`` token) pass through unchanged. A reference to
+    an undefined name, a ``+N`` offset applied to a non-integer value, or any
+    other ``${...}`` token is a fatal substitution error — raises ``ValueError``
+    with a clear message.
     """
-    # First pass: replace every ${WINTER_PORT_BASE+N} with port_base + N.
     def _replace(m: re.Match[str]) -> str:
-        offset = int(m.group(1))
-        return str(port_base + offset)
+        name, offset = m.group(1), m.group(2)
+        if name not in scope:
+            raise ValueError(
+                f"[env.vars] key {key!r}: reference to undefined variable {name!r} "
+                f"— reference a managed base var or an earlier [env.vars] entry."
+            )
+        value = scope[name]
+        if offset is None:
+            return value
+        try:
+            return str(int(value) + int(offset))
+        except ValueError:
+            raise ValueError(
+                f"[env.vars] key {key!r}: cannot apply +{offset} to non-integer "
+                f"value of {name!r} ({value!r})."
+            ) from None
 
-    rendered = _PORT_OFFSET_RE.sub(_replace, template)
+    rendered = _REF_RE.sub(_replace, template)
 
-    # Second pass: if any ${...} remains it is an unsupported token.
+    # Any ${...} the reference form left behind is an unsupported token.
     unknown = _UNKNOWN_TOKEN_RE.search(rendered)
     if unknown:
         raise ValueError(
             f"[env.vars] key {key!r}: unsupported substitution token {unknown.group()!r}. "
-            f"Only ${{WINTER_PORT_BASE+N}} (N ≥ 0) is supported."
+            f"Use ${{NAME}} or ${{NAME+N}} referencing a managed base var or an earlier entry."
         )
     return rendered
 
@@ -689,14 +712,24 @@ class InitService:
             )
 
             # Render and write the [env.vars] block when the table is non-empty.
+            # The scope is seeded with the managed base vars and grows by each
+            # rendered entry, so a value can reference earlier entries (and the
+            # base vars) in TOML declaration order.
             if self._config.env_vars:
+                scope: dict[str, str] = {
+                    "WINTER_ENV": env_name,
+                    "WINTER_ENV_INDEX": str(index),
+                    "WINTER_PORT_BASE": str(port_base),
+                    "WINTER_WORKSPACE_PORT_BASE": str(workspace_port_base),
+                }
                 rendered_lines: list[str] = []
                 for key, template in self._config.env_vars.items():
                     try:
-                        value = _render_env_var_value(key, template, port_base)
+                        value = _render_env_var_value(key, template, scope)
                     except ValueError as exc:
                         reporter.repo_error("winter", f"{WINTER_ENV_FILE} — {exc}")
                         return False
+                    scope[key] = value
                     rendered_lines.append(f"export {key}={value}")
 
                 vars_block_lines = [WINTER_ENV_VARS_BEGIN, *rendered_lines, WINTER_ENV_VARS_END]

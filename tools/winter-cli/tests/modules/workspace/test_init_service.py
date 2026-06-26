@@ -1326,10 +1326,10 @@ def test_env_vars_preserves_manual_lines_outside_blocks(
     assert content.count("export API_PORT=4021") == 1
 
 
-def test_env_vars_malformed_token_fails_with_error(
+def test_env_vars_undefined_reference_fails(
     init_reporter: FakeInitReporter,
 ) -> None:
-    """An unsupported ${...} token fails the init step with a clear per-env error."""
+    """A ${NAME} reference to a name not in scope fails with a clear per-env error."""
     cfg = _env_vars_config({"BAD": "${UNKNOWN_VAR}"})
     fs = _env_vars_fs()
     git = FakeGitRepository()
@@ -1340,8 +1340,25 @@ def test_env_vars_malformed_token_fails_with_error(
 
     assert ok is False
     errors = [msg for _, msg in init_reporter.errors]
+    assert any("undefined variable" in msg for msg in errors)
+    assert any("UNKNOWN_VAR" in msg for msg in errors)
+
+
+def test_env_vars_unsupported_token_fails(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """A ${...} that isn't a valid ${NAME}/${NAME+N} reference is an unsupported token."""
+    cfg = _env_vars_config({"BAD": "${not-an-identifier}"})
+    fs = _env_vars_fs()
+    git = FakeGitRepository()
+    git.local_branches[WORKSPACE_ROOT / "projects" / "demo"] = ["main"]
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("alpha", init_reporter)
+
+    assert ok is False
+    errors = [msg for _, msg in init_reporter.errors]
     assert any("unsupported substitution token" in msg for msg in errors)
-    assert any("${UNKNOWN_VAR}" in msg for msg in errors)
 
 
 def test_env_vars_mixed_token_and_literal_in_value(
@@ -1364,11 +1381,91 @@ def test_env_vars_mixed_token_and_literal_in_value(
     assert "export DATABASE_URL=postgresql://wts:wts@localhost:4032/wts" in content
 
 
-def test_env_vars_malformed_no_offset_token_fails(
+def test_env_vars_bare_reference_resolves(
     init_reporter: FakeInitReporter,
 ) -> None:
-    """${WINTER_PORT_BASE} without +N is an unsupported token and must fail."""
+    """${WINTER_PORT_BASE} without an offset resolves to the base var's value."""
     cfg = _env_vars_config({"MY_PORT": "${WINTER_PORT_BASE}"})
+    fs = _env_vars_fs()
+    git = FakeGitRepository()
+    git.local_branches[WORKSPACE_ROOT / "projects" / "demo"] = ["main"]
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("alpha", init_reporter)
+
+    assert ok is True
+    content = fs.files[WORKSPACE_ROOT / "alpha" / ".winter.env"]
+    assert "export MY_PORT=4020" in content
+
+
+def test_env_vars_sibling_reference_resolves(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """A later entry can reference an earlier [env.vars] entry by name."""
+    cfg = _env_vars_config(
+        {
+            "WTS_DB_PORT": "${WINTER_PORT_BASE+12}",
+            "DATABASE_URL": "postgresql://wts:wts@localhost:${WTS_DB_PORT}/wts",
+        }
+    )
+    fs = _env_vars_fs()
+    git = FakeGitRepository()
+    git.local_branches[WORKSPACE_ROOT / "projects" / "demo"] = ["main"]
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("alpha", init_reporter)
+
+    assert ok is True
+    content = fs.files[WORKSPACE_ROOT / "alpha" / ".winter.env"]
+    assert "export WTS_DB_PORT=4032" in content
+    assert "export DATABASE_URL=postgresql://wts:wts@localhost:4032/wts" in content
+
+
+def test_env_vars_workspace_base_arithmetic_resolves(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """${WINTER_WORKSPACE_PORT_BASE+N} resolves against the index-0 workspace base."""
+    cfg = _env_vars_config({"RABBITMQ_PORT": "${WINTER_WORKSPACE_PORT_BASE+1}"})
+    fs = _env_vars_fs()
+    git = FakeGitRepository()
+    git.local_branches[WORKSPACE_ROOT / "projects" / "demo"] = ["main"]
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("alpha", init_reporter)
+
+    assert ok is True
+    content = fs.files[WORKSPACE_ROOT / "alpha" / ".winter.env"]
+    # workspace base = port_base_for_index(0) = 4000, +1 → 4001 (constant across envs)
+    assert "export RABBITMQ_PORT=4001" in content
+
+
+def test_env_vars_string_base_var_reference_resolves(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """A bare ${NAME} reference to a non-numeric base var returns its string value."""
+    cfg = _env_vars_config({"TAG": "${WINTER_ENV}-build"})
+    fs = _env_vars_fs()
+    git = FakeGitRepository()
+    git.local_branches[WORKSPACE_ROOT / "projects" / "demo"] = ["main"]
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("alpha", init_reporter)
+
+    assert ok is True
+    content = fs.files[WORKSPACE_ROOT / "alpha" / ".winter.env"]
+    assert "export TAG=alpha-build" in content
+
+
+def test_env_vars_forward_reference_fails(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """Referencing an entry declared later (not yet in scope) is an undefined-var error."""
+    cfg = _env_vars_config(
+        {
+            "DATABASE_URL": "postgresql://localhost:${WTS_DB_PORT}/wts",
+            "WTS_DB_PORT": "${WINTER_PORT_BASE+12}",
+        }
+    )
     fs = _env_vars_fs()
     git = FakeGitRepository()
     git.local_branches[WORKSPACE_ROOT / "projects" / "demo"] = ["main"]
@@ -1378,4 +1475,26 @@ def test_env_vars_malformed_no_offset_token_fails(
 
     assert ok is False
     errors = [msg for _, msg in init_reporter.errors]
-    assert any("unsupported substitution token" in msg for msg in errors)
+    assert any("undefined variable" in msg and "WTS_DB_PORT" in msg for msg in errors)
+
+
+def test_env_vars_offset_on_non_integer_fails(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """${NAME+N} where NAME is not an integer fails with a clear per-env error."""
+    cfg = _env_vars_config(
+        {
+            "HOSTNAME": "db.example.com",
+            "BAD": "${HOSTNAME+1}",
+        }
+    )
+    fs = _env_vars_fs()
+    git = FakeGitRepository()
+    git.local_branches[WORKSPACE_ROOT / "projects" / "demo"] = ["main"]
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("alpha", init_reporter)
+
+    assert ok is False
+    errors = [msg for _, msg in init_reporter.errors]
+    assert any("non-integer" in msg and "HOSTNAME" in msg for msg in errors)

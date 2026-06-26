@@ -118,10 +118,10 @@ Both blocks are rewritten idempotently on every `winter ws init` run. Hand-manag
 BACKEND_PORT  = "${WINTER_PORT_BASE+0}"
 FRONTEND_PORT = "${WINTER_PORT_BASE+1}"
 DB_PORT       = "${WINTER_PORT_BASE+2}"
-DATABASE_URL  = "postgres://localhost:${WINTER_PORT_BASE+2}/myapp"
+DATABASE_URL  = "postgres://localhost:${DB_PORT}/myapp-${WINTER_ENV}"  # reuses DB_PORT and WINTER_ENV
 ```
 
-This means every new environment gets the right ports automatically on `winter ws init <name>`, without any manual step in `project-setup.md`. Use this for any variable whose value is entirely determined by `port_base + fixed_offset`. For variables that depend on other per-env state (database name from `WINTER_ENV`, secrets, etc.), document them in `project-setup.md` instead.
+This means every new environment gets the right ports automatically on `winter ws init <name>`, without any manual step in `project-setup.md`. Use this for any variable derived from the managed base vars (`WINTER_PORT_BASE`, `WINTER_WORKSPACE_PORT_BASE`, `WINTER_ENV`, `WINTER_ENV_INDEX`) or from an earlier `[env.vars]` entry. Only variables that depend on state winter doesn't know (secrets, externally provisioned values) need to be documented in `project-setup.md` instead.
 
 For the full `[env.vars]` token grammar and supported substitutions, see [winter-cli/setup.md — `[env.vars]`](../ai/winter-cli/setup.md#shared-config-winterconfigtoml).
 
