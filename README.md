@@ -34,7 +34,7 @@ cd my-workspace
 
 `/ws-setup` is an interactive walkthrough that connects your project repositories to the workspace: declaring and cloning them into `.winter/config.toml`, setting git identity, capturing per-repo setup commands and provisioning requirements (`project-setup.md`), authoring any installed extension's setup (e.g. service manifests for `winter-service-tmux`), creating your first feature environment, and recording delivery conventions (`contributing.md`). Idempotent — re-run it any time to reconfigure.
 
-As part of setup, `/ws-setup` re-points the remotes for you: the original origin becomes `winter` (your upstream for framework updates) and `origin` connects to your own repository.
+As part of setup, `/ws-setup` re-points the remotes for you: the original origin becomes `winter` (your upstream for framework updates) and `origin` connects to your own repository. Later, `/ws-update` brings subsequent framework updates down from `winter` (see [Forking](#-forking)).
 
 ## 🧩 How it works
 
@@ -79,6 +79,8 @@ Winter is extensible by design. The framework, the consumable extensions that ad
 We recommend you fork [`paul-gross/winter`](https://github.com/paul-gross/winter) and customize it for your application. `/ws-setup` and the winter CLI handle the remote configuration for you — `winter` becomes the upstream you pull framework updates from, and `origin` points to your fork. Your customizations (project-specific agents, skills, workflow scripts, integration config) live in your fork.
 
 Winter isn't embedded into your application repos — a winter fork *is* the integration of winter and your application. The framework lives upstream; the customizations you build on top of it live in your fork.
+
+To take framework updates after the initial fork, run `/ws-update`: it fetches the `winter` remote and integrates the upstream branch into your workspace branch by rebase or merge — detecting which your workspace uses, or asking.
 
 ## ⌨️ Winter CLI
 

@@ -18,6 +18,7 @@ This workspace manages feature development through git worktrees. Here are the a
 - `/ws-fetch [name]` — Fetch refs from origin
 - `/ws-pull [name]` — Pull remote commits into the local checkout
 - `/ws-push [name]` — Push local commits to the recorded upstream
+- `/ws-update` — Integrate framework updates from the `winter` remote into the workspace branch
 - `/ws-work <plan> [in <feature-environment>]` — Start working on a plan
 - `/ws-init [target]` — Non-interactive: apply declared config to the workspace, a feature environment, or a project repo
 - `/ws-setup` — Interactive configuration: clone repos, create environments, set git identity, wire up project rules
@@ -38,6 +39,7 @@ What would you like to do?
 | Fetch, update refs | `/ws-fetch [name]` |
 | Pull, rebase down, bring down | `/ws-pull [name]` |
 | Push, send up, ship | `/ws-push [name]` |
+| Take framework/template updates, update from `winter` upstream, sync the workspace with the framework | `/ws-update` |
 | Bring main into an env, update an env against main | `winter ws fetch <name>` then `winter ws merge origin/<main-branch> <name>` |
 | Work, implement, build, start a plan | `/ws-work <plan>` |
 | Initialize, bring up after clone, make it work | `/ws-init [target]` |
@@ -51,6 +53,7 @@ Respond with a brief explanation and the exact command to run. For example:
 - "pull alpha down" → "To pull remote commits into the alpha environment, run: `/ws-pull alpha`"
 - "push alpha up" → "To push alpha's local commits to its feature branch, run: `/ws-push alpha`"
 - "fetch alpha" → "To refresh refs for the alpha environment, run: `/ws-fetch alpha`"
+- "pull in the latest framework updates" / "update from winter" → "To integrate upstream framework updates into the workspace branch, run: `/ws-update`"
 - "what's going on" → "For an overview, run: `winter dashboard` (or `winter ws list` for a quick list)."
 - "start user-notifications" → "To begin work on that plan, run: `/ws-work user-notifications`"
 - "I just cloned this, get it working" → "To apply your declared config across the workspace, run: `/ws-init`"
