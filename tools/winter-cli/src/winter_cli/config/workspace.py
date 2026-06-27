@@ -7,6 +7,7 @@ from winter_cli.config.models import (
     AdoptExtensions,
     DashboardConfig,
     DashboardLayout,
+    EnvVarBands,
     FileSizeLintConfig,
     GitIdentity,
     KeybindingsConfig,
@@ -253,7 +254,7 @@ class WorkspaceConfigService:
 
         file_size_lint = self._parse_file_size_lint(merged.get("core_checks"))
 
-        env_vars = self._parse_env_vars(merged.get("env"))
+        env_bands = self._parse_env_bands(merged.get("env"))
 
         return WorkspaceConfig(
             workspace_root=workspace_root,
@@ -281,7 +282,7 @@ class WorkspaceConfigService:
             envs_per_workspace=envs_per_workspace,
             provision_raw=provision_raw,
             service_defs_raw=service_defs_raw,
-            env_vars=env_vars,
+            env_bands=env_bands,
         )
 
     @staticmethod
@@ -350,23 +351,52 @@ class WorkspaceConfigService:
         return FileSizeLintConfig(**kwargs)
 
     @staticmethod
-    def _parse_env_vars(env_raw: object) -> dict[str, str]:
-        """Build the ``env_vars`` map from the ``[env.vars]`` sub-table.
+    def _parse_env_bands(env_raw: object) -> EnvVarBands:
+        """Build an ``EnvVarBands`` from ``[env.workspace.vars]`` and ``[env.feature.vars]``.
 
-        Falls back to an empty dict when the table is absent or ``vars`` is
-        missing.  Non-scalar values (e.g. TOML arrays, tables, or booleans)
-        raise ``ConfigError`` with an actionable message naming the key.
+        Absent sub-tables produce empty bands (clean no-op).  Non-scalar values
+        (e.g. TOML arrays, tables, or booleans) raise ``ConfigError`` naming the
+        band and key.
+
+        A legacy ``[env.vars]`` key (flat ``vars`` directly under ``[env]``) is a
+        hard break: raises ``ConfigError`` directing the user to migrate to the new
+        band names.
         """
         if not isinstance(env_raw, dict):
+            return EnvVarBands()
+
+        if "vars" in env_raw:
+            legacy_keys = ", ".join(env_raw["vars"].keys()) if isinstance(env_raw["vars"], dict) else ""
+            keys_clause = f" Found keys: {legacy_keys}." if legacy_keys else ""
+            raise ConfigError(
+                f"Unsupported config key [env.vars] detected.{keys_clause} "
+                "Migrate to [env.feature.vars] (feature-env scope) and/or "
+                "[env.workspace.vars] (workspace scope)."
+            )
+
+        workspace_band = WorkspaceConfigService._parse_env_band(env_raw, "workspace")
+        feature_band = WorkspaceConfigService._parse_env_band(env_raw, "feature")
+        return EnvVarBands(workspace=workspace_band, feature=feature_band)
+
+    @staticmethod
+    def _parse_env_band(env_raw: dict, band: str) -> dict[str, str]:
+        """Parse one named band (``workspace`` or ``feature``) from the ``[env]`` table.
+
+        Reads ``env_raw[band]["vars"]``; returns an empty dict when the sub-table or
+        the ``vars`` key is absent.  Non-scalar values raise ``ConfigError`` naming the
+        band and the offending key.
+        """
+        band_raw = env_raw.get(band)
+        if not isinstance(band_raw, dict):
             return {}
-        vars_raw = env_raw.get("vars")
+        vars_raw = band_raw.get("vars")
         if not isinstance(vars_raw, dict):
             return {}
         result: dict[str, str] = {}
         for k, v in vars_raw.items():
             if isinstance(v, bool) or not isinstance(v, (str, int, float)):
                 raise ConfigError(
-                    f"[env.vars] key {k!r} has an unsupported value type "
+                    f"[env.{band}.vars] key {k!r} has an unsupported value type "
                     f"({type(v).__name__}); only string, integer, and float values are allowed."
                 )
             result[str(k)] = str(v)

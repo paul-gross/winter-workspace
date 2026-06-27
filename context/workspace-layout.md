@@ -62,7 +62,7 @@ Each Greek letter directory (e.g., `alpha/`) contains a git worktree for **every
 
 When working on a feature in `alpha/`:
 - Repo code is at `./alpha/<repo-name>/`
-- Environment variables (`WINTER_ENV`, `WINTER_ENV_INDEX`, `WINTER_PORT_BASE`, `WINTER_WORKSPACE_PORT_BASE`, and all `[env.vars]` entries) are computed at runtime by `EnvProvisionerService` and injected into every provider subprocess — no static env file is written. (For the `workspace` scope, `WINTER_PORT_BASE` is not injected; only `WINTER_WORKSPACE_PORT_BASE` is set.) To inspect the current values for a scope, run `winter env alpha` (or `winter env workspace` for the workspace scope). See [winter-cli/usage/env.md](./winter-cli/usage/env.md).
+- Environment variables (`WINTER_ENV`, `WINTER_ENV_INDEX`, `WINTER_PORT_BASE`, `WINTER_WORKSPACE_PORT_BASE`, and the computed env-band entries from `[env.workspace.vars]` / `[env.feature.vars]`) are computed at runtime by `EnvProvisionerService` and injected into every provider subprocess — no static env file is written. (For the `workspace` scope, `WINTER_PORT_BASE` is not injected and only the workspace band is included.) To inspect the current values for a scope, run `winter env alpha` (or `winter env workspace` for the workspace scope). See [winter-cli/usage/env.md](./winter-cli/usage/env.md).
 
 ## Repo Inventory
 

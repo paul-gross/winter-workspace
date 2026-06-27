@@ -60,7 +60,7 @@ class ServiceFanOutService:
     protocol — any object with a ``compute(scope)`` method).  When present,
     ``compute(env)`` is called for ``up`` and ``down`` to inject ``WINTER_ENV``,
     ``WINTER_ENV_INDEX``, ``WINTER_PORT_BASE``, ``WINTER_WORKSPACE_PORT_BASE``,
-    and any ``[env.vars]`` variables into the provider subprocess environment.
+    and any env-band variables into the provider subprocess environment.
     This is the runtime-injection model: env vars flow via the provider
     subprocess environment rather than through any on-disk file.
     """
@@ -86,7 +86,7 @@ class ServiceFanOutService:
 
         Injects the computed env trio (``WINTER_ENV``, ``WINTER_ENV_INDEX``,
         ``WINTER_PORT_BASE``, ``WINTER_WORKSPACE_PORT_BASE``, and any
-        ``[env.vars]`` entries) into every provider subprocess environment.
+        env-band entries) into every provider subprocess environment.
         Collects the extension-declared service manifest once (lazily) and
         injects ``WINTER_SERVICE_MANIFEST`` on top.
         Returns 0 on full success. Returns the first non-zero exit code on

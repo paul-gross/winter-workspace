@@ -81,25 +81,25 @@ Probe for:
 
 The env-file *generation logic* (heredocs that write per-environment values into env files) goes into `project-setup.md` as numbered steps.
 
-#### Config-driven vars via `[env.vars]`
+#### Config-driven vars via env var bands
 
-winter computes the environment at runtime from `[env.vars]` and the managed base vars, and injects it via two paths:
+winter computes the environment at runtime from the env var bands and the managed base vars, and injects it via two paths:
 
 - **`winter service up`** injects the full env into every provider subprocess environment directly.
 - **`winter env <name>`** prints the vars as sourceable `export KEY=value` lines for shell use.
 
-**Declare project-specific port offsets in `[env.vars]`** rather than writing them by hand per environment:
+**Declare project-specific port offsets in `[env.feature.vars]`** rather than writing them by hand per environment:
 
 ```toml
 # .winter/config.toml
-[env.vars]
+[env.feature.vars]
 BACKEND_PORT  = "${WINTER_PORT_BASE+0}"
 FRONTEND_PORT = "${WINTER_PORT_BASE+1}"
 DB_PORT       = "${WINTER_PORT_BASE+2}"
 DATABASE_URL  = "postgres://localhost:${DB_PORT}/myapp-${WINTER_ENV}"  # reuses DB_PORT and WINTER_ENV
 ```
 
-This means every new environment gets the right ports automatically, without any manual step in `project-setup.md`. Use this for any variable derived from the managed base vars (`WINTER_PORT_BASE`, `WINTER_WORKSPACE_PORT_BASE`, `WINTER_ENV`, `WINTER_ENV_INDEX`) or from an earlier `[env.vars]` entry. Only variables that depend on state winter doesn't know (secrets, externally provisioned values) need to be documented in `project-setup.md` instead.
+This means every new environment gets the right ports automatically, without any manual step in `project-setup.md`. Use `[env.workspace.vars]` for variables tied to shared workspace services (use `${WINTER_WORKSPACE_PORT_BASE+N}` there, since `WINTER_PORT_BASE` is absent at workspace scope). Use this for any variable derived from the managed base vars or from an earlier band entry. Only variables that depend on state winter doesn't know (secrets, externally provisioned values) need to be documented in `project-setup.md` instead.
 
 To inspect the computed vars for a given env:
 
@@ -108,7 +108,7 @@ winter env alpha                        # print as export lines
 source <(winter env alpha)              # source into the current shell
 ```
 
-For the full `[env.vars]` token grammar and supported substitutions, see [winter-cli/configuration/ports-and-environments.md — `[env.vars]`](./winter-cli/configuration/ports-and-environments.md#per-env-derived-variables).
+For the full band semantics and token grammar, see [winter-cli/configuration/ports-and-environments.md — Env var bands](./winter-cli/configuration/ports-and-environments.md#env-var-bands).
 
 #### Other env files
 

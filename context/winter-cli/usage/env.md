@@ -39,16 +39,28 @@ winter env workspace      # workspace singleton scope
 
 ## Variables printed
 
-Every scope always includes the four base vars:
+The exact set depends on the scope:
+
+**`winter env workspace`** emits only the workspace trio plus any `[env.workspace.vars]` entries:
 
 | Variable | Meaning |
 |----------|---------|
-| `WINTER_ENV` | Scope name (e.g. `alpha`; `workspace` for the singleton scope) |
-| `WINTER_ENV_INDEX` | Stable index used for port allocation (0 for workspace) |
+| `WINTER_ENV` | `workspace` |
+| `WINTER_ENV_INDEX` | `0` |
+| `WINTER_WORKSPACE_PORT_BASE` | Port-band start for index 0 |
+
+`WINTER_PORT_BASE` is NOT emitted for the workspace scope.
+
+**`winter env <feature>`** emits the full feature set:
+
+| Variable | Meaning |
+|----------|---------|
+| `WINTER_ENV` | Scope name (e.g. `alpha`) |
+| `WINTER_ENV_INDEX` | Stable index used for port allocation |
 | `WINTER_PORT_BASE` | Port-band start for this scope (`base_port + index * ports_per_env`) |
 | `WINTER_WORKSPACE_PORT_BASE` | Port-band start for index 0 (the workspace port base) |
 
-Followed by any `[env.vars]` entries declared in `.winter/config.toml`, rendered in declaration order. Each entry may reference the four base vars or any earlier `[env.vars]` entry via `${NAME}` / `${NAME+N}` tokens — see [ports-and-environments.md](../configuration/ports-and-environments.md#per-env-derived-variables) for the full token grammar.
+Followed by the band entries from `.winter/config.toml`: workspace scope shows only the workspace band (`[env.workspace.vars]`); feature scope shows both bands with the feature band (`[env.feature.vars]`) overlaid on top. See [ports-and-environments.md](../configuration/ports-and-environments.md#env-var-bands) for band ordering, collision rules, and token grammar.
 
 ## Exit codes
 

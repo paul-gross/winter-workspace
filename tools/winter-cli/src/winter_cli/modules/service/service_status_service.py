@@ -14,7 +14,7 @@ instances (configured env names + the workspace scope), columns are owning
 providers.  Core enumerates the matrix via ``ServiceStatusMatrixService``,
 computes the full env map for each scope via ``EnvProvisionerService``,
 injects ``WINTER_ENV``/``WINTER_ENV_INDEX``/``WINTER_PORT_BASE`` and all
-``[env.vars]`` vars into each provider subprocess, runs cells in parallel,
+env-band vars into each provider subprocess, runs cells in parallel,
 and merges the per-cell documents into a single ``StatusDocument`` before
 filtering and rendering.
 

@@ -12,7 +12,7 @@ variable in the order the provisioner returns them:
     export WINTER_ENV_INDEX=1
     export WINTER_PORT_BASE=4060
     export WINTER_WORKSPACE_PORT_BASE=4000
-    export MY_APP_PORT=4061           # from [env.vars] if declared
+    export MY_APP_PORT=4061           # from [env.feature.vars] if declared
 
 The output is designed to be shell-sourced::
 
@@ -23,7 +23,7 @@ Exit codes:
 
 - 0 — success.
 - 1 — unknown scope (no allocation for the given env name), misconfigured
-      ``[env.vars]`` template, or other fatal error.
+      env-band template, or other fatal error.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ def env_cmd(ctx: click.Context, scope: str) -> None:
     """Print the runtime environment variables for SCOPE as sourceable export lines.
 
     SCOPE is a feature-env name (e.g. ``alpha``) or ``workspace``.  The output
-    can be shell-sourced to inject WINTER_* and [env.vars] variables into the
+    can be shell-sourced to inject WINTER_* and env-band variables into the
     current shell session::
 
         source <(winter env alpha)

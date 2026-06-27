@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from tests.conftest import FakeFilesystem
-from winter_cli.config.models import _DEFAULT_ENV_ALIASES, AdoptExtensions, DashboardLayout, SingletonType
+from winter_cli.config.models import _DEFAULT_ENV_ALIASES, AdoptExtensions, DashboardLayout, EnvVarBands, SingletonType
 from winter_cli.config.workspace import (
     CONFIG_FILE,
     LOCAL_CONFIG_FILE,
@@ -784,15 +784,15 @@ def test_project_and_standalone_same_name_is_valid() -> None:
         False,  # boolean
     ],
 )
-def test_env_vars_non_scalar_value_raises_config_error(bad_value: object) -> None:
-    """A non-scalar [env.vars] value (array, table, bool) raises ConfigError naming the key."""
+def test_env_bands_feature_non_scalar_value_raises_config_error(bad_value: object) -> None:
+    """A non-scalar [env.feature.vars] value raises ConfigError naming the band and key."""
     config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
     fs = FakeFilesystem(files={config_path: ""})
     svc = _service(
         fs,
         {
             config_path: {
-                "env": {"vars": {"MY_KEY": bad_value}},
+                "env": {"feature": {"vars": {"MY_KEY": bad_value}}},
             },
         },
     )
@@ -801,3 +801,169 @@ def test_env_vars_non_scalar_value_raises_config_error(bad_value: object) -> Non
         svc.load()
 
     assert "MY_KEY" in str(exc_info.value)
+    assert "feature" in str(exc_info.value)
+
+
+@pytest.mark.parametrize(
+    "bad_value",
+    [
+        ["a", "b"],  # TOML array
+        {"nested": "table"},  # TOML table
+        True,  # boolean
+        False,  # boolean
+    ],
+)
+def test_env_bands_workspace_non_scalar_value_raises_config_error(bad_value: object) -> None:
+    """A non-scalar [env.workspace.vars] value raises ConfigError naming the band and key."""
+    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
+    fs = FakeFilesystem(files={config_path: ""})
+    svc = _service(
+        fs,
+        {
+            config_path: {
+                "env": {"workspace": {"vars": {"WS_KEY": bad_value}}},
+            },
+        },
+    )
+
+    with pytest.raises(ConfigError) as exc_info:
+        svc.load()
+
+    assert "WS_KEY" in str(exc_info.value)
+    assert "workspace" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# EnvVarBands — new band-split config model
+# ---------------------------------------------------------------------------
+
+
+def test_env_bands_both_bands_parse_correctly() -> None:
+    """[env.workspace.vars] and [env.feature.vars] parse into the right bands."""
+    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
+    fs = FakeFilesystem(files={config_path: ""})
+    svc = _service(
+        fs,
+        {
+            config_path: {
+                "env": {
+                    "workspace": {"vars": {"WS_VAR": "ws_value", "SHARED": "from_workspace"}},
+                    "feature": {"vars": {"FE_VAR": "fe_value", "SHARED": "from_feature"}},
+                },
+            },
+        },
+    )
+
+    config = svc.load()
+
+    assert config.env_bands.workspace == {"WS_VAR": "ws_value", "SHARED": "from_workspace"}
+    assert config.env_bands.feature == {"FE_VAR": "fe_value", "SHARED": "from_feature"}
+
+
+def test_env_bands_only_feature_band_parses() -> None:
+    """A config with only [env.feature.vars] parses; workspace band is empty."""
+    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
+    fs = FakeFilesystem(files={config_path: ""})
+    svc = _service(
+        fs,
+        {
+            config_path: {
+                "env": {
+                    "feature": {"vars": {"FE_VAR": "fe_value"}},
+                },
+            },
+        },
+    )
+
+    config = svc.load()
+
+    assert config.env_bands.feature == {"FE_VAR": "fe_value"}
+    assert config.env_bands.workspace == {}
+
+
+def test_env_bands_only_workspace_band_parses() -> None:
+    """A config with only [env.workspace.vars] parses; feature band is empty."""
+    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
+    fs = FakeFilesystem(files={config_path: ""})
+    svc = _service(
+        fs,
+        {
+            config_path: {
+                "env": {
+                    "workspace": {"vars": {"WS_VAR": "ws_value"}},
+                },
+            },
+        },
+    )
+
+    config = svc.load()
+
+    assert config.env_bands.workspace == {"WS_VAR": "ws_value"}
+    assert config.env_bands.feature == {}
+
+
+def test_env_bands_no_env_table_both_bands_empty() -> None:
+    """A config with no [env] table produces both bands empty."""
+    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
+    fs = FakeFilesystem(files={config_path: ""})
+    svc = _service(fs, {config_path: {}})
+
+    config = svc.load()
+
+    assert config.env_bands == EnvVarBands()
+    assert config.env_bands.workspace == {}
+    assert config.env_bands.feature == {}
+
+
+def test_env_bands_legacy_env_vars_raises_config_error() -> None:
+    """A legacy [env.vars] table raises ConfigError directing migration to new band names."""
+    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
+    fs = FakeFilesystem(files={config_path: ""})
+    svc = _service(
+        fs,
+        {
+            config_path: {
+                "env": {"vars": {"OLD_KEY": "old_value"}},
+            },
+        },
+    )
+
+    with pytest.raises(ConfigError) as exc_info:
+        svc.load()
+
+    error_msg = str(exc_info.value)
+    assert "env.vars" in error_msg
+    assert "env.feature.vars" in error_msg or "env.workspace.vars" in error_msg
+    assert "OLD_KEY" in error_msg
+
+
+def test_env_bands_local_overlay_deep_merges_sub_tables() -> None:
+    """config.local.toml overlay deep-merges [env.workspace] and [env.feature] sub-tables.
+
+    A local overlay that adds [env.workspace.vars] does not wipe the base
+    [env.feature.vars], and vice versa — the two bands are merged per-key (TableField).
+    """
+    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
+    local_path = WORKSPACE_ROOT / WINTER_DIR / LOCAL_CONFIG_FILE
+    fs = FakeFilesystem(files={config_path: "", local_path: ""})
+    svc = _service(
+        fs,
+        {
+            config_path: {
+                "env": {
+                    "feature": {"vars": {"FE_VAR": "fe_value"}},
+                },
+            },
+            local_path: {
+                "env": {
+                    "workspace": {"vars": {"WS_VAR": "ws_value"}},
+                },
+            },
+        },
+    )
+
+    config = svc.load()
+
+    # Both bands are present after the overlay merge.
+    assert config.env_bands.feature == {"FE_VAR": "fe_value"}
+    assert config.env_bands.workspace == {"WS_VAR": "ws_value"}

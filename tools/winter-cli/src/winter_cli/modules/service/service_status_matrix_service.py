@@ -44,18 +44,18 @@ Each cell's provider subprocess environment is built as:
 
     build_provider_env(provider, ws_root)          # WINTER_WORKSPACE_DIR / EXT_* vars
     | EnvProvisionerService.compute(scope)         # WINTER_ENV / INDEX / PORT_BASE /
-                                                   # WINTER_WORKSPACE_PORT_BASE + [env.vars]
+                                                   # WINTER_WORKSPACE_PORT_BASE + env-band vars
 
 The provisioner is the single source of truth for all WINTER_* variables.  Each
 scope's env is computed at most once per matrix run (cache).
 
 Env is computed via ``EnvProvisionerService.compute``.  A ``ValueError`` (e.g. a
-bad ``[env.vars]`` template) does not crash ``service status``: it is caught by
+bad env-band template) does not crash ``service status``: it is caught by
 ``provision_scope_env``, surfaced as a diagnostic via the reporter, and degrades
 that scope to **no injected env** — the scope's cells still run, reporting live
-state without the ``WINTER_*`` / ``[env.vars]`` values (same best-effort
+state without the ``WINTER_*`` / env-band values (same best-effort
 resilience contract as describe errors in ``ServiceDescribeService.build``).
-Because ``[env.vars]`` is workspace-global, a malformed template degrades every
+Because the env bands are workspace-global, a malformed template degrades every
 scope; each emits its own diagnostic.
 
 Per-cell invocation
@@ -275,7 +275,7 @@ class ServiceStatusMatrixService:
 
         Env is provisioned once per scope and reused across providers.
         """
-        # Pre-compute env once per unique scope.  A malformed [env.vars] template
+        # Pre-compute env once per unique scope.  A malformed env-band template
         # makes compute() raise ValueError; provision_scope_env catches it, emits a
         # diagnostic via the reporter, and degrades that scope to no injection
         # rather than letting a raw traceback escape and crash `service status`.
@@ -456,7 +456,7 @@ class ServiceStatusMatrixService:
         supplied (``report`` path) the error is surfaced via ``status_parse_error``.
         """
         # Build env: base provider vars → provisioned env (WINTER_ENV / INDEX /
-        # WORKSPACE_PORT_BASE + [env.vars] for workspace scope; additionally
+        # WORKSPACE_PORT_BASE + env-band vars for workspace scope; additionally
         # WINTER_PORT_BASE for feature-env scopes).  The provisioner is the single
         # source of truth; there is no file to source.  For the workspace scope,
         # WINTER_PORT_BASE is deliberately NOT injected — the workspace band is

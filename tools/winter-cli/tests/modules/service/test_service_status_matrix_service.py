@@ -636,6 +636,69 @@ def test_env_injection_provisioner_custom_vars_reach_provider() -> None:
     assert env.get("WINTER_PORT_BASE") == "4020"
 
 
+def test_per_scope_injection_workspace_cell_excludes_feature_band_vars() -> None:
+    """Workspace cell receives workspace-band vars but NOT feature-only vars.
+
+    Proves that the matrix consumer passes the scope verbatim to compute() and
+    injects the result without any second band-selection code path.  A fake
+    provisioner simulating [env.workspace.vars] SHARED + [env.feature.vars] FEAT_ONLY
+    is keyed by scope; the workspace cell must receive SHARED but not FEAT_ONLY.
+    """
+    runner = FakeSubprocessRunner(
+        popen_responses={
+            f"{ENTRYPOINT_A} status workspace/*": ([json.dumps({"envs": []})], 0),
+        }
+    )
+    provisioner = FakeEnvProvisionerService(
+        responses={
+            "workspace": {"SHARED": "ws_val"},
+            "alpha": {"SHARED": "feat_override", "FEAT_ONLY": "feat_val"},
+        }
+    )
+    svc = _matrix_svc(runner, provisioner=provisioner, registry_assignments={"alpha": 1})
+    pa = _provider_a()
+
+    cells = svc.build_matrix([pa], patterns=("workspace",))
+    svc.run_matrix(cells, reporter=None)
+
+    idx = next(i for i, call in enumerate(runner.popen_calls) if "workspace/*" in str(call[0]))
+    env = runner.popen_envs[idx]
+    assert env.get("SHARED") == "ws_val"
+    assert "FEAT_ONLY" not in env
+
+
+def test_per_scope_injection_feature_cell_includes_both_bands() -> None:
+    """Feature cell receives both workspace-band and feature-band vars (feature wins collision).
+
+    Proves that the matrix consumer passes the scope verbatim to compute() and
+    injects the result without any second band-selection code path.  A fake
+    provisioner simulating both bands returns SHARED (feature override) and FEAT_ONLY
+    at feature scope; both must reach the provider subprocess env.
+    """
+    alpha_doc = _status_doc_json("alpha")
+    runner = FakeSubprocessRunner(
+        popen_responses={
+            f"{ENTRYPOINT_A} status alpha/*": ([alpha_doc], 0),
+        }
+    )
+    provisioner = FakeEnvProvisionerService(
+        responses={
+            "workspace": {"SHARED": "ws_val"},
+            "alpha": {"SHARED": "feat_override", "FEAT_ONLY": "feat_val"},
+        }
+    )
+    svc = _matrix_svc(runner, provisioner=provisioner, registry_assignments={"alpha": 1})
+    pa = _provider_a()
+
+    cells = svc.build_matrix([pa], patterns=("alpha",))
+    svc.run_matrix(cells, reporter=None)
+
+    idx = next(i for i, call in enumerate(runner.popen_calls) if "alpha/*" in str(call[0]))
+    env = runner.popen_envs[idx]
+    assert env.get("SHARED") == "feat_override"
+    assert env.get("FEAT_ONLY") == "feat_val"
+
+
 def test_env_provisioner_compute_called_once_per_scope() -> None:
     """Each scope's env is computed at most once per run_matrix, even with two providers."""
     alpha_doc = _status_doc_json("alpha")

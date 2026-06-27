@@ -4,8 +4,11 @@ Covers:
 - Feature-env scope: WINTER_ENV / WINTER_ENV_INDEX / WINTER_PORT_BASE /
   WINTER_WORKSPACE_PORT_BASE are computed from the registry-assigned index.
 - Workspace scope: index 0, port_base_for_index(0).
-- [env.vars] rendering: ${NAME}, ${NAME+N} expansion, sibling references.
-- [env.vars] error cases: undefined variable, unsupported token, non-integer +N.
+- Band selection: workspace scope → workspace band only; feature scope → union
+  with feature winning collisions; workspace keys visible to feature templates.
+- Env-band rendering: ${NAME}, ${NAME+N} expansion, sibling references.
+- Env-band error cases: undefined variable, unsupported token, non-integer +N.
+- C4 invariant: workspace-band entries resolve identically at workspace and feature scope.
 """
 
 from __future__ import annotations
@@ -14,7 +17,13 @@ from pathlib import Path
 
 import pytest
 
-from winter_cli.config.models import ProjectRepositoryConfig, SingletonRepository, SingletonType, WorkspaceConfig
+from winter_cli.config.models import (
+    EnvVarBands,
+    ProjectRepositoryConfig,
+    SingletonRepository,
+    SingletonType,
+    WorkspaceConfig,
+)
 from winter_cli.modules.workspace.env_provisioner import EnvProvisionerService
 
 WORKSPACE_ROOT = Path("/ws")
@@ -50,7 +59,8 @@ class _InMemoryRegistry:
 def _config(
     base_port: int = 4000,
     ports_per_env: int = 20,
-    env_vars: dict[str, str] | None = None,
+    workspace_vars: dict[str, str] | None = None,
+    feature_vars: dict[str, str] | None = None,
 ) -> WorkspaceConfig:
     kwargs: dict = {
         "workspace_root": WORKSPACE_ROOT,
@@ -61,8 +71,11 @@ def _config(
         "singleton_repos": [SingletonRepository(name="ws", type=SingletonType.workspace)],
         "project_repos": [ProjectRepositoryConfig(name="demo", url="git@example.com:demo.git")],
     }
-    if env_vars is not None:
-        kwargs["env_vars"] = env_vars
+    if workspace_vars is not None or feature_vars is not None:
+        kwargs["env_bands"] = EnvVarBands(
+            workspace=workspace_vars or {},
+            feature=feature_vars or {},
+        )
     return WorkspaceConfig(**kwargs)
 
 
@@ -70,9 +83,15 @@ def _svc(
     assignments: dict[str, int] | None = None,
     base_port: int = 4000,
     ports_per_env: int = 20,
-    env_vars: dict[str, str] | None = None,
+    workspace_vars: dict[str, str] | None = None,
+    feature_vars: dict[str, str] | None = None,
 ) -> EnvProvisionerService:
-    cfg = _config(base_port=base_port, ports_per_env=ports_per_env, env_vars=env_vars)
+    cfg = _config(
+        base_port=base_port,
+        ports_per_env=ports_per_env,
+        workspace_vars=workspace_vars,
+        feature_vars=feature_vars,
+    )
     reg = _InMemoryRegistry(assignments)
     return EnvProvisionerService(config=cfg, registry=reg)
 
@@ -142,7 +161,171 @@ class TestWorkspaceScope:
 
 
 # ---------------------------------------------------------------------------
-# [env.vars] rendering
+# Band selection — workspace scope
+# ---------------------------------------------------------------------------
+
+
+class TestWorkspaceBandSelection:
+    def test_workspace_scope_renders_only_workspace_band(self) -> None:
+        """Workspace scope: workspace-band key present, feature-band key absent."""
+        result = _svc(
+            workspace_vars={"SHARED": "ws-only"},
+            feature_vars={"FEAT": "feat-only"},
+        ).compute("workspace")
+        assert result["SHARED"] == "ws-only"
+        assert "FEAT" not in result
+
+    def test_workspace_scope_omits_winter_port_base(self) -> None:
+        """Workspace scope still does not emit WINTER_PORT_BASE even with workspace vars."""
+        result = _svc(
+            workspace_vars={"WS_PORT": "${WINTER_WORKSPACE_PORT_BASE+1}"},
+        ).compute("workspace")
+        assert "WINTER_PORT_BASE" not in result
+        assert result["WS_PORT"] == "4001"
+
+    def test_workspace_band_winter_port_base_raises_at_workspace_scope(self) -> None:
+        """Workspace-band template using ${WINTER_PORT_BASE+N} raises ValueError at workspace scope.
+
+        WINTER_PORT_BASE is never in the workspace-band template scope (it is not in
+        the workspace result, and no alias is injected).  Use
+        ${WINTER_WORKSPACE_PORT_BASE+N} for workspace-relative port references.
+        """
+        with pytest.raises(ValueError, match=r"undefined variable.*WINTER_PORT_BASE"):
+            _svc(
+                base_port=4000,
+                workspace_vars={"WS_PORT": "${WINTER_PORT_BASE+1}"},
+            ).compute("workspace")
+
+    def test_workspace_scope_empty_bands_returns_base_vars_only(self) -> None:
+        """Absent bands for workspace scope: only the three WINTER_* base vars."""
+        result = _svc().compute("workspace")
+        assert set(result.keys()) == {
+            "WINTER_ENV",
+            "WINTER_ENV_INDEX",
+            "WINTER_WORKSPACE_PORT_BASE",
+        }
+
+
+# ---------------------------------------------------------------------------
+# C4 invariant — workspace-band consistency across scopes
+# ---------------------------------------------------------------------------
+
+
+class TestWorkspaceBandPortBaseInvariant:
+    """Workspace-band entries must resolve identically at workspace and feature scope."""
+
+    def test_workspace_band_workspace_port_base_same_at_both_scopes(self) -> None:
+        """${WINTER_WORKSPACE_PORT_BASE+N} in workspace band resolves to the same value at both scopes."""
+        svc = _svc(
+            assignments={"alpha": 1},
+            base_port=4000,
+            ports_per_env=20,
+            workspace_vars={"SHARED_PORT": "${WINTER_WORKSPACE_PORT_BASE+1}"},
+        )
+        ws_result = svc.compute("workspace")
+        feat_result = svc.compute("alpha")
+        # 4000 + 1 = 4001 in both cases — identical regardless of scope
+        assert ws_result["SHARED_PORT"] == "4001"
+        assert feat_result["SHARED_PORT"] == "4001"
+
+    def test_workspace_band_winter_port_base_raises_at_feature_scope(self) -> None:
+        """Workspace-band template using ${WINTER_PORT_BASE+N} raises ValueError at feature scope.
+
+        WINTER_PORT_BASE is excluded from the workspace-band template scope even when
+        rendering inside a feature-scope compute() call, so the error is the same as
+        at workspace scope.
+        """
+        with pytest.raises(ValueError, match=r"undefined variable.*WINTER_PORT_BASE"):
+            _svc(
+                assignments={"alpha": 1},
+                base_port=4000,
+                workspace_vars={"WS_PORT": "${WINTER_PORT_BASE+1}"},
+            ).compute("alpha")
+
+    def test_feature_band_winter_port_base_resolves_to_feature_base(self) -> None:
+        """${WINTER_PORT_BASE+N} in the feature band still resolves to the feature's port base."""
+        result = _svc(
+            assignments={"alpha": 1},
+            base_port=4000,
+            ports_per_env=20,
+            feature_vars={"APP_PORT": "${WINTER_PORT_BASE+5}"},
+        ).compute("alpha")
+        # alpha index 1 → 4020 + 5 = 4025
+        assert result["APP_PORT"] == "4025"
+
+
+# ---------------------------------------------------------------------------
+# Band selection — feature scope
+# ---------------------------------------------------------------------------
+
+
+class TestFeatureBandSelection:
+    def test_feature_scope_includes_workspace_band_key(self) -> None:
+        """Feature scope inherits workspace-band entries."""
+        result = _svc(
+            assignments={"alpha": 1},
+            workspace_vars={"SHARED": "ws-value"},
+        ).compute("alpha")
+        assert result["SHARED"] == "ws-value"
+
+    def test_feature_scope_includes_feature_band_key(self) -> None:
+        """Feature scope includes feature-band entries."""
+        result = _svc(
+            assignments={"alpha": 1},
+            feature_vars={"FEAT": "feat-value"},
+        ).compute("alpha")
+        assert result["FEAT"] == "feat-value"
+
+    def test_feature_wins_on_key_collision(self) -> None:
+        """When the same key appears in both bands, the feature value wins."""
+        result = _svc(
+            assignments={"alpha": 1},
+            workspace_vars={"COMMON": "from-workspace"},
+            feature_vars={"COMMON": "from-feature"},
+        ).compute("alpha")
+        assert result["COMMON"] == "from-feature"
+
+    def test_workspace_scope_gets_workspace_value_on_same_key(self) -> None:
+        """Workspace scope still sees the workspace value for the colliding key."""
+        result = _svc(
+            workspace_vars={"COMMON": "from-workspace"},
+            feature_vars={"COMMON": "from-feature"},
+        ).compute("workspace")
+        assert result["COMMON"] == "from-workspace"
+
+    def test_feature_template_references_workspace_band_key(self) -> None:
+        """A feature-band template can reference a workspace-band key already rendered."""
+        result = _svc(
+            assignments={"alpha": 1},
+            workspace_vars={"DB_HOST": "db.example.com"},
+            feature_vars={"DB_URL": "postgres://${DB_HOST}/mydb"},
+        ).compute("alpha")
+        assert result["DB_HOST"] == "db.example.com"
+        assert result["DB_URL"] == "postgres://db.example.com/mydb"
+
+    def test_feature_scope_union_both_bands(self) -> None:
+        """Feature scope output contains keys from both bands."""
+        result = _svc(
+            assignments={"alpha": 1},
+            workspace_vars={"WS_KEY": "ws-val"},
+            feature_vars={"FEAT_KEY": "feat-val"},
+        ).compute("alpha")
+        assert result["WS_KEY"] == "ws-val"
+        assert result["FEAT_KEY"] == "feat-val"
+
+    def test_feature_scope_empty_bands_returns_base_vars_only(self) -> None:
+        """Absent bands for feature scope: only the four WINTER_* base vars."""
+        result = _svc(assignments={"alpha": 1}, feature_vars=None).compute("alpha")
+        assert set(result.keys()) == {
+            "WINTER_ENV",
+            "WINTER_ENV_INDEX",
+            "WINTER_PORT_BASE",
+            "WINTER_WORKSPACE_PORT_BASE",
+        }
+
+
+# ---------------------------------------------------------------------------
+# Band rendering — existing token tests (migrated to feature_vars=)
 # ---------------------------------------------------------------------------
 
 
@@ -153,7 +336,7 @@ class TestEnvVarsRendering:
             assignments={"alpha": 1},
             base_port=4000,
             ports_per_env=20,
-            env_vars={"WEB_PORT": "${WINTER_PORT_BASE+10}"},
+            feature_vars={"WEB_PORT": "${WINTER_PORT_BASE+10}"},
         ).compute("alpha")
         assert result["WEB_PORT"] == "4030"  # 4020 + 10
 
@@ -161,7 +344,7 @@ class TestEnvVarsRendering:
         """${WINTER_PORT_BASE+0} resolves to exactly port_base."""
         result = _svc(
             assignments={"alpha": 1},
-            env_vars={"MY_PORT": "${WINTER_PORT_BASE+0}"},
+            feature_vars={"MY_PORT": "${WINTER_PORT_BASE+0}"},
         ).compute("alpha")
         assert result["MY_PORT"] == "4020"
 
@@ -169,7 +352,7 @@ class TestEnvVarsRendering:
         """Values with no ${...} token pass through unchanged."""
         result = _svc(
             assignments={"alpha": 1},
-            env_vars={"DATABASE_URL": "postgresql://user:pass@localhost/mydb"},
+            feature_vars={"DATABASE_URL": "postgresql://user:pass@localhost/mydb"},
         ).compute("alpha")
         assert result["DATABASE_URL"] == "postgresql://user:pass@localhost/mydb"
 
@@ -177,15 +360,15 @@ class TestEnvVarsRendering:
         """${WINTER_PORT_BASE} without offset resolves to the base var's string value."""
         result = _svc(
             assignments={"alpha": 1},
-            env_vars={"MY_PORT": "${WINTER_PORT_BASE}"},
+            feature_vars={"MY_PORT": "${WINTER_PORT_BASE}"},
         ).compute("alpha")
         assert result["MY_PORT"] == "4020"
 
     def test_sibling_reference_resolves(self) -> None:
-        """A later [env.vars] entry can reference an earlier one by name."""
+        """A later [env.feature.vars] entry can reference an earlier one by name."""
         result = _svc(
             assignments={"alpha": 1},
-            env_vars={
+            feature_vars={
                 "DB_PORT": "${WINTER_PORT_BASE+12}",
                 "DATABASE_URL": "postgresql://localhost:${DB_PORT}/mydb",
             },
@@ -199,7 +382,7 @@ class TestEnvVarsRendering:
             assignments={"alpha": 1},
             base_port=4000,
             ports_per_env=20,
-            env_vars={"RABBITMQ_PORT": "${WINTER_WORKSPACE_PORT_BASE+1}"},
+            feature_vars={"RABBITMQ_PORT": "${WINTER_WORKSPACE_PORT_BASE+1}"},
         ).compute("alpha")
         assert result["RABBITMQ_PORT"] == "4001"
 
@@ -207,7 +390,7 @@ class TestEnvVarsRendering:
         """${WINTER_ENV} resolves to the env name string."""
         result = _svc(
             assignments={"alpha": 1},
-            env_vars={"TAG": "${WINTER_ENV}-build"},
+            feature_vars={"TAG": "${WINTER_ENV}-build"},
         ).compute("alpha")
         assert result["TAG"] == "alpha-build"
 
@@ -217,15 +400,15 @@ class TestEnvVarsRendering:
             assignments={"alpha": 1},
             base_port=4000,
             ports_per_env=20,
-            env_vars={"DB_URL": "postgres://localhost:${WINTER_PORT_BASE+12}/db"},
+            feature_vars={"DB_URL": "postgres://localhost:${WINTER_PORT_BASE+12}/db"},
         ).compute("alpha")
         assert result["DB_URL"] == "postgres://localhost:4032/db"
 
     def test_multiple_port_offsets(self) -> None:
-        """Multiple [env.vars] entries are all rendered."""
+        """Multiple [env.feature.vars] entries are all rendered."""
         result = _svc(
             assignments={"alpha": 1},
-            env_vars={
+            feature_vars={
                 "WEB_PORT": "${WINTER_PORT_BASE+10}",
                 "API_PORT": "${WINTER_PORT_BASE+11}",
                 "LITERAL": "no-token",
@@ -236,8 +419,8 @@ class TestEnvVarsRendering:
         assert result["LITERAL"] == "no-token"
 
     def test_no_env_vars_table_returns_base_vars_only(self) -> None:
-        """Absent [env.vars] table returns only the four base WINTER_* vars."""
-        result = _svc(assignments={"alpha": 1}, env_vars=None).compute("alpha")
+        """Absent bands return only the four base WINTER_* vars."""
+        result = _svc(assignments={"alpha": 1}, feature_vars=None).compute("alpha")
         assert set(result.keys()) == {
             "WINTER_ENV",
             "WINTER_ENV_INDEX",
@@ -246,9 +429,9 @@ class TestEnvVarsRendering:
         }
 
     def test_workspace_scope_env_vars(self) -> None:
-        """[env.vars] entries are also rendered for workspace scope."""
+        """[env.workspace.vars] entries are rendered for workspace scope."""
         result = _svc(
-            env_vars={"WS_PORT": "${WINTER_WORKSPACE_PORT_BASE+1}"},
+            workspace_vars={"WS_PORT": "${WINTER_WORKSPACE_PORT_BASE+1}"},
         ).compute("workspace")
         assert result["WS_PORT"] == "4001"  # 4000 + 1
 
@@ -264,7 +447,7 @@ class TestEnvVarsErrors:
         with pytest.raises(ValueError, match=r"undefined variable.*UNKNOWN_VAR"):
             _svc(
                 assignments={"alpha": 1},
-                env_vars={"BAD": "${UNKNOWN_VAR}"},
+                feature_vars={"BAD": "${UNKNOWN_VAR}"},
             ).compute("alpha")
 
     def test_unsupported_token_raises(self) -> None:
@@ -272,7 +455,7 @@ class TestEnvVarsErrors:
         with pytest.raises(ValueError, match="unsupported substitution token"):
             _svc(
                 assignments={"alpha": 1},
-                env_vars={"BAD": "${not-an-identifier}"},
+                feature_vars={"BAD": "${not-an-identifier}"},
             ).compute("alpha")
 
     def test_non_integer_offset_raises(self) -> None:
@@ -280,7 +463,7 @@ class TestEnvVarsErrors:
         with pytest.raises(ValueError, match="non-integer"):
             _svc(
                 assignments={"alpha": 1},
-                env_vars={
+                feature_vars={
                     "HOSTNAME": "db.example.com",
                     "BAD": "${HOSTNAME+1}",
                 },
@@ -291,7 +474,7 @@ class TestEnvVarsErrors:
         with pytest.raises(ValueError, match=r"undefined variable.*WTS_DB_PORT"):
             _svc(
                 assignments={"alpha": 1},
-                env_vars={
+                feature_vars={
                     "DATABASE_URL": "postgres://localhost:${WTS_DB_PORT}/db",
                     "WTS_DB_PORT": "${WINTER_PORT_BASE+12}",
                 },

@@ -292,6 +292,71 @@ def test_up_no_provisioned_env_vars_when_provisioner_absent() -> None:
 # ── env provision error resilience ───────────────────────────────────────────
 
 
+# ── per-scope band selection regression ──────────────────────────────────────
+
+
+def test_up_workspace_scope_injects_workspace_band_only() -> None:
+    """Workspace scope: provisioner's output has workspace-band key but NOT feature-only key.
+
+    Proves that the fan-out consumer passes the scope verbatim to compute()
+    and injects the result without any second band-selection code path.
+    A provisioner simulating [env.workspace.vars] SHARED + [env.feature.vars] FEAT_ONLY
+    returns only SHARED at workspace scope; FEAT_ONLY must not appear in the env.
+    """
+
+    class _BandProvisioner:
+        def compute(self, scope: str) -> dict[str, str]:
+            if scope == "workspace":
+                return {"SHARED": "ws_val"}
+            return {"SHARED": "feat_override", "FEAT_ONLY": "feat_val"}
+
+    pa = _pa()
+    runner = FakeSubprocessRunner()
+    svc = ServiceFanOutService(
+        subprocess_runner=runner,
+        workspace_root=WS,
+        env_provisioner=_BandProvisioner(),
+    )
+
+    svc.up("workspace", [pa])
+
+    assert len(runner.call_envs) == 1
+    call_env = runner.call_envs[0]
+    assert call_env["SHARED"] == "ws_val"
+    assert "FEAT_ONLY" not in call_env
+
+
+def test_up_feature_scope_injects_both_bands_feature_wins_collision() -> None:
+    """Feature scope: provisioner's output has both workspace-band and feature-band keys.
+
+    Proves that the fan-out consumer passes the scope verbatim to compute()
+    and injects the result without any second band-selection code path.
+    A provisioner simulating [env.workspace.vars] SHARED + [env.feature.vars] SHARED/FEAT_ONLY
+    returns both SHARED (feature value wins collision) and FEAT_ONLY at feature scope.
+    """
+
+    class _BandProvisioner:
+        def compute(self, scope: str) -> dict[str, str]:
+            if scope == "workspace":
+                return {"SHARED": "ws_val"}
+            return {"SHARED": "feat_override", "FEAT_ONLY": "feat_val"}
+
+    pa = _pa()
+    runner = FakeSubprocessRunner()
+    svc = ServiceFanOutService(
+        subprocess_runner=runner,
+        workspace_root=WS,
+        env_provisioner=_BandProvisioner(),
+    )
+
+    svc.up("alpha", [pa])
+
+    assert len(runner.call_envs) == 1
+    call_env = runner.call_envs[0]
+    assert call_env["SHARED"] == "feat_override"
+    assert call_env["FEAT_ONLY"] == "feat_val"
+
+
 def test_provision_error_does_not_raise_on_up_or_down() -> None:
     """A ValueError from the provisioner degrades to no-injection; up/down do not raise."""
 

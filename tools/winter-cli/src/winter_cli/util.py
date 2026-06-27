@@ -14,9 +14,13 @@ from winter_cli.config.overlay import ArrayAppendField, MergeSpec, TableField, o
 #   unspecified-key fallback), allowing config.local.toml to trim or rewrite
 #   them entirely.
 #
-# Merges the four nested-table keys (git, keybindings, tui, capabilities) one
+# Merges five nested-table keys (git, keybindings, tui, capabilities, env) one
 # level deep via TableField; a new nested-table key needing per-key overlay must
-# be added to this spec explicitly.
+# be added to this spec explicitly.  For the ``env`` key this means the
+# ``[env.workspace]`` and ``[env.feature]`` sub-tables are merged per-key (so a
+# config.local.toml can add ``[env.workspace.vars]`` without wiping ``[env.feature.vars]``),
+# but each band's ``vars`` dict is replaced wholesale — there is no per-variable
+# merging within a band (same one-level limit as ``tui``/``[tui.dashboard]``).
 _WORKSPACE_CONFIG_SPEC = MergeSpec(
     fields={
         "project_repository": ArrayAppendField(),
@@ -25,6 +29,7 @@ _WORKSPACE_CONFIG_SPEC = MergeSpec(
         "keybindings": TableField(),
         "tui": TableField(),
         "capabilities": TableField(),
+        "env": TableField(),
     }
 )
 

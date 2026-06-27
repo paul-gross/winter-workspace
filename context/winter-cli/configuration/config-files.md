@@ -37,7 +37,7 @@ The top-level `prefix` key is distinct from the per-`[[standalone_repository]]` 
 
 The rest of `.winter/config.toml` is organized by concept:
 
-- **Port allocation** (`base_port`, `ports_per_env`, `env_aliases`, `envs_per_workspace`) and the `[env.vars]` table — [ports-and-environments.md](./ports-and-environments.md).
+- **Port allocation** (`base_port`, `ports_per_env`, `env_aliases`, `envs_per_workspace`) and the `[env.workspace.vars]` / `[env.feature.vars]` env var bands — [ports-and-environments.md](./ports-and-environments.md).
 - **Repositories** (`[[project_repository]]`, `[[standalone_repository]]`, `git_excludes`) — [repositories.md](./repositories.md).
 - **TUI** (`[tui.dashboard]`, `[keybindings]`) — [tui.md](./tui.md).
 - **Provision handlers** (`[[provision.*]]`) — [provision.md](./provision.md).

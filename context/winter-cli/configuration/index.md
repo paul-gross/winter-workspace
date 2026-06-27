@@ -12,7 +12,7 @@ Winter loads `.winter/config.toml` (committed) and merges `.winter/config.local.
 |---------|------------|
 | [Config files & merge model](./config-files.md) | …you need the two-file merge, the local overlay (git identity), the state registry, or the workspace-level scalar keys. |
 | [Repositories](./repositories.md) | …you're declaring project or standalone repos — `url`, `cmd`, `pinned`, `ref` pins and the lock file, `config_dir`, display names and ordering. |
-| [Ports & environments](./ports-and-environments.md) | …you're tuning the port band (`base_port`, `ports_per_env`, `env_aliases`), the `[env.vars]` derived variables, or need the index-reservation rules. |
+| [Ports & environments](./ports-and-environments.md) | …you're tuning the port band (`base_port`, `ports_per_env`, `env_aliases`), the `[env.workspace.vars]` / `[env.feature.vars]` env var bands, or need the index-reservation rules. |
 | [Dashboard & keybindings](./tui.md) | …you're setting the `winter dashboard` default layout or remapping its keys. |
 | [Provision handlers](./provision.md) | …you're declaring `[[provision.*]]` dependency / resource / data handlers. |
 | [Extensions](./extensions.md) | …you're authoring a `winter-ext.toml` — skills/agents symlinking, lifecycle hooks, and the `adopt_extensions` modes. |

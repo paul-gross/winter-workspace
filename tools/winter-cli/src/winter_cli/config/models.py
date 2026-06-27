@@ -3,7 +3,7 @@ from __future__ import annotations
 import enum
 from pathlib import Path
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SingletonType(enum.Enum):
@@ -326,6 +326,25 @@ _DEFAULT_ENV_ALIASES = [
 ]
 
 
+class EnvVarBands(BaseModel):
+    """Scope-split env-var bands from ``[env.workspace.vars]`` and ``[env.feature.vars]``.
+
+    ``workspace`` vars are rendered for workspace scope AND inherited as the base layer
+    for every feature scope (feature-band entries are overlaid on top; feature wins key
+    collisions).  ``feature`` vars are rendered for feature-env scope only — never emitted
+    for the workspace scope.  Both bands default to empty dicts when the corresponding
+    TOML sub-table is absent.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    workspace: dict[str, str] = Field(default_factory=dict)
+    """Vars from ``[env.workspace.vars]`` — workspace scope only."""
+
+    feature: dict[str, str] = Field(default_factory=dict)
+    """Vars from ``[env.feature.vars]`` — feature-env scope (overlaid on workspace band)."""
+
+
 class WorkspaceConfig(BaseModel):
     """Immutable configuration snapshot for the current workspace."""
 
@@ -447,13 +466,12 @@ class WorkspaceConfig(BaseModel):
     ``ExtServiceManifestParser`` on demand.
     """
 
-    env_vars: dict[str, str] = Field(default_factory=dict)
-    """Per-env variables from the ``[env.vars]`` table in ``.winter/config.toml``.
+    env_bands: EnvVarBands = Field(default_factory=EnvVarBands)
+    """Scope-split env-var bands from ``[env.workspace.vars]`` and ``[env.feature.vars]``.
 
-    Each value may contain ``${WINTER_PORT_BASE+N}`` tokens that are resolved
-    against the env's computed ``port_base_for_index(index)`` at ``winter ws
-    init`` time.  Literal values (no token) pass through unchanged.  An absent
-    table is a no-op (empty dict).
+    ``EnvProvisionerService.compute()`` selects bands by scope: workspace scope
+    renders only the ``workspace`` band; feature scope renders ``workspace`` first
+    then ``feature`` on top (feature wins key collisions).
     """
 
     def port_base_for_index(self, index: int) -> int:

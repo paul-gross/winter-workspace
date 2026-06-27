@@ -65,7 +65,7 @@ def provision_scope_env(
     """Compute *scope*'s injected env map, degrading to ``{}`` on a config error.
 
     Returns ``{}`` when *env_provisioner* is ``None`` (no provisioner bound).
-    A ``ValueError`` from ``compute`` (e.g. a malformed ``[env.vars]`` template)
+    A ``ValueError`` from ``compute`` (e.g. a malformed env-band template)
     is caught and surfaced via ``reporter.env_provision_error`` rather than
     propagating as a raw traceback; the action then proceeds without injecting
     that scope's env (best-effort, mirroring the resilience contract elsewhere).

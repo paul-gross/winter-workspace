@@ -29,12 +29,31 @@ The workspace band is exposed ONLY as ``WINTER_WORKSPACE_PORT_BASE`` so the name
 carries one meaning everywhere (the per-env band); emitting it under the
 workspace value (index-0) would make the name ambiguous across scopes.
 
-Followed by zero or more ``[env.vars]`` entries, rendered in TOML declaration
-order.  Each entry may reference any earlier key (including the base vars above)
-via ``${NAME}`` or ``${NAME+N}`` tokens.
+Band selection
+--------------
+``[env.workspace.vars]`` and ``[env.feature.vars]`` are selected by scope:
 
-``_render_env_var_value`` is a module-level helper (previously in
-``init_service.py``) that this module re-exports for callers that need it.
+- **workspace scope**: only ``[env.workspace.vars]`` entries are rendered.
+- **feature scope**: ``[env.workspace.vars]`` entries are rendered first (into the
+  accumulating dict), then ``[env.feature.vars]`` entries on top.  On a key
+  collision the feature-band value wins.  Feature-band templates may reference
+  keys already rendered from the workspace band.
+
+Workspace-band template scope invariant
+---------------------------------------
+``WINTER_PORT_BASE`` is **never** available when rendering ``[env.workspace.vars]``
+entries — neither at workspace scope (where it is not in the result at all) nor at
+feature scope (where it is excluded from the workspace-band template scope
+specifically).  This guarantees a workspace-band entry resolves identically at both
+scopes.  Workspace-band templates must use ``WINTER_WORKSPACE_PORT_BASE`` for
+workspace-relative port references; a reference to ``${WINTER_PORT_BASE+N}`` in the
+workspace band raises ``ValueError`` at any scope (undefined variable).
+
+Feature-band templates do have ``WINTER_PORT_BASE`` in scope (the feature's own port
+base) as well as all already-rendered workspace-band keys.
+
+Each entry may reference any earlier key (including the base vars available to that
+band's template scope) via ``${NAME}`` or ``${NAME+N}`` tokens.
 """
 
 from __future__ import annotations
@@ -56,12 +75,13 @@ _REF_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?:\+(\d+))?\}")
 _UNKNOWN_TOKEN_RE = re.compile(r"\$\{[^}]*\}")
 
 
-def _render_env_var_value(key: str, template: str, scope: dict[str, str]) -> str:
+def _render_env_var_value(band: str, key: str, template: str, scope: dict[str, str]) -> str:
     """Resolve ``${NAME}`` / ``${NAME+N}`` references in *template* against *scope*.
 
+    *band* is a label for error messages (e.g. ``"env.workspace.vars"``).
     *scope* holds the variables visible to this entry: the managed base vars
     (``WINTER_ENV``, ``WINTER_ENV_INDEX``, ``WINTER_PORT_BASE``,
-    ``WINTER_WORKSPACE_PORT_BASE``) plus every earlier ``[env.vars]`` entry
+    ``WINTER_WORKSPACE_PORT_BASE``) plus every earlier env-band entry
     already rendered, in declaration order.
 
     - ``${NAME}``   → NAME's resolved string value.
@@ -77,8 +97,8 @@ def _render_env_var_value(key: str, template: str, scope: dict[str, str]) -> str
         name, offset = m.group(1), m.group(2)
         if name not in scope:
             raise ValueError(
-                f"[env.vars] key {key!r}: reference to undefined variable {name!r} "
-                f"— reference a managed base var or an earlier [env.vars] entry."
+                f"{band} key {key!r}: reference to undefined variable {name!r} "
+                f"— reference a managed base var or an earlier env-band entry."
             )
         value = scope[name]
         if offset is None:
@@ -87,7 +107,7 @@ def _render_env_var_value(key: str, template: str, scope: dict[str, str]) -> str
             return str(int(value) + int(offset))
         except ValueError:
             raise ValueError(
-                f"[env.vars] key {key!r}: cannot apply +{offset} to non-integer value of {name!r} ({value!r})."
+                f"{band} key {key!r}: cannot apply +{offset} to non-integer value of {name!r} ({value!r})."
             ) from None
 
     rendered = _REF_RE.sub(_replace, template)
@@ -96,10 +116,27 @@ def _render_env_var_value(key: str, template: str, scope: dict[str, str]) -> str
     unknown = _UNKNOWN_TOKEN_RE.search(rendered)
     if unknown:
         raise ValueError(
-            f"[env.vars] key {key!r}: unsupported substitution token {unknown.group()!r}. "
+            f"{band} key {key!r}: unsupported substitution token {unknown.group()!r}. "
             f"Use ${{NAME}} or ${{NAME+N}} referencing a managed base var or an earlier entry."
         )
     return rendered
+
+
+def _render_band(
+    band_label: str,
+    band: dict[str, str],
+    template_scope: dict[str, str],
+    result: dict[str, str],
+) -> None:
+    """Render all entries in *band* against *template_scope*, accumulating into *result*.
+
+    Each rendered value is added to both *template_scope* (so later entries in
+    the same band can reference it) and *result* (the authoritative output map).
+    """
+    for key, template in band.items():
+        value = _render_env_var_value(band_label, key, template, template_scope)
+        template_scope[key] = value
+        result[key] = value
 
 
 class EnvProvisionerService:
@@ -128,16 +165,24 @@ class EnvProvisionerService:
 
         For a feature env this is the env trio (``WINTER_ENV``,
         ``WINTER_ENV_INDEX``, ``WINTER_PORT_BASE``) plus
-        ``WINTER_WORKSPACE_PORT_BASE`` and any rendered ``[env.vars]`` entries.
+        ``WINTER_WORKSPACE_PORT_BASE`` and any rendered band entries.
 
         For ``"workspace"``, ``WINTER_ENV``, ``WINTER_ENV_INDEX``, and
         ``WINTER_WORKSPACE_PORT_BASE`` are returned (index 0, the workspace port
-        base) plus ``[env.vars]``.  ``WINTER_PORT_BASE`` is deliberately NOT
-        included for the workspace scope — the workspace band is exposed only as
-        ``WINTER_WORKSPACE_PORT_BASE`` so the name carries one meaning everywhere.
+        base) plus ``[env.workspace.vars]`` entries only.  ``WINTER_PORT_BASE``
+        is deliberately NOT included for the workspace scope — the workspace band
+        is exposed only as ``WINTER_WORKSPACE_PORT_BASE`` so the name carries one
+        meaning everywhere.
 
-        Raises ``ValueError`` when an ``[env.vars]`` template has an
-        unsupported token or a reference to an undefined variable.
+        Band selection by scope:
+
+        - workspace scope: ``[env.workspace.vars]`` entries only.
+        - feature scope: ``[env.workspace.vars]`` rendered first, then
+          ``[env.feature.vars]`` on top (feature wins key collisions; feature
+          templates may reference workspace-band keys already in scope).
+
+        Raises ``ValueError`` when a band template has an unsupported token or a
+        reference to an undefined variable.
         """
         workspace_port_base = str(self._config.port_base_for_index(0))
 
@@ -151,18 +196,31 @@ class EnvProvisionerService:
             trio = build_env_trio(scope, self._config, self._registry)
             result = {**trio, "WINTER_WORKSPACE_PORT_BASE": workspace_port_base}
 
-        if self._config.env_vars:
-            scope_vars = dict(result)
+        bands = self._config.env_bands
+        workspace_band = bands.workspace
+        feature_band = bands.feature
+
+        if workspace_band or feature_band:
             if scope == WORKSPACE_SCOPE:
-                # For template resolution, expose WINTER_PORT_BASE as an alias
-                # for WINTER_WORKSPACE_PORT_BASE so that [env.vars] templates
-                # written with ${WINTER_PORT_BASE+N} continue to resolve.
-                # The alias is NOT propagated to the returned result — the
-                # workspace result carries WINTER_WORKSPACE_PORT_BASE only.
-                scope_vars["WINTER_PORT_BASE"] = workspace_port_base
-            for key, template in self._config.env_vars.items():
-                value = _render_env_var_value(key, template, scope_vars)
-                scope_vars[key] = value
-                result[key] = value
+                # Workspace band template scope: base vars only (no WINTER_PORT_BASE —
+                # it is not in `result` for workspace scope, and we do not inject an
+                # alias).  Workspace-band templates that reference ${WINTER_PORT_BASE+N}
+                # raise undefined-variable ValueError, surfacing the mistake.  Use
+                # ${WINTER_WORKSPACE_PORT_BASE+N} instead to target the workspace band.
+                ws_template_scope = dict(result)
+                _render_band("env.workspace.vars", workspace_band, ws_template_scope, result)
+            else:
+                # Feature scope: render the workspace band first so feature-band
+                # templates may reference workspace entries.  The workspace band's
+                # template scope deliberately EXCLUDES WINTER_PORT_BASE so workspace-
+                # band entries resolve identically regardless of which scope they are
+                # rendered in — a workspace-band template using ${WINTER_PORT_BASE+N}
+                # raises undefined-variable ValueError here too.
+                ws_template_scope = {k: v for k, v in result.items() if k != "WINTER_PORT_BASE"}
+                _render_band("env.workspace.vars", workspace_band, ws_template_scope, result)
+                # Feature band gets the full accumulated scope INCLUDING WINTER_PORT_BASE
+                # and already-rendered workspace-band keys.
+                feat_template_scope = dict(result)
+                _render_band("env.feature.vars", feature_band, feat_template_scope, result)
 
         return result
