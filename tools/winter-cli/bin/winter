@@ -19,6 +19,31 @@
 
 set -euo pipefail
 
+# Bump whenever this file's behavior changes in a way install.sh must
+# propagate. install.sh reads this (via grep, not by sourcing) to compare
+# against the currently-installed shim and refuses to downgrade it — see
+# install.sh. Not tied to the Python CLI's own package version.
+WINTER_SHIM_VERSION=1
+
+# Bootstrap: `winter init` breaks the chicken-and-egg on a fresh clone, where
+# `.winter/config.toml` doesn't exist yet so the root-detection below has
+# nothing to find. Must run from the workspace root itself (no walking up —
+# a nested checkout of this same repo also has tools/winter-cli/). Creates an
+# empty config.toml (WorkspaceConfigService applies defaults for every field)
+# then delegates to `winter ws init` for the real reconcile.
+if [[ "${1:-}" == "init" ]]; then
+  shift
+  if [[ ! -d "$PWD/tools/winter-cli" ]]; then
+    echo "winter init: must be run from the root of a cloned winter workspace (no tools/winter-cli/ here)" >&2
+    exit 1
+  fi
+  if [[ ! -f "$PWD/.winter/config.toml" ]]; then
+    mkdir -p "$PWD/.winter"
+    touch "$PWD/.winter/config.toml"
+  fi
+  set -- ws init "$@"
+fi
+
 # Locate the workspace root by walking up from $PWD.
 ws=""
 dir="$PWD"

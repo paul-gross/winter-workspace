@@ -15,7 +15,7 @@ This copies the `winter` wrapper to `~/.local/bin/`. The wrapper auto-discovers 
 On a fresh clone, run in this order:
 
 1. **Install the CLI** — `./tools/winter-cli/install.sh`
-2. **Run `winter ws init`** — reconciles the CLI against `.winter/config.toml` and projects workspace skills into all three vendor skill directories (ClaudeCode, Codex, OpenCode). This must run **before** any `ws-*` skill is invocable on any harness.
+2. **Run `winter init`** — a one-time bootstrap for a fresh clone that has no `.winter/config.toml` yet. Run from the workspace root; it creates an empty `.winter/config.toml` (every field falls back to its default) and then delegates to `winter ws init`. On a workspace that already has `.winter/config.toml` (e.g. a clone of an already-configured workspace), skip straight to step 3 — `winter init`'s only job is creating that file. `winter ws init` reconciles the CLI against `.winter/config.toml` and projects workspace skills into all three vendor skill directories (ClaudeCode, Codex, OpenCode). This must run **before** any `ws-*` skill is invocable on any harness.
 3. **Run `/ws-setup`** — clones repos, wires worktrees, and performs first-time workspace setup.
 
 ### Workspace skills (projection)

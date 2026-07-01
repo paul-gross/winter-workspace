@@ -21,12 +21,18 @@ Winter is a reusable workspace framework for AI-assisted development on both loc
 
 ## 🚀 Quick Start
 
-Clone it, run `/ws-setup`, and start building.
+Clone it, install and bootstrap the CLI, then run `/ws-setup` and start building.
 
 ```bash
 # Clone winter with any name you prefer
 git clone https://github.com/paul-gross/winter.git my-workspace
 cd my-workspace
+
+# Install the CLI (one-time)
+./tools/winter-cli/install.sh
+
+# Link code-harness agnostic skills
+winter init
 
 # Run workspace setup (in your code harness)
 /ws-setup
