@@ -84,6 +84,23 @@ def provision_scope_env(
         return {}
 
 
+def up_down_positional(scope: str, cell_pattern: str) -> str:
+    """Return the argv positional to dispatch ``up``/``down`` for one matrix cell.
+
+    ``cell_pattern`` is the ``<scope>/*`` or ``<scope>/<svc>`` token computed by
+    ``ServiceStatusMatrixService`` for a status cell. up/down broaden the wire
+    contract to accept that same scope-qualified form, but winter dispatches the
+    bare ``<scope>`` (today's form) whenever the cell carries no real
+    service-segment filter — i.e. ``cell_pattern`` is exactly ``"<scope>/*"`` —
+    so existing bare-env-only providers keep working for multi-env up/down. A
+    real service-segment filter (``"alpha/api"``) is dispatched as the
+    scope-qualified pattern verbatim.
+    """
+    if cell_pattern == f"{scope}/*":
+        return scope
+    return cell_pattern
+
+
 def service_matches_pattern(svc_name: str, pattern: str) -> bool:
     """Return True when the describe identifier ``svc_name`` matches ``pattern``.
 

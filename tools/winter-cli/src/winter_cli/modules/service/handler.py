@@ -16,9 +16,9 @@ from winter_cli.modules.service.status_models import StatusOptions
 @dataclasses.dataclass
 class ServiceParams:
     action: str
-    # up/down: the target environment name; None for restart (pattern-selected).
-    env: str | None = None
-    # restart: verbatim <env>/<service> glob patterns forwarded on argv.
+    # up/down/restart: one-or-more verbatim <env>/<service> glob patterns
+    # forwarded on argv (may be a single bare env/scope name, e.g. "alpha" or
+    # "workspace").
     patterns: tuple[str, ...] = ()
     # up only: after dispatching, block until no in-scope service reports
     # `health: unhealthy` (gating on the `status` action) or `timeout_s` elapses.
@@ -30,9 +30,11 @@ class ServiceParams:
 class ServiceHandler:
     """Dispatches `winter service <action>` and adopts the entrypoint's exit code.
 
-    For up/down the dispatch argv is `<entrypoint> <action> <env>`. For restart
-    the positionals are the verbatim `<env>/<service>` selection PATTERNS forwarded
-    unchanged on argv. Status is handled separately via ``run_status`` which
+    For up/down/restart the positionals are the verbatim `<env>/<service>`
+    selection PATTERNS forwarded on argv; `ServiceDispatchService` enumerates the
+    matched (provider, scope) cells for up/down (reusing the status call-matrix)
+    and dispatches each cell the bare scope or the scope-qualified pattern per
+    ``up_down_positional``. Status is handled separately via ``run_status`` which
     captures and parses the structured JSON document from the orchestrator.
     The entrypoint's exit code is adopted as the CLI's exit code so a failing
     implementation surfaces as a non-zero `winter` exit.
@@ -54,33 +56,14 @@ class ServiceHandler:
         self._stream_reporter = stream_reporter
         self._json_reporter = json_reporter
 
-    def _run_up(self, target: str) -> int:
-        return self._dispatch_service.dispatch("up", [target])
-
     def run(self, params: ServiceParams) -> None:
         action = params.action
         if action == "up":
-            env = params.env
-            if env == WORKSPACE_SCOPE:
-                # Direct workspace-up: single dispatch, no recursion.
-                exit_code = self._run_up(WORKSPACE_SCOPE)
-                if exit_code != 0:
-                    sys.exit(exit_code)
-            else:
-                # Ensure workspace up first (best-effort: run both regardless of result).
-                ws_code = self._run_up(WORKSPACE_SCOPE)
-                env_code = self._run_up(env) if env is not None else 0
-                first_failure = ws_code if ws_code != 0 else env_code
-                if first_failure != 0:
-                    sys.exit(first_failure)
-            # Readiness gate (--wait): only reached once the up dispatch(es)
-            # succeeded. Scoped to the env argument (a bare env / `workspace`).
-            if params.wait and env is not None:
-                self._wait_for_readiness(env, params.timeout_s)
+            self._run_up(params.patterns, params.wait, params.timeout_s)
         elif action == "down":
-            # Single dispatch for any target; workspace scope is left running on env-down.
-            positionals = [params.env] if params.env is not None else []
-            exit_code = self._dispatch_service.dispatch("down", positionals)
+            # Best-effort fan-out across every matched scope; workspace scope is
+            # left running unless explicitly targeted (`down workspace`).
+            exit_code = self._dispatch_service.dispatch("down", list(params.patterns))
             if exit_code != 0:
                 sys.exit(exit_code)
         else:
@@ -89,15 +72,40 @@ class ServiceHandler:
             if exit_code != 0:
                 sys.exit(exit_code)
 
-    def _wait_for_readiness(self, env: str, timeout_s: float) -> None:
+    def _run_up(self, patterns: tuple[str, ...], wait: bool, timeout_s: float) -> None:
+        """Ensure the workspace scope is up, then fan ``up`` out across *patterns*.
+
+        Unless one of *patterns* already targets the workspace scope explicitly
+        (a bare ``workspace`` or a ``workspace/<service>`` pattern), a single
+        ``up workspace`` dispatch runs first, best-effort (its failure does not
+        skip the requested targets — both are attempted, and the first non-zero
+        exit code wins). This mirrors the single-env "ensure workspace up first"
+        lifecycle policy, generalised across one-or-more matched patterns.
+        """
+        workspace_explicit = any(p == WORKSPACE_SCOPE or p.startswith(f"{WORKSPACE_SCOPE}/") for p in patterns)
+        ws_code = 0
+        if not workspace_explicit:
+            ws_code = self._dispatch_service.dispatch("up", [WORKSPACE_SCOPE])
+        target_code = self._dispatch_service.dispatch("up", list(patterns))
+        first_failure = ws_code if ws_code != 0 else target_code
+        if first_failure != 0:
+            sys.exit(first_failure)
+        # Readiness gate (--wait): only reached once the up dispatch(es) succeeded.
+        # Scoped to the user-supplied patterns (the implicit workspace-ensure step
+        # is never gated).
+        if wait:
+            self._wait_for_readiness(patterns, timeout_s)
+
+    def _wait_for_readiness(self, patterns: tuple[str, ...], timeout_s: float) -> None:
         """Poll status until services are healthy; exit non-zero on timeout.
 
         Names the still-unhealthy services on stderr and adopts exit code 1 when
         the timeout elapses with one or more services still ``unhealthy``.
         """
-        result = self._readiness_service.wait(env, timeout_s)
+        result = self._readiness_service.wait(patterns, timeout_s)
         if not result.ready:
-            self._stream_reporter.readiness_timeout(env, timeout_s, result.unhealthy)
+            label = ", ".join(patterns)
+            self._stream_reporter.readiness_timeout(label, timeout_s, result.unhealthy)
             sys.exit(1)
 
     def run_logs(self, options: LogOptions) -> None:

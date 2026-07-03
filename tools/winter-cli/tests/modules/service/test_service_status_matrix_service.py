@@ -237,6 +237,30 @@ def test_scope_matches_workspace_qualified_pattern() -> None:
     assert _scope_matches_patterns("alpha", ("workspace/rabbitmq",)) is False
 
 
+def test_scope_matches_bare_glob_prefix_pattern() -> None:
+    """A bare glob env pattern (al*) matches every scope with that prefix."""
+    assert _scope_matches_patterns("alpha", ("al*",)) is True
+    assert _scope_matches_patterns("beta", ("al*",)) is False
+    assert _scope_matches_patterns("gamma", ("al*",)) is False
+
+
+def test_scope_matches_bare_wildcard_matches_every_feature_env() -> None:
+    """A bare '*' pattern matches every configured feature env."""
+    assert _scope_matches_patterns("alpha", ("*",)) is True
+    assert _scope_matches_patterns("beta", ("*",)) is True
+
+
+def test_scope_matches_bare_wildcard_never_selects_workspace() -> None:
+    """A bare '*' never sweeps in the reserved workspace scope."""
+    assert _scope_matches_patterns("workspace", ("*",)) is False
+
+
+def test_scope_matches_scope_qualified_glob_pattern() -> None:
+    """A scope-qualified pattern with a glob env segment (al*/api) matches by prefix."""
+    assert _scope_matches_patterns("alpha", ("al*/api",)) is True
+    assert _scope_matches_patterns("beta", ("al*/api",)) is False
+
+
 # ── _cell_argv_pattern pure-function tests ────────────────────────────────────
 
 
@@ -259,6 +283,16 @@ def test_cell_pattern_scope_qualified() -> None:
 def test_cell_pattern_workspace_qualified() -> None:
     """workspace/<svc> forwards the service segment."""
     assert _cell_argv_pattern("workspace", ("workspace/rabbitmq",)) == "workspace/rabbitmq"
+
+
+def test_cell_pattern_bare_glob_env() -> None:
+    """A bare glob env pattern (al*) that matches the scope -> <scope>/*."""
+    assert _cell_argv_pattern("alpha", ("al*",)) == "alpha/*"
+
+
+def test_cell_pattern_scope_qualified_glob_env() -> None:
+    """A scope-qualified pattern with a glob env segment forwards the service segment."""
+    assert _cell_argv_pattern("alpha", ("al*/api",)) == "alpha/api"
 
 
 # ── Single-provider matrix (describe-skip) ────────────────────────────────────

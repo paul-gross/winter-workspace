@@ -654,12 +654,24 @@ class Container(containers.DeclarativeContainer):
         reporter=stream_service_reporter,
     )
 
+    service_status_matrix_svc = providers.Factory(
+        _lazy("winter_cli.modules.service.service_status_matrix_service:ServiceStatusMatrixService"),
+        subprocess_runner=subprocess_runner,
+        describe_service=service_describe_svc,
+        env_provisioner=env_provisioner,
+        status_parser=status_document_parser,
+        env_index_registry=env_index_registry,
+        workspace_root=workspace_config.provided.workspace_root,
+        service_prefix=workspace_config.provided.service_prefix,
+    )
+
     service_dispatch_svc = providers.Factory(
         _lazy("winter_cli.modules.service.service_dispatch_service:ServiceDispatchService"),
         subprocess_runner=subprocess_runner,
         orchestrator_resolver=service_orchestrator_resolver,
         fan_out_service=service_fan_out_svc,
         describe_service=service_describe_svc,
+        matrix_service=service_status_matrix_svc,
         workspace_root=workspace_config.provided.workspace_root,
         service_prefix=workspace_config.provided.service_prefix,
         reporter=stream_service_reporter,
@@ -670,17 +682,6 @@ class Container(containers.DeclarativeContainer):
         subprocess_runner=subprocess_runner,
         orchestrator_resolver=service_orchestrator_resolver,
         describe_service=service_describe_svc,
-        workspace_root=workspace_config.provided.workspace_root,
-        service_prefix=workspace_config.provided.service_prefix,
-    )
-
-    service_status_matrix_svc = providers.Factory(
-        _lazy("winter_cli.modules.service.service_status_matrix_service:ServiceStatusMatrixService"),
-        subprocess_runner=subprocess_runner,
-        describe_service=service_describe_svc,
-        env_provisioner=env_provisioner,
-        status_parser=status_document_parser,
-        env_index_registry=env_index_registry,
         workspace_root=workspace_config.provided.workspace_root,
         service_prefix=workspace_config.provided.service_prefix,
     )

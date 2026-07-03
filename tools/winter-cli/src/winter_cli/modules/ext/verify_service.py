@@ -10,10 +10,6 @@ from winter_cli.modules.ext.models import CheckResult, VerifyReport
 from winter_cli.modules.service.describe_parser import DescribeParseError, DescribeResultParser
 from winter_cli.modules.service.orchestrator_resolver import ServiceOrchestratorResolver
 
-# Probe token used for accepts-action checks: a recognisable env name that no
-# real orchestrator would treat as a real env, so a real orchestrator exits non-2.
-_PROBE_ENV = "__winter_verify_env__"
-
 # Probe pattern used for patterns_optional / patterns_required arity.
 _PROBE_PATTERN = "__winter_verify/probe__"
 
@@ -170,8 +166,6 @@ class ConformanceVerifyService:
     @staticmethod
     def _probe_args(arity: ArityKind) -> list[str]:
         """Return the probe positional args to pass alongside an action name."""
-        if arity == ArityKind.single_env:
-            return [_PROBE_ENV]
         if arity == ArityKind.patterns_required:
             return [_PROBE_PATTERN]
         # no_positionals and patterns_optional — zero args is valid

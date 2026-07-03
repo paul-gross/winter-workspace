@@ -60,7 +60,7 @@ def _readiness(status: _StubStatusService, sleeps: list[float]) -> ServiceReadin
 def test_ready_on_first_poll_when_all_healthy() -> None:
     status = _StubStatusService([_doc("alpha", [_svc("api", "healthy")])])
     sleeps: list[float] = []
-    result = _readiness(status, sleeps).wait("alpha", timeout_s=30.0)
+    result = _readiness(status, sleeps).wait(("alpha",), timeout_s=30.0)
     assert result.ready is True
     assert result.unhealthy == ()
     # One poll, no sleep — the common case returns immediately.
@@ -72,7 +72,7 @@ def test_unknown_health_does_not_block() -> None:
     # A service with no declared probe reports "unknown" — it must not block.
     status = _StubStatusService([_doc("alpha", [_svc("api", "unknown"), _svc("web", "healthy")])])
     sleeps: list[float] = []
-    result = _readiness(status, sleeps).wait("alpha", timeout_s=30.0)
+    result = _readiness(status, sleeps).wait(("alpha",), timeout_s=30.0)
     assert result.ready is True
     assert sleeps == []
 
@@ -86,7 +86,7 @@ def test_polls_until_service_becomes_healthy() -> None:
         ]
     )
     sleeps: list[float] = []
-    result = _readiness(status, sleeps).wait("alpha", timeout_s=30.0)
+    result = _readiness(status, sleeps).wait(("alpha",), timeout_s=30.0)
     assert result.ready is True
     assert len(status.collect_patterns) == 3
     assert sleeps == [0.25, 0.25]
@@ -98,7 +98,7 @@ def test_timeout_names_unhealthy_services() -> None:
     )
     sleeps: list[float] = []
     # timeout 0.5s: deadline = tick0 (0) + 0.5; second monotonic tick (1.0) >= deadline → give up.
-    result = _readiness(status, sleeps).wait("alpha", timeout_s=0.5)
+    result = _readiness(status, sleeps).wait(("alpha",), timeout_s=0.5)
     assert result.ready is False
     assert result.unhealthy == ("alpha/api", "alpha/worker")
 
@@ -107,13 +107,25 @@ def test_none_document_does_not_block() -> None:
     # No provider produced a parseable status — nothing reports unhealthy.
     status = _StubStatusService([None])
     sleeps: list[float] = []
-    result = _readiness(status, sleeps).wait("alpha", timeout_s=30.0)
+    result = _readiness(status, sleeps).wait(("alpha",), timeout_s=30.0)
     assert result.ready is True
     assert sleeps == []
 
 
 def test_poll_is_scoped_to_the_env() -> None:
     status = _StubStatusService([_doc("alpha", [_svc("api", "healthy")])])
-    _readiness(status, []).wait("alpha", timeout_s=30.0)
+    _readiness(status, []).wait(("alpha",), timeout_s=30.0)
     # The env name is forwarded as a bare status pattern (expands to alpha/*).
     assert status.collect_patterns == [("alpha",)]
+
+
+def test_wait_gates_readiness_across_multiple_patterns_in_one_poll() -> None:
+    """Multiple patterns (multi-env up --wait) are forwarded verbatim in a single poll cycle."""
+    status = _StubStatusService(
+        [
+            _doc("alpha", [_svc("api", "healthy")]),
+        ]
+    )
+    result = _readiness(status, []).wait(("alpha", "beta"), timeout_s=30.0)
+    assert result.ready is True
+    assert status.collect_patterns == [("alpha", "beta")]

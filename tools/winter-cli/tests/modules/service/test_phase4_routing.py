@@ -214,11 +214,21 @@ def _make_dispatch(
         workspace_root=WS,
         service_prefix="winter",
     )
+    matrix_svc = ServiceStatusMatrixService(
+        subprocess_runner=runner,
+        describe_service=describe_svc,
+        env_provisioner=_FakeEnvProvisionerService(),
+        status_parser=StatusDocumentParser(),
+        env_index_registry=_FakeEnvIndexRegistry({"alpha": 1}),
+        workspace_root=WS,
+        service_prefix="winter",
+    )
     return ServiceDispatchService(
         subprocess_runner=runner,
         orchestrator_resolver=resolver,
         fan_out_service=fan_out,
         describe_service=describe_svc,
+        matrix_service=matrix_svc,
         workspace_root=WS,
         service_prefix="winter",
         reporter=reporter,
@@ -946,16 +956,27 @@ def test_override_wins_over_configured_list_for_up() -> None:
         workspace_root=WS,
         service_prefix="winter",
     )
+    describe_svc = ServiceDescribeService(
+        subprocess_runner=runner,
+        describe_parser=DescribeResultParser(),
+        workspace_root=WS,
+        service_prefix="winter",
+    )
+    matrix_svc = ServiceStatusMatrixService(
+        subprocess_runner=runner,
+        describe_service=describe_svc,
+        env_provisioner=_FakeEnvProvisionerService(),
+        status_parser=StatusDocumentParser(),
+        env_index_registry=_FakeEnvIndexRegistry({"alpha": 1}),
+        workspace_root=WS,
+        service_prefix="winter",
+    )
     dispatch_svc = ServiceDispatchService(
         subprocess_runner=runner,
         orchestrator_resolver=override_resolver,
         fan_out_service=fan_out,
-        describe_service=ServiceDescribeService(
-            subprocess_runner=runner,
-            describe_parser=DescribeResultParser(),
-            workspace_root=WS,
-            service_prefix="winter",
-        ),
+        describe_service=describe_svc,
+        matrix_service=matrix_svc,
         workspace_root=WS,
         service_prefix="winter",
     )

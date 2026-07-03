@@ -8,7 +8,9 @@ class ArityKind(enum.Enum):
     """How the orchestrator entrypoint receives its target selection.
 
     `no_positionals` — no positionals after the action word (`describe`).
-    `single_env` — exactly one positional: the env name (`up`, `down`).
+    `single_env` — exactly one positional: the env name. No bundled action uses this
+        arity since `up`/`down` moved to `patterns-required` (winter#139); retained as
+        forward vocabulary for third-party specs that may still declare it.
     `patterns_optional` — zero or more `<env>/<service>` glob patterns (`status`).
     `patterns_required` — one or more `<env>/<service>` glob patterns (`restart`, `logs`).
     """

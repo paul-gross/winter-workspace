@@ -48,8 +48,8 @@ def test_load_service_v1_action_arities() -> None:
     spec = _loader_real().load("service", "v1")
     by_name = {a.name: a for a in spec.actions}
 
-    assert by_name["up"].arity == ArityKind.single_env
-    assert by_name["down"].arity == ArityKind.single_env
+    assert by_name["up"].arity == ArityKind.patterns_required
+    assert by_name["down"].arity == ArityKind.patterns_required
     assert by_name["status"].arity == ArityKind.patterns_optional
     assert by_name["restart"].arity == ArityKind.patterns_required
     assert by_name["logs"].arity == ArityKind.patterns_required

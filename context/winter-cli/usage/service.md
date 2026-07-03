@@ -4,9 +4,12 @@ For the hub and the rest of the command surface, see [../index.md](../index.md).
 
 ```bash
 winter service up alpha                               # start env alpha's services (also ensures workspace scope is up first)
+winter service up alpha beta                          # start alpha and beta; other configured envs untouched
+winter service up 'al*'                                # start every configured env whose name matches al*
 winter service up alpha --wait                        # start, then block until no service reports unhealthy (or --timeout)
 winter service up workspace                           # bring up only the workspace scope
 winter service down alpha                             # stop env alpha's services (leaves workspace scope running)
+winter service down '*/web'                            # stop the web service in every env (needs provider support — see below)
 winter service down workspace                         # tear down the workspace scope explicitly
 winter service status                                 # report all services in all envs (patterns optional)
 winter service status alpha                           # all services in alpha (expands to alpha/*)
@@ -33,22 +36,21 @@ winter service logs alpha -t                          # prefix each line with it
 
 `winter service` owns a stable `up`/`down`/`status`/`restart`/`logs` interface and dispatches each invocation to the orchestrator(s) the workspace registers. Consumers depend on `winter service …` and never on the orchestrator's implementation, so a workspace can swap tmux for containers or a supervising daemon without re-teaching agents, docs, or habits.
 
-`status`, `restart`, and `logs` use **segment-aware glob PATTERNS** over `<env>/<service>` — the same vocabulary `winter ws` uses for `<env>/<repo>` (see [ws/patterns.md](./ws/patterns.md)). Within each segment, `*`, `?`, and `[...]` match as usual; `*` does not cross `/`. A bare `<env>` (no slash) expands to `<env>/*`. Multiple patterns can be passed in one invocation. Cross-environment selection is supported: `'*/backend'` selects the `backend` service across every env. `up` and `down` always operate on a whole env (no pattern syntax) — or on `workspace` (see below). For `restart` and `logs`, at least one pattern is required (action commands require an explicit target — no implicit "everything", mirroring `winter ws merge` requiring a source ref). For `status`, omitting all patterns selects every service in every env (read-shaped, defaults to all like `winter ws status`).
+`up`, `down`, `status`, `restart`, and `logs` all use **segment-aware glob PATTERNS** over `<env>/<service>` — the same vocabulary `winter ws` uses for `<env>/<repo>` (see [ws/patterns.md](./ws/patterns.md)). Within each segment, `*`, `?`, and `[...]` match as usual; `*` does not cross `/`. A bare `<env>` (no slash) expands to `<env>/*` and matches by glob too (`'al*'` matches every configured env starting with `al`). Multiple patterns can be passed in one invocation. Cross-environment selection is supported: `'*/backend'` selects the `backend` service across every env. For `up`, `down`, `restart`, and `logs`, at least one pattern is required (action commands require an explicit target — no implicit "everything", mirroring `winter ws merge` requiring a source ref). For `status`, omitting all patterns selects every service in every env (read-shaped, defaults to all like `winter ws status`).
+
+`up` and `down` enumerate the matched **scopes** (configured env names, plus `workspace`) the same way `status` does, then dispatch **once per matched scope** — the bare `<scope>` when no service-segment filter was given for that scope, or the scope-qualified `<scope>/<svc-pattern>` when one was. Winter's own bare-env and glob-env dispatch (`up alpha`, `up alpha beta`, `up 'al*'`) works against any existing provider unchanged; a real service-segment filter (`up alpha/api`, `down '*/web'`) requires the provider to additionally understand a scope-qualified `up`/`down` positional and start/stop only the matched services within that scope — see [`up`/`down` fan-out (multi-provider)](#up--down-fan-out-multi-provider) below.
 
 ## Workspace scope
 
 `workspace` is a **reserved, universal service target** accepted by all five actions: `up`, `down`, `status`, `restart`, `logs`. The orchestrator extension owns what the `workspace` scope means (services that should run once across the whole workspace, shared daemons, etc.).
 
-`workspace` slots into each action's existing grammar in the same place an env name does, so it follows that action's arity — there is no new syntax:
-
-- For `up`/`down` (whole-env arity, no patterns) `workspace` is the literal target argument: `up workspace`, `down workspace`. There is **no** `up workspace/<service>` form — `up`/`down` take no pattern.
-- For `status`/`restart`/`logs` (PATTERN arity) `workspace` is an env segment in the normal `<env>/<service>` grammar: bare `workspace` expands to `workspace/*` (per the bare-`<env>` rule above), and `workspace/<service>` selects one service within the scope.
+`workspace` slots into each action's existing PATTERN grammar in the same place an env name does — there is no new syntax: bare `workspace` expands to `workspace/*` (per the bare-`<env>` rule above), and `workspace/<service>` selects one service within the scope. This holds for all five actions, including `up`/`down`: `up workspace` and `down workspace` are the bare-scope form of the same PATTERN grammar `restart`/`logs`/`status` use. Note that a bare glob pattern (`*`, `al*`, …) never sweeps in the `workspace` scope — only an explicit `workspace` or `workspace/<service>` token selects it (mirroring the `*/<svc>` vs `workspace/<svc>` distinction in the [describe wire contract](../contracts/service-orchestrator.md#describe-wire-contract)).
 
 ### Lifecycle policy
 
-`up <env>` (any named env) **ensures the workspace scope is up first**, then brings up the env. Both dispatches are attempted regardless of whether the workspace-up step succeeds — best-effort: each failure is surfaced as feedback and the command exits non-zero if either step failed, but the env-up is never skipped. No reference counting is involved: the workspace scope is treated as infrastructure that should be running.
+`up <pattern...>` (any pattern set that does not itself name `workspace`) **ensures the workspace scope is up first**, then brings up every matched scope. Both dispatches are attempted regardless of whether the workspace-up step succeeds — best-effort: each failure is surfaced as feedback and the command exits non-zero if either step failed, but the requested targets are never skipped. No reference counting is involved: the workspace scope is treated as infrastructure that should be running. This holds unchanged for multi-env and glob patterns (`up alpha beta`, `up 'al*'`): the workspace-ensure step runs exactly once, before the fan-out across matched scopes.
 
-`down <env>` **leaves the workspace scope running**. Tearing down a feature environment does not affect services that are shared across the workspace.
+`down <pattern...>` **leaves the workspace scope running**. Tearing down one or more feature environments does not affect services that are shared across the workspace.
 
 `down workspace` is the **only path that tears down the workspace scope** — it must be done explicitly.
 
@@ -62,7 +64,7 @@ For `status`/`restart`/`logs`, `workspace` patterns are forwarded verbatim to th
 
 By default `up` returns as soon as the orchestrator has **launched** the services — it does not wait for them to be ready to serve. An agent that runs `up` and immediately verifies (curling an endpoint, pointing a browser at the app) is racing service boot.
 
-`winter service up <env> --wait [--timeout SECONDS]` closes that race:
+`winter service up <pattern...> --wait [--timeout SECONDS]` closes that race:
 
 - After dispatching `up`, winter **polls the `status` action** (the same parse/merge path `winter service status` uses) and blocks until **no in-scope service reports `health: "unhealthy"`** — i.e. every service is `"healthy"` or `"unknown"`.
 - A service with **no declared probe reports `"unknown"`** and does **not** block the wait (so an env whose services declare no probes returns promptly).
@@ -95,12 +97,16 @@ This checks that the extension implements every action required by the bundled s
 
 ### `up` / `down` fan-out (multi-provider)
 
-With a single provider, `up` and `down` are forwarded directly to that provider — no index, no polling.
+`up` and `down` reuse the same registry-driven call-matrix `status` builds (see [`status` (multi-provider)](#status-multi-provider) below): rows are scopes (configured env names from the env-index registry, plus `workspace`), columns are owning providers. The matrix is narrowed by the user's PATTERNS exactly like `status` — a bare env or glob (`alpha`, `al*`, `*`) narrows the scope axis only; a scope-qualified pattern (`alpha/api`) narrows both the scope and (with multiple providers) the provider axis.
 
-With multiple providers:
+Each matched cell is dispatched once: the bare `<scope>` when the cell carries no service-segment filter, or the scope-qualified `<scope>/<svc-pattern>` when the user supplied a real filter for that scope (see the [uniform invocation rule](../contracts/service-orchestrator.md#uniform-invocation-rule)). With a single provider and no filter, this collapses to exactly the pre-#139 behavior: one bare `up <env>`/`down <env>` dispatch per matched env.
 
-- **`up` — forward fan-out.** Providers are started in a deterministic order (the order declared in `capabilities.service`). If a provider's `up` exits non-zero, the fan-out aborts and the remaining providers are not started. The first non-zero exit code is returned. No readiness polling occurs between providers.
-- **`down` — best-effort fan-out.** Providers are stopped in the same deterministic order. A non-zero exit from one provider is noted but does not prevent the others from being called. The first non-zero exit code is returned; 0 is returned if all providers succeeded.
+Cells are iterated in the matrix's deterministic order (env cells sorted by env name then provider order, followed by workspace cells):
+
+- **`up` — forward fan-out.** If a cell's dispatch exits non-zero, the fan-out aborts and the remaining cells are not dispatched. The first non-zero exit code is returned. No readiness polling occurs between cells.
+- **`down` — best-effort fan-out.** A non-zero exit from one cell is noted but does not prevent the others from being dispatched. The first non-zero exit code is returned; 0 is returned if all cells succeeded.
+
+A pattern set that matches no configured scope (or, with multiple providers, no owning provider) emits a `no service matched` diagnostic and returns non-zero, mirroring `status`.
 
 ### Service→provider ownership (multi-provider)
 

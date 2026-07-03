@@ -1,19 +1,23 @@
-"""Tests for ServiceFanOutService — simple up/down fan-out (no readiness gate).
+"""Tests for ServiceFanOutService — cell-based up/down fan-out (no readiness gate).
 
 Coverage:
-- Single-provider up: calls provider's up, returns 0.
-- Single-provider up: propagates non-zero exit code.
-- Single-provider down: calls provider's down, returns 0.
-- Single-provider down: propagates non-zero exit code.
-- Two-provider up: calls both providers' up in forward order with NO status poll
-  between them (proves the gate is gone).
-- Two-provider up: aborts on first provider failure; second provider's up never called.
-- Two-provider down: calls both providers' down (best-effort).
-- Two-provider down: continues past failure; returns first non-zero.
-- Two-provider down: returns 0 when all succeed.
-- Env vars are injected correctly for each provider.
+- Single-cell up: calls the cell's provider up, returns 0.
+- Single-cell up: propagates non-zero exit code.
+- Single-cell down: calls the cell's provider down, returns 0.
+- Single-cell down: propagates non-zero exit code.
+- Two-cell up (single scope, two providers): calls both cells' up in forward order
+  with NO status poll between them (proves the gate is gone).
+- Two-cell up: aborts on first cell failure; second cell never called.
+- Two-cell down: calls both cells' down (best-effort).
+- Two-cell down: continues past failure; returns first non-zero.
+- Two-cell down: returns 0 when all succeed.
+- Multi-scope up/down: two cells targeting different scopes both dispatch, in order.
+- Env vars are injected correctly for each cell.
 - Provisioned scope env vars (including WINTER_SERVICE_PREFIX) are merged into
-  both up and down subprocess env when an env_provisioner is present.
+  both up and down subprocess env when an env_provisioner is present, computed
+  once per unique scope (cached across cells sharing a scope).
+- Cell positional (bare scope vs scope-qualified pattern) is forwarded verbatim
+  as the single positional argv token.
 """
 
 from __future__ import annotations
@@ -22,7 +26,7 @@ from pathlib import Path
 
 from tests.conftest import FakeSubprocessRunner
 from winter_cli.modules.capability.models import CapabilitySlot, ResolvedCapability
-from winter_cli.modules.service.service_fan_out_service import ServiceFanOutService
+from winter_cli.modules.service.service_fan_out_service import FanOutCell, ServiceFanOutService
 
 WS = Path("/ws")
 EXT_A = WS / "provider-a"
@@ -61,6 +65,10 @@ def _pb() -> ResolvedCapability:
     return _provider("provider-b", ENTRYPOINT_B, EXT_B)
 
 
+def _cell(provider: ResolvedCapability, scope: str = "alpha", positional: str | None = None) -> FanOutCell:
+    return FanOutCell(provider=provider, scope=scope, positional=positional if positional is not None else scope)
+
+
 def _make_fan_out(runner: FakeSubprocessRunner) -> ServiceFanOutService:
     return ServiceFanOutService(
         subprocess_runner=runner,
@@ -69,16 +77,15 @@ def _make_fan_out(runner: FakeSubprocessRunner) -> ServiceFanOutService:
     )
 
 
-# ── single-provider up ────────────────────────────────────────────────────────
+# ── single-cell up ────────────────────────────────────────────────────────────
 
 
-def test_single_provider_up_calls_up_returns_zero() -> None:
-    """Single-provider up: calls the provider's up and returns 0."""
-    pa = _pa()
+def test_single_cell_up_calls_up_returns_zero() -> None:
+    """Single-cell up: calls the provider's up and returns 0."""
     runner = FakeSubprocessRunner()
     svc = _make_fan_out(runner)
 
-    code = svc.up("alpha", [pa])
+    code = svc.up([_cell(_pa())])
 
     assert code == 0
     assert runner.call_calls == [([_EP_A, "up", "alpha"], WS)]
@@ -86,59 +93,54 @@ def test_single_provider_up_calls_up_returns_zero() -> None:
     assert runner.run_calls == []
 
 
-def test_single_provider_up_propagates_nonzero_exit() -> None:
-    """Single-provider up: propagates non-zero exit code."""
-    pa = _pa()
+def test_single_cell_up_propagates_nonzero_exit() -> None:
+    """Single-cell up: propagates non-zero exit code."""
     runner = FakeSubprocessRunner(call_responses={_UP_A: 5})
     svc = _make_fan_out(runner)
 
-    code = svc.up("alpha", [pa])
+    code = svc.up([_cell(_pa())])
 
     assert code == 5
 
 
-# ── single-provider down ──────────────────────────────────────────────────────
+# ── single-cell down ──────────────────────────────────────────────────────────
 
 
-def test_single_provider_down_calls_down_returns_zero() -> None:
-    """Single-provider down: calls the provider's down and returns 0."""
-    pa = _pa()
+def test_single_cell_down_calls_down_returns_zero() -> None:
+    """Single-cell down: calls the provider's down and returns 0."""
     runner = FakeSubprocessRunner()
     svc = _make_fan_out(runner)
 
-    code = svc.down("alpha", [pa])
+    code = svc.down([_cell(_pa())])
 
     assert code == 0
     assert runner.call_calls == [([_EP_A, "down", "alpha"], WS)]
     assert runner.run_calls == []
 
 
-def test_single_provider_down_propagates_nonzero_exit() -> None:
-    """Single-provider down: propagates non-zero exit code."""
-    pa = _pa()
+def test_single_cell_down_propagates_nonzero_exit() -> None:
+    """Single-cell down: propagates non-zero exit code."""
     runner = FakeSubprocessRunner(call_responses={_DOWN_A: 3})
     svc = _make_fan_out(runner)
 
-    code = svc.down("alpha", [pa])
+    code = svc.down([_cell(_pa())])
 
     assert code == 3
 
 
-# ── two-provider up (no gate) ─────────────────────────────────────────────────
+# ── two-cell up (no gate) ─────────────────────────────────────────────────────
 
 
-def test_two_provider_up_calls_both_in_forward_order_no_status_poll() -> None:
-    """Two-provider up: calls both providers' up in forward order with NO status poll between.
+def test_two_cell_up_calls_both_in_forward_order_no_status_poll() -> None:
+    """Two cells (same scope, two providers) up: forward order, NO status poll between.
 
     This is the primary proof that the readiness gate is gone: no status call
     sits between the two up calls.
     """
-    pa = _pa()
-    pb = _pb()
     runner = FakeSubprocessRunner()
     svc = _make_fan_out(runner)
 
-    code = svc.up("alpha", [pa, pb])
+    code = svc.up([_cell(_pa()), _cell(_pb())])
 
     assert code == 0
 
@@ -153,14 +155,12 @@ def test_two_provider_up_calls_both_in_forward_order_no_status_poll() -> None:
     assert runner.run_calls == []
 
 
-def test_two_provider_up_aborts_on_first_failure_second_never_called() -> None:
-    """Two-provider up: if the first provider's up exits non-zero, the second is never called."""
-    pa = _pa()
-    pb = _pb()
+def test_two_cell_up_aborts_on_first_failure_second_never_called() -> None:
+    """Two-cell up: if the first cell's up exits non-zero, the second is never called."""
     runner = FakeSubprocessRunner(call_responses={_UP_A: 7})
     svc = _make_fan_out(runner)
 
-    code = svc.up("alpha", [pa, pb])
+    code = svc.up([_cell(_pa()), _cell(_pb())])
 
     assert code == 7
     call_cmds = [tuple(c[0]) for c in runner.call_calls]
@@ -171,17 +171,15 @@ def test_two_provider_up_aborts_on_first_failure_second_never_called() -> None:
     assert runner.run_calls == []
 
 
-# ── two-provider down (best-effort) ──────────────────────────────────────────
+# ── two-cell down (best-effort) ──────────────────────────────────────────────
 
 
-def test_two_provider_down_calls_both_providers() -> None:
-    """Two-provider down: calls both providers' down."""
-    pa = _pa()
-    pb = _pb()
+def test_two_cell_down_calls_both_providers() -> None:
+    """Two-cell down: calls both providers' down."""
     runner = FakeSubprocessRunner()
     svc = _make_fan_out(runner)
 
-    code = svc.down("alpha", [pa, pb])
+    code = svc.down([_cell(_pa()), _cell(_pb())])
 
     assert code == 0
     call_cmds = [tuple(c[0]) for c in runner.call_calls]
@@ -189,15 +187,13 @@ def test_two_provider_down_calls_both_providers() -> None:
     assert (_EP_B, "down", "alpha") in call_cmds
 
 
-def test_two_provider_down_best_effort_continues_on_failure() -> None:
-    """Down is best-effort: continues past provider failure; returns first non-zero."""
-    pa = _pa()
-    pb = _pb()
+def test_two_cell_down_best_effort_continues_on_failure() -> None:
+    """Down is best-effort: continues past cell failure; returns first non-zero."""
     # Provider A fails.
     runner = FakeSubprocessRunner(call_responses={_DOWN_A: 4})
     svc = _make_fan_out(runner)
 
-    code = svc.down("alpha", [pa, pb])
+    code = svc.down([_cell(_pa()), _cell(_pb())])
 
     # Both down calls were made (best-effort continues).
     call_cmds = [tuple(c[0]) for c in runner.call_calls]
@@ -207,28 +203,69 @@ def test_two_provider_down_best_effort_continues_on_failure() -> None:
     assert code == 4
 
 
-def test_two_provider_down_all_succeed_returns_zero() -> None:
-    """Down returns 0 when all providers succeed."""
-    pa = _pa()
-    pb = _pb()
+def test_two_cell_down_all_succeed_returns_zero() -> None:
+    """Down returns 0 when all cells succeed."""
     runner = FakeSubprocessRunner()
     svc = _make_fan_out(runner)
 
-    code = svc.down("alpha", [pa, pb])
+    code = svc.down([_cell(_pa()), _cell(_pb())])
 
     assert code == 0
+
+
+# ── multi-scope fan-out ───────────────────────────────────────────────────────
+
+
+def test_up_multi_scope_dispatches_each_scope_in_order() -> None:
+    """Two cells targeting different scopes (same provider) both dispatch, in order."""
+    runner = FakeSubprocessRunner()
+    svc = _make_fan_out(runner)
+
+    code = svc.up([_cell(_pa(), scope="alpha"), _cell(_pa(), scope="beta")])
+
+    assert code == 0
+    call_cmds = [tuple(c[0]) for c in runner.call_calls]
+    assert call_cmds == [
+        (_EP_A, "up", "alpha"),
+        (_EP_A, "up", "beta"),
+    ]
+
+
+def test_down_multi_scope_best_effort_across_scopes() -> None:
+    """Down across multiple scopes: continues past a failure in one scope."""
+    runner = FakeSubprocessRunner(call_responses={f"{_EP_A} down alpha": 6})
+    svc = _make_fan_out(runner)
+
+    code = svc.down([_cell(_pa(), scope="alpha"), _cell(_pa(), scope="beta")])
+
+    call_cmds = [tuple(c[0]) for c in runner.call_calls]
+    assert (_EP_A, "down", "alpha") in call_cmds
+    assert (_EP_A, "down", "beta") in call_cmds
+    assert code == 6
+
+
+# ── cell positional forwarding ────────────────────────────────────────────────
+
+
+def test_up_forwards_scope_qualified_positional_verbatim() -> None:
+    """A cell with a scope-qualified positional (real service filter) forwards it verbatim."""
+    runner = FakeSubprocessRunner()
+    svc = _make_fan_out(runner)
+
+    svc.up([_cell(_pa(), scope="alpha", positional="alpha/api")])
+
+    assert runner.call_calls == [([_EP_A, "up", "alpha/api"], WS)]
 
 
 # ── env var injection ─────────────────────────────────────────────────────────
 
 
 def test_up_injects_provider_env_vars() -> None:
-    """Fan-out up injects WINTER_WORKSPACE_DIR, WINTER_EXT_DIR, WINTER_EXT_PREFIX, WINTER_SERVICE_PREFIX per provider."""
-    pa = _pa()
+    """Fan-out up injects WINTER_WORKSPACE_DIR, WINTER_EXT_DIR, WINTER_EXT_PREFIX, WINTER_SERVICE_PREFIX per cell."""
     runner = FakeSubprocessRunner()
     svc = _make_fan_out(runner)
 
-    svc.up("alpha", [pa])
+    svc.up([_cell(_pa())])
 
     assert len(runner.call_envs) == 1
     call_env = runner.call_envs[0]
@@ -239,12 +276,11 @@ def test_up_injects_provider_env_vars() -> None:
 
 
 def test_down_injects_provider_env_vars() -> None:
-    """Fan-out down injects WINTER_WORKSPACE_DIR, WINTER_EXT_DIR, WINTER_EXT_PREFIX, WINTER_SERVICE_PREFIX per provider."""
-    pb = _pb()
+    """Fan-out down injects WINTER_WORKSPACE_DIR, WINTER_EXT_DIR, WINTER_EXT_PREFIX, WINTER_SERVICE_PREFIX per cell."""
     runner = FakeSubprocessRunner()
     svc = _make_fan_out(runner)
 
-    svc.down("alpha", [pb])
+    svc.down([_cell(_pb())])
 
     assert len(runner.call_envs) == 1
     call_env = runner.call_envs[0]
@@ -266,7 +302,6 @@ def test_up_injects_provisioned_env_vars_when_provisioner_present() -> None:
                 "DATABASE_URL": f"postgres://localhost/myapp_{scope}",
             }
 
-    pa = _pa()
     runner = FakeSubprocessRunner()
     svc = ServiceFanOutService(
         subprocess_runner=runner,
@@ -275,7 +310,7 @@ def test_up_injects_provisioned_env_vars_when_provisioner_present() -> None:
         env_provisioner=_FakeProvisioner(),
     )
 
-    svc.up("alpha", [pa])
+    svc.up([_cell(_pa())])
 
     assert len(runner.call_envs) == 1
     call_env = runner.call_envs[0]
@@ -297,7 +332,6 @@ def test_down_injects_provisioned_env_vars_when_provisioner_present() -> None:
                 "DATABASE_URL": f"postgres://localhost/myapp_{scope}",
             }
 
-    pb = _pb()
     runner = FakeSubprocessRunner()
     svc = ServiceFanOutService(
         subprocess_runner=runner,
@@ -306,7 +340,7 @@ def test_down_injects_provisioned_env_vars_when_provisioner_present() -> None:
         env_provisioner=_FakeProvisioner(),
     )
 
-    svc.down("alpha", [pb])
+    svc.down([_cell(_pb())])
 
     assert len(runner.call_envs) == 1
     call_env = runner.call_envs[0]
@@ -318,14 +352,38 @@ def test_down_injects_provisioned_env_vars_when_provisioner_present() -> None:
 
 def test_up_no_provisioned_env_vars_when_provisioner_absent() -> None:
     """Without an env_provisioner, scope vars are not injected into the subprocess env."""
-    pa = _pa()
     runner = FakeSubprocessRunner()
     svc = _make_fan_out(runner)
 
-    svc.up("alpha", [pa])
+    svc.up([_cell(_pa())])
 
     call_env = runner.call_envs[0]
     assert "WINTER_ENV" not in call_env
+
+
+def test_up_provisions_each_unique_scope_once() -> None:
+    """A scope shared by multiple cells (multi-provider) is provisioned exactly once."""
+
+    class _CountingProvisioner:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def compute(self, scope: str) -> dict[str, str]:
+            self.calls.append(scope)
+            return {"WINTER_ENV": scope}
+
+    provisioner = _CountingProvisioner()
+    runner = FakeSubprocessRunner()
+    svc = ServiceFanOutService(
+        subprocess_runner=runner,
+        workspace_root=WS,
+        service_prefix="winter",
+        env_provisioner=provisioner,
+    )
+
+    svc.up([_cell(_pa(), scope="alpha"), _cell(_pb(), scope="alpha"), _cell(_pa(), scope="beta")])
+
+    assert provisioner.calls == ["alpha", "beta"]
 
 
 # ── env provision error resilience ───────────────────────────────────────────
@@ -349,7 +407,6 @@ def test_up_workspace_scope_injects_workspace_band_only() -> None:
                 return {"SHARED": "ws_val"}
             return {"SHARED": "feat_override", "FEAT_ONLY": "feat_val"}
 
-    pa = _pa()
     runner = FakeSubprocessRunner()
     svc = ServiceFanOutService(
         subprocess_runner=runner,
@@ -358,7 +415,7 @@ def test_up_workspace_scope_injects_workspace_band_only() -> None:
         env_provisioner=_BandProvisioner(),
     )
 
-    svc.up("workspace", [pa])
+    svc.up([_cell(_pa(), scope="workspace", positional="workspace")])
 
     assert len(runner.call_envs) == 1
     call_env = runner.call_envs[0]
@@ -381,7 +438,6 @@ def test_up_feature_scope_injects_both_bands_feature_wins_collision() -> None:
                 return {"SHARED": "ws_val"}
             return {"SHARED": "feat_override", "FEAT_ONLY": "feat_val"}
 
-    pa = _pa()
     runner = FakeSubprocessRunner()
     svc = ServiceFanOutService(
         subprocess_runner=runner,
@@ -390,7 +446,7 @@ def test_up_feature_scope_injects_both_bands_feature_wins_collision() -> None:
         env_provisioner=_BandProvisioner(),
     )
 
-    svc.up("alpha", [pa])
+    svc.up([_cell(_pa())])
 
     assert len(runner.call_envs) == 1
     call_env = runner.call_envs[0]
@@ -412,7 +468,6 @@ def test_provision_error_does_not_raise_on_up_or_down() -> None:
         def env_provision_error(self, scope: str, detail: str) -> None:
             self.provision_errors.append((scope, detail))
 
-    pa = _pa()
     runner = FakeSubprocessRunner()
     reporter = _FakeReporter()
     svc = ServiceFanOutService(
@@ -424,11 +479,11 @@ def test_provision_error_does_not_raise_on_up_or_down() -> None:
     )
 
     # up must not raise; provider still runs (degraded to no injection)
-    code_up = svc.up("alpha", [pa])
+    code_up = svc.up([_cell(_pa())])
     assert code_up == 0
 
     # down must not raise; provider still runs
-    code_down = svc.down("alpha", [pa])
+    code_down = svc.down([_cell(_pa())])
     assert code_down == 0
 
     # reporter received env_provision_error for each call (one up + one down)

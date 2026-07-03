@@ -17,7 +17,7 @@ from pathlib import Path
 from tests.conftest import FakeSubprocessRunner
 from winter_cli.core.extension_invocation import build_extension_env
 from winter_cli.modules.capability.models import CapabilitySlot, ResolvedCapability
-from winter_cli.modules.service.service_fan_out_service import ServiceFanOutService
+from winter_cli.modules.service.service_fan_out_service import FanOutCell, ServiceFanOutService
 
 WS = Path("/workspace")
 EXT_DIR = WS / "winter-service-tmux"
@@ -160,7 +160,7 @@ def test_fan_out_up_emits_winter_ext_config_dir() -> None:
     runner = FakeSubprocessRunner()
     svc = ServiceFanOutService(subprocess_runner=runner, workspace_root=WS, service_prefix=SERVICE_PREFIX)
 
-    svc.up("alpha", [provider])
+    svc.up([FanOutCell(provider=provider, scope="alpha", positional="alpha")])
 
     assert len(runner.call_envs) == 1
     env = runner.call_envs[0]

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -7,21 +8,54 @@ import pytest
 
 from tests.conftest import (
     FakeConfigFileReader,
+    FakeEnvIndexRegistry,
     FakeFilesystem,
+    FakeServiceReporter,
     FakeSpecLoader,
     FakeSubprocessRunner,
 )
+from winter_cli.core.subprocess_runner import SubprocessResult
 from winter_cli.modules.capability.capability_registry_service import CapabilityRegistryService
+from winter_cli.modules.capability.models import CapabilitySlot, ResolvedCapability
 from winter_cli.modules.service.describe_parser import DescribeResultParser
 from winter_cli.modules.service.orchestrator_resolver import ServiceOrchestratorResolver
 from winter_cli.modules.service.service_dispatch_service import ServiceDispatchService
 from winter_cli.modules.service.service_fan_out_service import ServiceFanOutService
 from winter_cli.modules.service.service_provider_index import ServiceDescribeService
+from winter_cli.modules.service.service_reporter import IServiceReporter
+from winter_cli.modules.service.service_status_matrix_service import ServiceStatusMatrixService
+from winter_cli.modules.service.status_parser import StatusDocumentParser
 from winter_cli.modules.workspace.extension_manifest import EXT_MANIFEST, ExtensionManifestLoader
 from winter_cli.modules.workspace.models import RepoError, StandaloneRepository
 
 WS = Path("/ws")
 SERVICE_PREFIX = "winter"
+
+
+class _FakeEnvProvisionerService:
+    """No-op env provisioner: computes an empty env map for every scope."""
+
+    def compute(self, scope: str) -> dict[str, str]:
+        return {}
+
+
+def _matrix_svc(runner: FakeSubprocessRunner, assignments: dict[str, int] | None = None) -> ServiceStatusMatrixService:
+    describe_svc = ServiceDescribeService(
+        subprocess_runner=runner,
+        describe_parser=DescribeResultParser(),
+        workspace_root=WS,
+        service_prefix=SERVICE_PREFIX,
+    )
+    registry = FakeEnvIndexRegistry(assignments or {"alpha": 1, "beta": 2})
+    return ServiceStatusMatrixService(
+        subprocess_runner=runner,
+        describe_service=describe_svc,
+        env_provisioner=_FakeEnvProvisionerService(),
+        status_parser=StatusDocumentParser(),
+        env_index_registry=registry,
+        workspace_root=WS,
+        service_prefix=SERVICE_PREFIX,
+    )
 
 
 class _StubRepoFactory:
@@ -56,6 +90,56 @@ def _make_registry_and_resolver(
         fs=fs,
     )
     return registry, resolver
+
+
+def _provider(name: str, entrypoint: Path, ext_dir: Path) -> ResolvedCapability:
+    return ResolvedCapability(
+        slot=CapabilitySlot.service,
+        extension_name=name,
+        entrypoint=entrypoint,
+        ext_dir=ext_dir,
+        prefix=name,
+        config_dir=WS / ".winter" / "config" / name,
+    )
+
+
+class _StubResolver:
+    """Minimal ServiceOrchestratorResolver stub: resolve_all() returns a fixed list."""
+
+    def __init__(self, providers: list[ResolvedCapability]) -> None:
+        self._providers = providers
+
+    def resolve_all(self) -> list[ResolvedCapability]:
+        return list(self._providers)
+
+    def resolve(self) -> ResolvedCapability:
+        return self._providers[0]
+
+
+def _dispatch_svc(
+    runner: FakeSubprocessRunner,
+    providers: list[ResolvedCapability],
+    *,
+    assignments: dict[str, int] | None = None,
+    reporter: IServiceReporter | None = None,
+) -> ServiceDispatchService:
+    """Build a ServiceDispatchService wired directly with *providers* (bypassing the registry)."""
+    describe_svc = ServiceDescribeService(
+        subprocess_runner=runner,
+        describe_parser=DescribeResultParser(),
+        workspace_root=WS,
+        service_prefix=SERVICE_PREFIX,
+    )
+    return ServiceDispatchService(
+        subprocess_runner=runner,
+        orchestrator_resolver=_StubResolver(providers),  # type: ignore[arg-type]
+        fan_out_service=_fan_out_svc(runner),
+        describe_service=describe_svc,
+        matrix_service=_matrix_svc(runner, assignments),
+        workspace_root=WS,
+        service_prefix=SERVICE_PREFIX,
+        reporter=reporter,
+    )
 
 
 def _tmux_repo() -> StandaloneRepository:
@@ -97,6 +181,7 @@ def _service(runner: FakeSubprocessRunner | None = None) -> ServiceDispatchServi
         orchestrator_resolver=resolver,
         fan_out_service=_fan_out_svc(_runner),
         describe_service=describe_svc,
+        matrix_service=_matrix_svc(_runner),
         workspace_root=WS,
         service_prefix=SERVICE_PREFIX,
     )
@@ -248,6 +333,7 @@ def _service_for_error(
         orchestrator_resolver=resolver,
         fan_out_service=_fan_out_svc(runner),
         describe_service=describe_svc,
+        matrix_service=_matrix_svc(runner),
         workspace_root=WS,
         service_prefix=SERVICE_PREFIX,
     )
@@ -292,3 +378,215 @@ def test_missing_entrypoint_file_raises() -> None:
     )
     with pytest.raises(RepoError, match="entrypoint not found"):
         svc.dispatch("up", ["alpha"])
+
+
+# ── up/down: multi-env, glob, no-match (winter#139) ───────────────────────────
+
+
+def test_dispatch_up_multi_env_patterns_starts_each_matched_env() -> None:
+    """up alpha beta -> both matched envs start; gamma (untargeted) is untouched."""
+    runner = FakeSubprocessRunner()
+    svc = _service(runner)  # single provider, registry has alpha=1, beta=2
+    code = svc.dispatch("up", ["alpha", "beta"])
+    assert code == 0
+    entrypoint = str(WS / "winter-service-tmux/workflow/service")
+    call_cmds = [tuple(c[0]) for c in runner.call_calls]
+    assert call_cmds == [
+        (entrypoint, "up", "alpha"),
+        (entrypoint, "up", "beta"),
+    ]
+
+
+def test_dispatch_up_glob_pattern_starts_only_matching_envs() -> None:
+    """up 'al*' with configured envs alpha/beta/gamma -> only alpha starts."""
+    runner = FakeSubprocessRunner()
+    _registry, resolver = _configured_registry_and_resolver()
+    describe_svc = ServiceDescribeService(
+        subprocess_runner=runner,
+        describe_parser=DescribeResultParser(),
+        workspace_root=WS,
+        service_prefix=SERVICE_PREFIX,
+    )
+    svc = ServiceDispatchService(
+        subprocess_runner=runner,
+        orchestrator_resolver=resolver,
+        fan_out_service=_fan_out_svc(runner),
+        describe_service=describe_svc,
+        matrix_service=_matrix_svc(runner, {"alpha": 1, "beta": 2, "gamma": 3}),
+        workspace_root=WS,
+        service_prefix=SERVICE_PREFIX,
+    )
+    code = svc.dispatch("up", ["al*"])
+    assert code == 0
+    entrypoint = str(WS / "winter-service-tmux/workflow/service")
+    assert runner.call_calls == [([entrypoint, "up", "alpha"], WS)]
+
+
+def test_dispatch_down_bare_wildcard_stops_every_configured_env() -> None:
+    """down '*' stops every configured feature env but never the workspace scope."""
+    runner = FakeSubprocessRunner()
+    svc = ServiceDispatchService(
+        subprocess_runner=runner,
+        orchestrator_resolver=_configured_registry_and_resolver()[1],
+        fan_out_service=_fan_out_svc(runner),
+        describe_service=ServiceDescribeService(
+            subprocess_runner=runner,
+            describe_parser=DescribeResultParser(),
+            workspace_root=WS,
+            service_prefix=SERVICE_PREFIX,
+        ),
+        matrix_service=_matrix_svc(runner, {"alpha": 1, "beta": 2}),
+        workspace_root=WS,
+        service_prefix=SERVICE_PREFIX,
+    )
+    code = svc.dispatch("down", ["*"])
+    assert code == 0
+    entrypoint = str(WS / "winter-service-tmux/workflow/service")
+    call_cmds = [tuple(c[0]) for c in runner.call_calls]
+    assert call_cmds == [
+        (entrypoint, "down", "alpha"),
+        (entrypoint, "down", "beta"),
+    ]
+
+
+# ── up/down: multi-filter same-scope must not degrade to whole-scope (pre-push MUST-FIX) ──
+
+
+def test_dispatch_down_multi_filter_same_scope_dispatches_each_service_not_whole_scope() -> None:
+    """down alpha/db alpha/api must dispatch exactly those two services, never `down alpha`.
+
+    Regression for the pre-push MUST-FIX: the status matrix's `_cell_argv_pattern`
+    collapses 2+ same-scope service filters to `alpha/*` (relying on a post-merge
+    backstop `status` has and up/down does not); `up_down_positional` then collapses
+    `alpha/*` back to the bare scope `alpha`, so `down alpha/db alpha/api` used to
+    dispatch `down alpha` — stopping the ENTIRE alpha env instead of just db/api.
+    """
+    runner = FakeSubprocessRunner()
+    svc = _service(runner)  # single provider, registry has alpha=1, beta=2
+    code = svc.dispatch("down", ["alpha/db", "alpha/api"])
+    assert code == 0
+    entrypoint = str(WS / "winter-service-tmux/workflow/service")
+    call_cmds = [tuple(c[0]) for c in runner.call_calls]
+    assert call_cmds == [
+        (entrypoint, "down", "alpha/db"),
+        (entrypoint, "down", "alpha/api"),
+    ]
+    # The bare, whole-scope form must never be dispatched.
+    assert (entrypoint, "down", "alpha") not in call_cmds
+
+
+def test_dispatch_up_multi_pattern_cross_env_dispatches_each_service_per_matched_env() -> None:
+    """up '*/api' '*/web' -> each matched env (alpha, beta) gets its own api and web cells.
+
+    Each matched scope carries 2 service-segment filters (api, web); neither may
+    degrade to the whole scope (`up alpha` / `up beta`).
+    """
+    runner = FakeSubprocessRunner()
+    svc = _service(runner)  # single provider, registry has alpha=1, beta=2
+    code = svc.dispatch("up", ["*/api", "*/web"])
+    assert code == 0
+    entrypoint = str(WS / "winter-service-tmux/workflow/service")
+    call_cmds = [tuple(c[0]) for c in runner.call_calls]
+    assert call_cmds == [
+        (entrypoint, "up", "alpha/api"),
+        (entrypoint, "up", "alpha/web"),
+        (entrypoint, "up", "beta/api"),
+        (entrypoint, "up", "beta/web"),
+    ]
+    assert (entrypoint, "up", "alpha") not in call_cmds
+    assert (entrypoint, "up", "beta") not in call_cmds
+
+
+def test_dispatch_up_no_matching_scope_reports_diagnostic_and_returns_1() -> None:
+    """A pattern matching no configured env reports a diagnostic and returns 1."""
+    runner = FakeSubprocessRunner()
+    reporter = FakeServiceReporter()
+    _registry, resolver = _configured_registry_and_resolver()
+    svc = ServiceDispatchService(
+        subprocess_runner=runner,
+        orchestrator_resolver=resolver,
+        fan_out_service=_fan_out_svc(runner),
+        describe_service=ServiceDescribeService(
+            subprocess_runner=runner,
+            describe_parser=DescribeResultParser(),
+            workspace_root=WS,
+            service_prefix=SERVICE_PREFIX,
+        ),
+        matrix_service=_matrix_svc(runner, {"alpha": 1, "beta": 2}),
+        workspace_root=WS,
+        service_prefix=SERVICE_PREFIX,
+        reporter=reporter,  # type: ignore[arg-type]
+    )
+    code = svc.dispatch("up", ["zzz"])
+    assert code == 1
+    assert runner.call_calls == []
+    assert reporter.no_service_matched_calls == ["'zzz'"]
+
+
+# ── up/down: multi-provider enumeration (winter#139) ──────────────────────────
+
+_EP_A = str(WS / "provider-a/workflow/service")
+_EP_B = str(WS / "provider-b/workflow/service")
+
+
+def _two_providers() -> list[ResolvedCapability]:
+    return [
+        _provider("provider-a", Path(_EP_A), WS / "provider-a"),
+        _provider("provider-b", Path(_EP_B), WS / "provider-b"),
+    ]
+
+
+def _describe_response(*services: str) -> SubprocessResult:
+    return SubprocessResult(returncode=0, stdout=json.dumps({"services": list(services)}), stderr="")
+
+
+def test_dispatch_up_multi_provider_dispatches_every_owning_provider() -> None:
+    """Two providers each owning env-scoped services both get an up cell for the matched env."""
+    runner = FakeSubprocessRunner(
+        run_responses={
+            f"{_EP_A} describe": _describe_response("*/db"),
+            f"{_EP_B} describe": _describe_response("*/api"),
+        }
+    )
+    svc = _dispatch_svc(runner, _two_providers(), assignments={"alpha": 1})
+    code = svc.dispatch("up", ["alpha"])
+    assert code == 0
+    call_cmds = [tuple(c[0]) for c in runner.call_calls]
+    assert call_cmds == [
+        (_EP_A, "up", "alpha"),
+        (_EP_B, "up", "alpha"),
+    ]
+
+
+def test_dispatch_up_aborts_on_first_cell_failure_multi_provider() -> None:
+    """up forward-fanout aborts on the first cell's non-zero exit; later cells never dispatch."""
+    runner = FakeSubprocessRunner(
+        run_responses={
+            f"{_EP_A} describe": _describe_response("*/db"),
+            f"{_EP_B} describe": _describe_response("*/api"),
+        },
+        call_responses={f"{_EP_A} up alpha": 9},
+    )
+    svc = _dispatch_svc(runner, _two_providers(), assignments={"alpha": 1})
+    code = svc.dispatch("up", ["alpha"])
+    assert code == 9
+    call_cmds = [tuple(c[0]) for c in runner.call_calls]
+    assert (_EP_A, "up", "alpha") in call_cmds
+    assert (_EP_B, "up", "alpha") not in call_cmds
+
+
+def test_dispatch_down_best_effort_continues_across_cells_multi_provider() -> None:
+    """down is best-effort across cells: a failing cell does not stop the others."""
+    runner = FakeSubprocessRunner(
+        run_responses={
+            f"{_EP_A} describe": _describe_response("*/db"),
+            f"{_EP_B} describe": _describe_response("*/api"),
+        },
+        call_responses={f"{_EP_A} down alpha": 4},
+    )
+    svc = _dispatch_svc(runner, _two_providers(), assignments={"alpha": 1})
+    code = svc.dispatch("down", ["alpha"])
+    assert code == 4
+    call_cmds = [tuple(c[0]) for c in runner.call_calls]
+    assert (_EP_A, "down", "alpha") in call_cmds
+    assert (_EP_B, "down", "alpha") in call_cmds

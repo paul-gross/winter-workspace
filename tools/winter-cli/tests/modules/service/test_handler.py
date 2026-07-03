@@ -144,11 +144,21 @@ def _handler(runner: FakeSubprocessRunner, click: Any = None) -> ServiceHandler:
         workspace_root=WS,
         service_prefix="winter",
     )
+    matrix = ServiceStatusMatrixService(
+        subprocess_runner=runner,
+        describe_service=describe_svc,
+        env_provisioner=_FakeEnvProvisionerService(),
+        status_parser=StatusDocumentParser(),
+        env_index_registry=_FakeEnvIndexRegistry({"alpha": 1, "beta": 2}),
+        workspace_root=WS,
+        service_prefix="winter",
+    )
     dispatch = ServiceDispatchService(
         subprocess_runner=runner,
         orchestrator_resolver=res,
         fan_out_service=fan_out,
         describe_service=describe_svc,
+        matrix_service=matrix,
         workspace_root=WS,
         service_prefix="winter",
     )
@@ -156,15 +166,6 @@ def _handler(runner: FakeSubprocessRunner, click: Any = None) -> ServiceHandler:
         subprocess_runner=runner,
         orchestrator_resolver=res,
         describe_service=describe_svc,
-        workspace_root=WS,
-        service_prefix="winter",
-    )
-    matrix = ServiceStatusMatrixService(
-        subprocess_runner=runner,
-        describe_service=describe_svc,
-        env_provisioner=_FakeEnvProvisionerService(),
-        status_parser=StatusDocumentParser(),
-        env_index_registry=_FakeEnvIndexRegistry({"alpha": 1}),
         workspace_root=WS,
         service_prefix="winter",
     )
@@ -205,7 +206,7 @@ def _counting_clock(step: float = 1.0):
 
 def test_handler_up_invokes_entrypoint_with_action_and_env() -> None:
     runner = FakeSubprocessRunner()
-    _handler(runner).run(ServiceParams(action="up", env="alpha"))
+    _handler(runner).run(ServiceParams(action="up", patterns=("alpha",)))
     # workspace-ensure dispatch precedes the env dispatch.
     assert runner.call_calls == [
         ([ENTRYPOINT, "up", "workspace"], WS),
@@ -215,13 +216,13 @@ def test_handler_up_invokes_entrypoint_with_action_and_env() -> None:
 
 def test_handler_down_invokes_correct_argv() -> None:
     runner = FakeSubprocessRunner()
-    _handler(runner).run(ServiceParams(action="down", env="beta"))
+    _handler(runner).run(ServiceParams(action="down", patterns=("beta",)))
     assert runner.call_calls == [([ENTRYPOINT, "down", "beta"], WS)]
 
 
 def test_handler_up_does_not_set_selection_env_vars() -> None:
     runner = FakeSubprocessRunner()
-    _handler(runner).run(ServiceParams(action="up", env="alpha"))
+    _handler(runner).run(ServiceParams(action="up", patterns=("alpha",)))
     # Two dispatches (workspace-ensure + env); neither sets selection env vars.
     assert len(runner.call_envs) == 2
     for env in runner.call_envs:
@@ -231,7 +232,7 @@ def test_handler_up_does_not_set_selection_env_vars() -> None:
 
 def test_handler_down_does_not_set_selection_env_vars() -> None:
     runner = FakeSubprocessRunner()
-    _handler(runner).run(ServiceParams(action="down", env="alpha"))
+    _handler(runner).run(ServiceParams(action="down", patterns=("alpha",)))
     assert len(runner.call_envs) == 1
     env = runner.call_envs[0]
     assert "WINTER_SERVICE_NAME" not in env
@@ -284,11 +285,13 @@ def test_handler_status_with_patterns_forwards_them_on_argv() -> None:
 def test_handler_status_with_no_patterns_sends_bare_action() -> None:
     """No patterns → full matrix: one cell per configured env + workspace cell.
 
-    The sole provider is called with 'alpha/*' and 'workspace/*' (registry has alpha=1).
+    The sole provider is called with 'alpha/*', 'beta/*', and 'workspace/*'
+    (registry has alpha=1, beta=2).
     """
     runner = FakeSubprocessRunner(
         popen_responses={
             f"{STATUS_ENTRYPOINT} status alpha/*": ([_SIMPLE_STATUS_DOC], 0),
+            f"{STATUS_ENTRYPOINT} status beta/*": ([json.dumps({"envs": []})], 0),
             f"{STATUS_ENTRYPOINT} status workspace/*": (
                 [
                     json.dumps({"envs": []}),
@@ -298,10 +301,11 @@ def test_handler_status_with_no_patterns_sends_bare_action() -> None:
         }
     )
     _handler(runner).run_status(StatusOptions(patterns=(), as_json=False))
-    # Two cells: alpha/* and workspace/*, both invoked.
-    assert len(runner.popen_calls) == 2
+    # Three cells: alpha/*, beta/*, and workspace/*, all invoked.
+    assert len(runner.popen_calls) == 3
     cmds = [calls[0] for calls in runner.popen_calls]
     assert any(cmd == [STATUS_ENTRYPOINT, "status", "alpha/*"] for cmd in cmds)
+    assert any(cmd == [STATUS_ENTRYPOINT, "status", "beta/*"] for cmd in cmds)
     assert any(cmd == [STATUS_ENTRYPOINT, "status", "workspace/*"] for cmd in cmds)
 
 
@@ -322,12 +326,14 @@ def test_handler_adopts_nonzero_exit_code_for_restart() -> None:
 def test_handler_run_status_adopts_nonzero_exit_code() -> None:
     """run_status exits with the orchestrator's non-zero exit code regardless of stdout validity.
 
-    Both matrix cells are called; workspace/* returns an empty valid doc; alpha/* returns
-    invalid JSON with exit code 3.  The worst exit code (3) is propagated.
+    All matrix cells are called; beta/* and workspace/* return an empty valid doc;
+    alpha/* returns invalid JSON with exit code 3.  The worst exit code (3) is
+    propagated.
     """
     runner = FakeSubprocessRunner(
         popen_responses={
             f"{STATUS_ENTRYPOINT} status alpha/*": (["not valid json"], 3),
+            f"{STATUS_ENTRYPOINT} status beta/*": ([json.dumps({"envs": []})], 0),
             f"{STATUS_ENTRYPOINT} status workspace/*": (
                 [
                     json.dumps({"envs": []}),
@@ -343,13 +349,14 @@ def test_handler_run_status_adopts_nonzero_exit_code() -> None:
 
 def test_handler_up_exits_zero_without_raising() -> None:
     runner = FakeSubprocessRunner()
-    _handler(runner).run(ServiceParams(action="up", env="alpha"))
+    _handler(runner).run(ServiceParams(action="up", patterns=("alpha",)))
 
 
 def test_handler_status_exits_zero_without_raising() -> None:
     runner = FakeSubprocessRunner(
         popen_responses={
             f"{STATUS_ENTRYPOINT} status alpha/*": ([_SIMPLE_STATUS_DOC], 0),
+            f"{STATUS_ENTRYPOINT} status beta/*": ([json.dumps({"envs": []})], 0),
             f"{STATUS_ENTRYPOINT} status workspace/*": (
                 [
                     json.dumps({"envs": []}),
@@ -438,21 +445,21 @@ def test_handler_run_logs_no_patterns_sends_bare_logs_action() -> None:
 def test_handler_up_workspace_target_single_dispatch() -> None:
     """up workspace → exactly one dispatch: up workspace. No recursion."""
     runner = FakeSubprocessRunner()
-    _handler(runner).run(ServiceParams(action="up", env="workspace"))
+    _handler(runner).run(ServiceParams(action="up", patterns=("workspace",)))
     assert runner.call_calls == [([ENTRYPOINT, "up", "workspace"], WS)]
 
 
 def test_handler_down_workspace_target_single_dispatch() -> None:
     """down workspace → exactly one dispatch: down workspace."""
     runner = FakeSubprocessRunner()
-    _handler(runner).run(ServiceParams(action="down", env="workspace"))
+    _handler(runner).run(ServiceParams(action="down", patterns=("workspace",)))
     assert runner.call_calls == [([ENTRYPOINT, "down", "workspace"], WS)]
 
 
 def test_handler_up_env_ensures_workspace_first() -> None:
     """up alpha → dispatch workspace first, then alpha (workspace-ensure ordering)."""
     runner = FakeSubprocessRunner()
-    _handler(runner).run(ServiceParams(action="up", env="alpha"))
+    _handler(runner).run(ServiceParams(action="up", patterns=("alpha",)))
     assert runner.call_calls == [
         ([ENTRYPOINT, "up", "workspace"], WS),
         ([ENTRYPOINT, "up", "alpha"], WS),
@@ -462,8 +469,62 @@ def test_handler_up_env_ensures_workspace_first() -> None:
 def test_handler_down_env_leaves_workspace_running() -> None:
     """down alpha → only down alpha; no down workspace call."""
     runner = FakeSubprocessRunner()
-    _handler(runner).run(ServiceParams(action="down", env="alpha"))
+    _handler(runner).run(ServiceParams(action="down", patterns=("alpha",)))
     assert runner.call_calls == [([ENTRYPOINT, "down", "alpha"], WS)]
+
+
+def test_handler_up_multi_env_patterns_ensures_workspace_once_then_fans_out() -> None:
+    """up alpha beta → workspace-ensure runs exactly once, then both envs fan out in order."""
+    runner = FakeSubprocessRunner()
+    _handler(runner).run(ServiceParams(action="up", patterns=("alpha", "beta")))
+    assert runner.call_calls == [
+        ([ENTRYPOINT, "up", "workspace"], WS),
+        ([ENTRYPOINT, "up", "alpha"], WS),
+        ([ENTRYPOINT, "up", "beta"], WS),
+    ]
+
+
+def test_handler_down_multi_env_patterns_stops_each_leaves_workspace_running() -> None:
+    """down alpha beta → both envs stop; no down workspace call."""
+    runner = FakeSubprocessRunner()
+    _handler(runner).run(ServiceParams(action="down", patterns=("alpha", "beta")))
+    assert runner.call_calls == [
+        ([ENTRYPOINT, "down", "alpha"], WS),
+        ([ENTRYPOINT, "down", "beta"], WS),
+    ]
+
+
+def test_handler_up_glob_pattern_starts_only_matching_env() -> None:
+    """up 'al*' with configured envs alpha/beta → only alpha matches and starts."""
+    runner = FakeSubprocessRunner()
+    _handler(runner).run(ServiceParams(action="up", patterns=("al*",)))
+    assert runner.call_calls == [
+        ([ENTRYPOINT, "up", "workspace"], WS),
+        ([ENTRYPOINT, "up", "alpha"], WS),
+    ]
+
+
+def test_handler_down_glob_pattern_stops_only_matching_envs() -> None:
+    """down '*' with configured envs alpha/beta → stops both; workspace untouched."""
+    runner = FakeSubprocessRunner()
+    _handler(runner).run(ServiceParams(action="down", patterns=("*",)))
+    assert runner.call_calls == [
+        ([ENTRYPOINT, "down", "alpha"], WS),
+        ([ENTRYPOINT, "down", "beta"], WS),
+    ]
+
+
+def test_handler_up_workspace_explicit_among_multiple_patterns_skips_ensure_step() -> None:
+    """up workspace alpha → workspace targeted explicitly; no separate ensure dispatch."""
+    runner = FakeSubprocessRunner()
+    _handler(runner).run(ServiceParams(action="up", patterns=("workspace", "alpha")))
+    # No duplicate "up workspace" ensure-step call: the workspace scope is
+    # dispatched exactly once, as part of the matrix fan-out (after alpha,
+    # since workspace cells sort after env cells).
+    assert runner.call_calls == [
+        ([ENTRYPOINT, "up", "alpha"], WS),
+        ([ENTRYPOINT, "up", "workspace"], WS),
+    ]
 
 
 def test_handler_up_ensure_failure_is_best_effort() -> None:
@@ -473,7 +534,7 @@ def test_handler_up_ensure_failure_is_best_effort() -> None:
     """
     runner = FakeSubprocessRunner(call_responses={f"{ENTRYPOINT} up workspace": 4})
     with pytest.raises(SystemExit) as excinfo:
-        _handler(runner).run(ServiceParams(action="up", env="alpha"))
+        _handler(runner).run(ServiceParams(action="up", patterns=("alpha",)))
     # Both calls were made — workspace first, then env (best-effort: never skip).
     assert runner.call_calls == [
         ([ENTRYPOINT, "up", "workspace"], WS),
@@ -486,7 +547,7 @@ def test_handler_up_env_failure_exits_with_env_code() -> None:
     """If workspace up succeeds (0) but env up fails, exit with the env failure code."""
     runner = FakeSubprocessRunner(call_responses={f"{ENTRYPOINT} up alpha": 5})
     with pytest.raises(SystemExit) as excinfo:
-        _handler(runner).run(ServiceParams(action="up", env="alpha"))
+        _handler(runner).run(ServiceParams(action="up", patterns=("alpha",)))
     assert runner.call_calls == [
         ([ENTRYPOINT, "up", "workspace"], WS),
         ([ENTRYPOINT, "up", "alpha"], WS),
@@ -530,7 +591,7 @@ def test_handler_up_wait_exits_zero_when_healthy() -> None:
         popen_responses={f"{STATUS_ENTRYPOINT} status alpha/*": ([_status_doc("alpha", [("api", "healthy")])], 0)},
     )
     # No SystemExit: ready before timeout → success.
-    _handler(runner).run(ServiceParams(action="up", env="alpha", wait=True, timeout_s=30.0))
+    _handler(runner).run(ServiceParams(action="up", patterns=("alpha",), wait=True, timeout_s=30.0))
     # up was dispatched (workspace + env), then status was polled once.
     assert runner.call_calls == [
         ([ENTRYPOINT, "up", "workspace"], WS),
@@ -549,7 +610,7 @@ def test_handler_up_wait_returns_promptly_with_no_declared_probes() -> None:
             )
         },
     )
-    _handler(runner).run(ServiceParams(action="up", env="alpha", wait=True, timeout_s=30.0))
+    _handler(runner).run(ServiceParams(action="up", patterns=("alpha",), wait=True, timeout_s=30.0))
     assert runner.popen_calls == [([STATUS_ENTRYPOINT, "status", "alpha/*"], WS)]
 
 
@@ -565,7 +626,7 @@ def test_handler_up_wait_times_out_and_names_unhealthy_services() -> None:
     )
     with pytest.raises(SystemExit) as excinfo:
         # Small timeout: the counting clock crosses the deadline after the first poll.
-        _handler(runner, click=click).run(ServiceParams(action="up", env="alpha", wait=True, timeout_s=0.5))
+        _handler(runner, click=click).run(ServiceParams(action="up", patterns=("alpha",), wait=True, timeout_s=0.5))
     assert excinfo.value.code == 1
     # The still-unhealthy service is named on stderr.
     stderr = [msg for msg, err in click.calls if err]
@@ -575,6 +636,6 @@ def test_handler_up_wait_times_out_and_names_unhealthy_services() -> None:
 
 def test_handler_up_without_wait_does_not_poll_status() -> None:
     runner = FakeSubprocessRunner()
-    _handler(runner).run(ServiceParams(action="up", env="alpha"))
+    _handler(runner).run(ServiceParams(action="up", patterns=("alpha",)))
     # No --wait → up behaves exactly as before: no status poll.
     assert runner.popen_calls == []

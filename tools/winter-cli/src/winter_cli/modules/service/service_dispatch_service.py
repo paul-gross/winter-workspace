@@ -5,17 +5,28 @@ from pathlib import Path
 from winter_cli.core.subprocess_runner import ISubprocessRunner
 from winter_cli.modules.capability.models import ResolvedCapability
 from winter_cli.modules.service.orchestrator_resolver import ServiceOrchestratorResolver
-from winter_cli.modules.service.provider_invocation import build_provider_env, service_matches_pattern
-from winter_cli.modules.service.service_fan_out_service import ServiceFanOutService
+from winter_cli.modules.service.provider_invocation import (
+    build_provider_env,
+    service_matches_pattern,
+    up_down_positional,
+)
+from winter_cli.modules.service.service_fan_out_service import FanOutCell, ServiceFanOutService
 from winter_cli.modules.service.service_provider_index import ServiceDescribeService
 from winter_cli.modules.service.service_reporter import IServiceReporter
+from winter_cli.modules.service.service_status_matrix_service import (
+    ServiceStatusMatrixService,
+    cell_service_patterns,
+)
 
 
 class ServiceDispatchService:
     """Dispatches up/down/restart to the registered service orchestrator(s).
 
-    For ``up`` and ``down``, uses ``ServiceFanOutService`` to fan out across the
-    ordered provider list with no readiness gate or ordering semantics.
+    For ``up`` and ``down``, reuses ``ServiceStatusMatrixService.build_matrix`` to
+    enumerate the matched (provider, scope) cells for the user's ``<env>/<service>``
+    glob PATTERNS — the same registry-driven enumeration `status` uses — and fans
+    them out via ``ServiceFanOutService`` with no readiness gate or ordering
+    semantics beyond the matrix's own deterministic cell order.
 
     For ``restart`` with multiple providers, builds the service-to-provider ownership
     index via ``ServiceDescribeService``, groups matched services by owning provider,
@@ -31,10 +42,16 @@ class ServiceDispatchService:
     `WINTER_EXT_DIR`, `WINTER_EXT_PREFIX`, and `WINTER_SERVICE_PREFIX` (matching the
     doctor/lint/hook dispatches).
 
-    For up/down the single positional is `<env>`. For restart the positionals are
-    the verbatim `<env>/<service>` selection PATTERNS forwarded unchanged on argv.
-    No per-action selection env vars are set here (status is handled separately by
-    ServiceStatusService; logs is handled separately by ServiceLogsService).
+    For up/down the positional per cell is the bare scope (no service-segment filter
+    matched), the scope-qualified pattern (exactly one real filter matched — see
+    ``up_down_positional``), or, when 2+ distinct service-segment filters target the
+    same (provider, scope) cell, one FanOutCell per service pattern (``cell_service_patterns``)
+    so the provider starts/stops exactly the requested services rather than the whole
+    scope (winter#139 MUST-FIX — up/down has no post-dispatch backstop filter like
+    `status` does). For restart the positionals are the verbatim `<env>/<service>`
+    selection PATTERNS forwarded unchanged on argv. No per-action selection env vars
+    are set here (status is handled separately by ServiceStatusService; logs is
+    handled separately by ServiceLogsService).
 
     The entrypoint's exit code is returned unmodified; stdout/stderr are
     inherited from the parent process (no capture).
@@ -46,6 +63,7 @@ class ServiceDispatchService:
         orchestrator_resolver: ServiceOrchestratorResolver,
         fan_out_service: ServiceFanOutService,
         describe_service: ServiceDescribeService,
+        matrix_service: ServiceStatusMatrixService,
         workspace_root: Path,
         service_prefix: str,
         reporter: IServiceReporter | None = None,
@@ -54,6 +72,7 @@ class ServiceDispatchService:
         self._orchestrator_resolver = orchestrator_resolver
         self._fan_out_service = fan_out_service
         self._describe_service = describe_service
+        self._matrix_service = matrix_service
         self._workspace_root = workspace_root
         self._service_prefix = service_prefix
         self._reporter = reporter
@@ -61,14 +80,10 @@ class ServiceDispatchService:
     def dispatch(self, action: str, positionals: list[str]) -> int:
         """Run the orchestrator's entrypoint and return its exit code unmodified."""
         if action == "up":
-            env = positionals[0] if positionals else ""
-            providers = self._orchestrator_resolver.resolve_all()
-            return self._fan_out_service.up(env, providers)
+            return self._dispatch_up_down("up", tuple(positionals))
 
         if action == "down":
-            env = positionals[0] if positionals else ""
-            providers = self._orchestrator_resolver.resolve_all()
-            return self._fan_out_service.down(env, providers)
+            return self._dispatch_up_down("down", tuple(positionals))
 
         if action == "restart":
             return self._dispatch_restart(positionals)
@@ -79,6 +94,64 @@ class ServiceDispatchService:
         cmd = [str(resolved.entrypoint), action, *positionals]
         merged = build_provider_env(resolved, self._workspace_root, self._service_prefix)
         return self._subprocess_runner.call(cmd, cwd=self._workspace_root, env=merged)
+
+    def _dispatch_up_down(self, action: str, patterns: tuple[str, ...]) -> int:
+        """Fan ``up``/``down`` out across every matched (provider, scope) cell.
+
+        Reuses ``ServiceStatusMatrixService.build_matrix`` for enumeration — the
+        same registry-driven ``IEnvIndexRegistry.all_assignments()`` + (multi-provider)
+        ``describe`` ownership rows/columns `status` builds — instead of duplicating
+        that logic here. Each cell's dispatch positional is the bare scope when the
+        cell carries no service-segment filter, or the scope-qualified pattern when
+        it does (``up_down_positional``). No cells matched (e.g. an env name/glob
+        that matches no configured env or owning provider) surfaces a diagnostic and
+        returns 1, mirroring `status`'s ``no_service_matched`` behaviour.
+
+        Unlike `status`, up/down has no post-dispatch backstop filter — so a scope
+        matched by 2+ distinct service-segment patterns (``down alpha/db alpha/api``)
+        must NOT collapse to the matrix's whole-scope ``"<scope>/*"`` cell pattern
+        (that would dispatch a bare ``down alpha``, stopping the entire scope instead
+        of just the named services — winter#139 MUST-FIX). ``cell_service_patterns``
+        detects this case and each matched cell is expanded into one FanOutCell per
+        service pattern, each carrying its own ``<scope>/<svc>`` positional.
+        """
+        providers = self._orchestrator_resolver.resolve_all()
+
+        def _on_describe_error(name: str, detail: str) -> None:
+            if self._reporter is not None:
+                self._reporter.describe_parse_error(name, detail)
+
+        cells = self._matrix_service.build_matrix(providers, patterns, on_describe_error=_on_describe_error)
+
+        if not cells:
+            if patterns and self._reporter is not None:
+                self._reporter.no_service_matched(", ".join(repr(p) for p in patterns))
+            return 1
+
+        fan_cells: list[FanOutCell] = []
+        for cell in cells:
+            svc_patterns = cell_service_patterns(cell.scope, patterns)
+            if svc_patterns is not None and len(svc_patterns) >= 2:
+                for svc in svc_patterns:
+                    fan_cells.append(
+                        FanOutCell(
+                            provider=cell.provider,
+                            scope=cell.scope,
+                            positional=f"{cell.scope}/{svc}",
+                        )
+                    )
+            else:
+                fan_cells.append(
+                    FanOutCell(
+                        provider=cell.provider,
+                        scope=cell.scope,
+                        positional=up_down_positional(cell.scope, cell.cell_pattern),
+                    )
+                )
+
+        if action == "up":
+            return self._fan_out_service.up(fan_cells)
+        return self._fan_out_service.down(fan_cells)
 
     def _dispatch_restart(self, patterns: list[str]) -> int:
         """Route restart to the owning provider(s) based on the service ownership index.

@@ -69,18 +69,23 @@ meaning = "Recognized-but-unimplemented action — the orchestrator knows the ac
 
 # Actions the orchestrator entrypoint must implement.
 # Invocation form: <entrypoint> <action> [positionals...]
-#   single-env:       <entrypoint> <action> <env>
 #   patterns-optional: <entrypoint> <action> [<env>/<service>...]
 #   patterns-required: <entrypoint> <action> <env>/<service> [<env>/<service>...]
+#
+# up/down are dispatched once per matched (provider, scope) cell — winter
+# enumerates matched scopes itself (reusing the status call-matrix) and invokes
+# the entrypoint per cell with a single positional: the bare <scope> when the
+# cell carries no service-segment filter, or the scope-qualified <scope>/<svc>
+# pattern when the user supplied a real filter for that scope.
 
 [[action]]
 name    = "up"
-arity   = "single-env"
+arity   = "patterns-required"
 summary = "Start all services in the named feature environment."
 
 [[action]]
 name    = "down"
-arity   = "single-env"
+arity   = "patterns-required"
 summary = "Stop all services in the named feature environment."
 
 [[action]]

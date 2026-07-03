@@ -88,8 +88,10 @@ def service_group() -> None:
     """Control workspace services via the registered orchestrator extension.
 
     Each action invokes the entrypoint registered in .winter/config.toml.
-    `up`/`down` pass a single `<env>` positional; `restart`/`logs` forward
-    `<env>/<service>` PATTERNS as positional argv tokens. `status` captures the
+    `up`/`down`/`restart`/`logs` forward `<env>/<service>` PATTERNS as positional
+    argv tokens (at least one required). Per matched scope, winter dispatches the
+    bare `<scope>` when the scope carries no service-segment filter, or the
+    scope-qualified pattern (`alpha/api`) when it does. `status` captures the
     orchestrator's stdout as a structured JSON document and renders it — patterns
     are forwarded on argv but `--json` is a winter-side render toggle only.
     `logs` render options (-f/-n/--since/--until/-t) are appended to the orchestrator
@@ -98,7 +100,7 @@ def service_group() -> None:
 
 
 @service_group.command("up", short_help=_HELP_UP)
-@click.argument("env")
+@click.argument("patterns", nargs=-1, required=True)
 @click.option(
     "--wait",
     is_flag=True,
@@ -115,8 +117,17 @@ def service_group() -> None:
     help="Max seconds to wait for readiness; only meaningful with --wait.",
 )
 @click.pass_context
-def up_cmd(ctx: click.Context, env: str, wait: bool, timeout_s: float) -> None:
-    """Start services for ENV.
+def up_cmd(ctx: click.Context, patterns: tuple[str, ...], wait: bool, timeout_s: float) -> None:
+    """Start services matching <env>/<service> PATTERNS.
+
+    PATTERNS are one or more <env>/<service> segment-glob strings (at least one
+    required — action commands require an explicit target, mirroring `restart`/
+    `logs`). Matched scopes are enumerated the same way `status` does (the
+    configured-env registry plus, with multiple providers, `describe` ownership).
+    Per matched scope, winter dispatches the bare `<scope>` when the scope carries
+    no service-segment filter, or the scope-qualified pattern when a real filter
+    was given. `up <env>` (any named env, not itself `workspace`) also ensures the
+    workspace scope is up first (best-effort).
 
     With ``--wait``, after dispatching ``up`` winter polls the orchestrator's
     ``status`` action and blocks until no in-scope service reports
@@ -127,16 +138,24 @@ def up_cmd(ctx: click.Context, env: str, wait: bool, timeout_s: float) -> None:
     services, exactly as before.
     """
     handler = _service_handler(ctx)
-    handler.run(ServiceParams(action="up", env=env, wait=wait, timeout_s=timeout_s))
+    handler.run(ServiceParams(action="up", patterns=patterns, wait=wait, timeout_s=timeout_s))
 
 
 @service_group.command("down", short_help=_HELP_DOWN)
-@click.argument("env")
+@click.argument("patterns", nargs=-1, required=True)
 @click.pass_context
-def down_cmd(ctx: click.Context, env: str) -> None:
-    """Stop services for ENV."""
+def down_cmd(ctx: click.Context, patterns: tuple[str, ...]) -> None:
+    """Stop services matching <env>/<service> PATTERNS.
+
+    PATTERNS are one or more <env>/<service> segment-glob strings (at least one
+    required). Matched scopes are enumerated the same way `status` does. Per
+    matched scope, winter dispatches the bare `<scope>` when the scope carries no
+    service-segment filter, or the scope-qualified pattern otherwise. `down`
+    leaves the workspace scope running unless a pattern explicitly targets it
+    (`down workspace`).
+    """
     handler = _service_handler(ctx)
-    handler.run(ServiceParams(action="down", env=env))
+    handler.run(ServiceParams(action="down", patterns=patterns))
 
 
 @service_group.command("status", short_help=_HELP_STATUS)

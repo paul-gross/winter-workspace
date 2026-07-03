@@ -63,16 +63,16 @@ class ServiceReadinessService:
         self._monotonic = monotonic
         self._poll_interval_s = poll_interval_s
 
-    def wait(self, env: str, timeout_s: float) -> ReadinessResult:
-        """Poll ``status`` for *env* until no service is unhealthy, or *timeout_s* elapses.
+    def wait(self, patterns: tuple[str, ...], timeout_s: float) -> ReadinessResult:
+        """Poll ``status`` for *patterns* until no service is unhealthy, or *timeout_s* elapses.
 
-        *env* scopes the poll exactly like a bare ``status`` pattern: ``alpha``
-        expands to ``alpha/*``, ``workspace`` to ``workspace/*``. Returns as soon
-        as a poll shows no unhealthy service (the common case completes on the
-        first poll). On timeout, returns the still-unhealthy identifiers so the
-        caller can name them.
+        *patterns* scope the poll exactly like ``status`` PATTERNS: a bare env
+        (``alpha``) expands to ``alpha/*``, ``workspace`` to ``workspace/*``, and
+        a glob (``al*``) or multiple patterns gate readiness across every matched
+        scope in one poll cycle. Returns as soon as a poll shows no unhealthy
+        service (the common case completes on the first poll). On timeout, returns
+        the still-unhealthy identifiers so the caller can name them.
         """
-        patterns = (env,)
         deadline = self._monotonic() + timeout_s
 
         while True:

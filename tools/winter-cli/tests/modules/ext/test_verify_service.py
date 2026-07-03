@@ -8,7 +8,6 @@ from winter_cli.core.subprocess_runner import SubprocessResult
 from winter_cli.modules.capability.spec_loader import SpecLoader
 from winter_cli.modules.ext.models import VerifyReport
 from winter_cli.modules.ext.verify_service import (
-    _PROBE_ENV,
     _PROBE_PATTERN,
     _SENTINEL,
     _UNKNOWN_ACTION,
@@ -103,8 +102,8 @@ def _conforming_runner(ep: Path = ENTRYPOINT) -> FakeSubprocessRunner:
 
     responses: dict[str, SubprocessResult] = {
         # accepts-action checks (exit 0 for each of the 7 declared actions)
-        f"{ep_str} up {_PROBE_ENV}": SubprocessResult(returncode=0, stdout="", stderr=""),
-        f"{ep_str} down {_PROBE_ENV}": SubprocessResult(returncode=0, stdout="", stderr=""),
+        f"{ep_str} up {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
+        f"{ep_str} down {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} status": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} restart {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} logs {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
@@ -163,8 +162,8 @@ def test_action_rejected_with_exit_2_fails_accepts_check() -> None:
     ep_str = str(ENTRYPOINT)
     # Clobber the "up" response to return exit 2 (unknown-action signal).
     responses = {
-        f"{ep_str} up {_PROBE_ENV}": SubprocessResult(returncode=2, stdout="", stderr=""),
-        f"{ep_str} down {_PROBE_ENV}": SubprocessResult(returncode=0, stdout="", stderr=""),
+        f"{ep_str} up {_PROBE_PATTERN}": SubprocessResult(returncode=2, stdout="", stderr=""),
+        f"{ep_str} down {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} status": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} restart {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} logs {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
@@ -186,8 +185,8 @@ def test_action_rejected_with_exit_2_fails_accepts_check() -> None:
 def test_action_rejected_report_has_descriptive_detail() -> None:
     ep_str = str(ENTRYPOINT)
     responses = {
-        f"{ep_str} up {_PROBE_ENV}": SubprocessResult(returncode=2, stdout="", stderr=""),
-        f"{ep_str} down {_PROBE_ENV}": SubprocessResult(returncode=0, stdout="", stderr=""),
+        f"{ep_str} up {_PROBE_PATTERN}": SubprocessResult(returncode=2, stdout="", stderr=""),
+        f"{ep_str} down {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} status": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} restart {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} logs {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
@@ -212,8 +211,8 @@ def test_accepts_unknown_action_fails_refuses_check() -> None:
     """When exit is 0 for an unknown action, the refuses-unknown check fails."""
     ep_str = str(ENTRYPOINT)
     responses = {
-        f"{ep_str} up {_PROBE_ENV}": SubprocessResult(returncode=0, stdout="", stderr=""),
-        f"{ep_str} down {_PROBE_ENV}": SubprocessResult(returncode=0, stdout="", stderr=""),
+        f"{ep_str} up {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
+        f"{ep_str} down {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} status": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} restart {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} logs {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
@@ -236,8 +235,8 @@ def test_accepts_unknown_action_fails_refuses_check() -> None:
 def test_accepts_unknown_action_detail_mentions_exit_0() -> None:
     ep_str = str(ENTRYPOINT)
     responses = {
-        f"{ep_str} up {_PROBE_ENV}": SubprocessResult(returncode=0, stdout="", stderr=""),
-        f"{ep_str} down {_PROBE_ENV}": SubprocessResult(returncode=0, stdout="", stderr=""),
+        f"{ep_str} up {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
+        f"{ep_str} down {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} status": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} restart {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} logs {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
@@ -261,8 +260,8 @@ def test_drops_params_fails_forwards_check() -> None:
     """When stdout/stderr does not contain the sentinel, forwards-params fails."""
     ep_str = str(ENTRYPOINT)
     responses = {
-        f"{ep_str} up {_PROBE_ENV}": SubprocessResult(returncode=0, stdout="", stderr=""),
-        f"{ep_str} down {_PROBE_ENV}": SubprocessResult(returncode=0, stdout="", stderr=""),
+        f"{ep_str} up {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
+        f"{ep_str} down {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} status": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} restart {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} logs {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
@@ -282,8 +281,8 @@ def test_drops_params_fails_forwards_check() -> None:
 def test_drops_params_detail_mentions_sentinel() -> None:
     ep_str = str(ENTRYPOINT)
     responses = {
-        f"{ep_str} up {_PROBE_ENV}": SubprocessResult(returncode=0, stdout="", stderr=""),
-        f"{ep_str} down {_PROBE_ENV}": SubprocessResult(returncode=0, stdout="", stderr=""),
+        f"{ep_str} up {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
+        f"{ep_str} down {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} status": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} restart {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} logs {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
@@ -417,8 +416,8 @@ def _runner_with_bad_describe_json(ep: Path = ENTRYPOINT) -> FakeSubprocessRunne
     """Runner whose describe action emits malformed JSON — fails emits-describe-json."""
     ep_str = str(ep)
     responses: dict[str, SubprocessResult] = {
-        f"{ep_str} up {_PROBE_ENV}": SubprocessResult(returncode=0, stdout="", stderr=""),
-        f"{ep_str} down {_PROBE_ENV}": SubprocessResult(returncode=0, stdout="", stderr=""),
+        f"{ep_str} up {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
+        f"{ep_str} down {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} status": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} restart {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} logs {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
@@ -437,8 +436,8 @@ def _runner_with_non_object_describe(ep: Path = ENTRYPOINT) -> FakeSubprocessRun
     """Runner whose describe action emits a JSON array (not an object) — fails check."""
     ep_str = str(ep)
     responses: dict[str, SubprocessResult] = {
-        f"{ep_str} up {_PROBE_ENV}": SubprocessResult(returncode=0, stdout="", stderr=""),
-        f"{ep_str} down {_PROBE_ENV}": SubprocessResult(returncode=0, stdout="", stderr=""),
+        f"{ep_str} up {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
+        f"{ep_str} down {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} status": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} restart {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} logs {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
@@ -487,8 +486,8 @@ def test_valid_services_list_passes_emits_describe_json_check() -> None:
     """An extension emitting {\"services\": [\"a\", \"b\"]} passes the check."""
     ep_str = str(ENTRYPOINT)
     responses: dict[str, SubprocessResult] = {
-        f"{ep_str} up {_PROBE_ENV}": SubprocessResult(returncode=0, stdout="", stderr=""),
-        f"{ep_str} down {_PROBE_ENV}": SubprocessResult(returncode=0, stdout="", stderr=""),
+        f"{ep_str} up {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
+        f"{ep_str} down {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} status": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} restart {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),
         f"{ep_str} logs {_PROBE_PATTERN}": SubprocessResult(returncode=0, stdout="", stderr=""),

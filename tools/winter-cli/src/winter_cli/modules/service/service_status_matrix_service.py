@@ -121,27 +121,74 @@ class _StatusCell:
     cell_pattern: str
 
 
+def _env_seg_matches_scope(scope: str, env_seg: str) -> bool:
+    """Match a pattern's env segment against a scope name.
+
+    The ``workspace`` scope is reserved and distinct from the ``*`` (any-feature-env)
+    wildcard: when either side names ``workspace`` the match is exact, so a bare
+    ``*`` or other glob never sweeps in the workspace scope and a ``workspace``
+    query never selects a feature-env scope. Otherwise the segment is matched via
+    ``fnmatch`` so glob env names (``"al*"``, ``"*"``) select every configured env
+    whose name matches, mirroring the segment-aware matching ``service_matches_pattern``
+    already applies to describe identifiers.
+    """
+    if scope == WORKSPACE_SCOPE or env_seg == WORKSPACE_SCOPE:
+        return scope == env_seg
+    return fnmatch.fnmatchcase(scope, env_seg)
+
+
 def _scope_matches_patterns(scope: str, patterns: tuple[str, ...]) -> bool:
     """Return True when *scope* should be included given *patterns*.
 
     With no patterns the scope is always included (full matrix).  A bare env
-    pattern (no ``/``) matches the scope by name (``"gamma"`` → scope ``"gamma"``).
-    A scope-qualified pattern (``"gamma/web"``) matches when its env segment
-    matches the scope name.  ``"workspace"`` as a bare pattern matches the
-    workspace scope; ``"workspace/<svc>"`` matches the workspace scope too.
+    pattern (no ``/``) matches the scope by name, honouring glob metacharacters
+    (``"al*"`` matches every configured env starting with ``"al"``, ``"*"``
+    matches every configured env). A scope-qualified pattern (``"gamma/web"``)
+    matches when its env segment matches the scope name. ``"workspace"`` as a
+    bare pattern matches the workspace scope; ``"workspace/<svc>"`` matches the
+    workspace scope too — and, per ``_env_seg_matches_scope``, a glob pattern
+    never sweeps in the workspace scope.
     """
     if not patterns:
         return True
     for pat in patterns:
-        if "/" in pat:
-            env_seg = pat.split("/", 1)[0]
-            if scope == env_seg:
-                return True
-        else:
-            # Bare pattern: expand to <pat>/* — matches if scope == pat.
-            if scope == pat:
-                return True
+        env_seg = pat.split("/", 1)[0] if "/" in pat else pat
+        if _env_seg_matches_scope(scope, env_seg):
+            return True
     return False
+
+
+def cell_service_patterns(scope: str, patterns: tuple[str, ...]) -> list[str] | None:
+    """Return the ordered, deduplicated service-segment filters that apply to *scope*.
+
+    Returns ``None`` when *scope* carries no real per-service filter — either no
+    patterns were supplied at all, or a bare/glob pattern matched the scope by name
+    (``"gamma"``, ``"al*"``), which expands to every service in that scope. A
+    non-``None`` list holds one entry per distinct service-segment pattern the user
+    supplied that is scoped to *scope* (e.g. ``["db", "api"]`` for
+    ``"alpha/db" "alpha/api"``).
+
+    Exposed for ``ServiceDispatchService`` (winter#139 MUST-FIX): up/down cannot
+    rely on the same whole-scope backstop ``status`` uses (there is no post-dispatch
+    filter for up/down), so the dispatch path uses this to detect a genuine 2+
+    service-filter case and emit one fan-out cell per service pattern instead of
+    degrading to the whole scope.
+    """
+    if not patterns:
+        return None
+
+    svc_patterns: list[str] = []
+    for pat in patterns:
+        if "/" in pat:
+            env_seg, svc_seg = pat.split("/", 1)
+            if _env_seg_matches_scope(scope, env_seg) and svc_seg not in svc_patterns:
+                svc_patterns.append(svc_seg)
+        else:
+            # Bare pattern matches by scope name (glob-aware) — expand to all services.
+            if _env_seg_matches_scope(scope, pat):
+                return None
+
+    return svc_patterns or None
 
 
 def _cell_argv_pattern(scope: str, patterns: tuple[str, ...]) -> str:
@@ -149,32 +196,20 @@ def _cell_argv_pattern(scope: str, patterns: tuple[str, ...]) -> str:
 
     When the user supplied a scope-qualified pattern (``"gamma/web"``) we pass
     ``"gamma/web"`` verbatim.  When no patterns, or patterns only name the scope
-    (``"gamma"``), we pass ``"<scope>/*"`` to get all services for that scope.
+    (``"gamma"``, or a glob like ``"g*"``), we pass ``"<scope>/*"`` to get all
+    services for that scope.
     """
-    if not patterns:
+    svc_patterns = cell_service_patterns(scope, patterns)
+    if svc_patterns is None:
         return f"{scope}/*"
-
-    # Collect service-segment filters for this scope.
-    svc_patterns: list[str] = []
-    for pat in patterns:
-        if "/" in pat:
-            env_seg, svc_seg = pat.split("/", 1)
-            if env_seg == scope:
-                svc_patterns.append(svc_seg)
-        else:
-            # Bare pattern matches by scope name — expand to all services.
-            if pat == scope:
-                return f"{scope}/*"
-
-    if svc_patterns:
-        if len(svc_patterns) == 1:
-            return f"{scope}/{svc_patterns[0]}"
-        # Multiple service patterns for this scope: forward <scope>/* so the
-        # provider returns all services for this scope; the post-merge
-        # filter_status backstop then narrows to only the matching ones.
-        return f"{scope}/*"
-
-    # Should not be reached if _scope_matches_patterns returned True, but be safe.
+    if len(svc_patterns) == 1:
+        return f"{scope}/{svc_patterns[0]}"
+    # Multiple service patterns for this scope: forward <scope>/* so the
+    # provider returns all services for this scope; the post-merge
+    # filter_status backstop then narrows to only the matching ones. (up/down
+    # has no such backstop — ServiceDispatchService detects this same
+    # multi-filter case via cell_service_patterns and expands to per-service
+    # cells instead of using this whole-scope pattern; see winter#139.)
     return f"{scope}/*"
 
 
@@ -189,7 +224,7 @@ def _provider_env_svc_matches_patterns(env_svcs: list[str], env_name: str, patte
     for pat in patterns:
         if "/" in pat:
             env_seg, svc_seg = pat.split("/", 1)
-            if env_seg == env_name and any(fnmatch.fnmatchcase(n, svc_seg) for n in plain_names):
+            if _env_seg_matches_scope(env_name, env_seg) and any(fnmatch.fnmatchcase(n, svc_seg) for n in plain_names):
                 return True
     return False
 
