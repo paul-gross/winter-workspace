@@ -37,15 +37,22 @@ def _click_subcommands() -> dict[str, click.Command]:
 # excluded from the spec-parity check.
 _WINTER_INTERNAL_SUBCOMMANDS = frozenset({"ext-services"})
 
+# CLI-only sugar: exact aliases of `up`/`down` (the very same click.Command
+# objects registered under a second name — see AliasedGroup in command.py).
+# They dispatch the existing `up`/`down` actions and are deliberately absent
+# from service-v1.toml, so they're excluded from the spec-parity check too.
+_CLI_ONLY_ALIASES = frozenset({"start", "stop"})
+
 
 def test_service_subcommand_names_match_spec_action_names() -> None:
     """Every spec action has a click subcommand; no extra subcommands exist.
 
-    Winter-internal hidden subcommands (e.g. ``ext-services``) are excluded from
-    this check because they are not part of the provider contract.
+    Winter-internal hidden subcommands (e.g. ``ext-services``) and CLI-only
+    aliases (``start``/``stop``) are excluded from this check because neither
+    is part of the provider contract.
     """
     spec_names = set(_spec_actions())
-    click_names = set(_click_subcommands()) - _WINTER_INTERNAL_SUBCOMMANDS
+    click_names = set(_click_subcommands()) - _WINTER_INTERNAL_SUBCOMMANDS - _CLI_ONLY_ALIASES
     assert click_names == spec_names, (
         f"Click subcommands {sorted(click_names)} do not match spec actions {sorted(spec_names)}. "
         "Update service/command.py or service-v1.toml to bring them back in sync."

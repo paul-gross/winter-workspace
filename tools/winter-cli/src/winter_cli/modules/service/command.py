@@ -35,6 +35,12 @@ def _load_spec_action_summaries() -> dict[str, str]:
 
 _SPEC_SUMMARIES: dict[str, str] = _load_spec_action_summaries()
 
+# CLI-only sugar: `start`/`stop` are exact aliases of `up`/`down` (see
+# AliasedGroup below). Maps alias name -> target name, purely for --help
+# annotation; dispatch equivalence comes from registering the very same
+# click.Command object under both names, not from this mapping.
+_ALIASES: dict[str, str] = {"start": "up", "stop": "down"}
+
 # Per-action short_help strings sourced from the spec.  The fallback literal
 # mirrors what the spec says; it is only reached if the bundled TOML is absent
 # (which should never happen in a normal install).
@@ -83,7 +89,66 @@ def _service_handler(ctx: click.Context):
             container.service_orchestrator_override.reset_override()
 
 
-@click.group("service")
+class _AliasedShortHelpCommand(click.Command):
+    """Transient stand-in for one alias row in `format_commands`'s help listing.
+
+    Wraps the real (shared) command object and only overrides
+    `get_short_help_str` to prepend "Alias of `X`.". Every other attribute
+    Click's `Group.format_commands` reads (`hidden`, etc.) is forwarded to the
+    wrapped command via `__getattr__`. This lets `AliasedGroup.format_commands`
+    delegate its entire layout (width/limit math, the "Commands" section
+    title, `write_dl`) to `click.Group.format_commands` unmodified instead of
+    re-implementing it, so it won't drift if Click changes that internal
+    formatting. Used only for the duration of one `format_commands` call —
+    `AliasedGroup.get_command` always returns the real, unwrapped object, so
+    object-identity checks (`get_command(ctx, "start") is up_cmd`) are
+    unaffected.
+    """
+
+    def __init__(self, target_cmd: click.Command, target_name: str) -> None:
+        self._target_cmd = target_cmd
+        self._target_name = target_name
+
+    def get_short_help_str(self, limit: int = 45) -> str:
+        return f"Alias of `{self._target_name}`. {self._target_cmd.get_short_help_str(limit)}"
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._target_cmd, name)
+
+
+class AliasedGroup(click.Group):
+    """A `click.Group` that lists alias commands with an "Alias of `X`." note.
+
+    `aliases` maps an alias command name to the name of the command it is an
+    exact alias of. The alias and its target are the SAME `click.Command`
+    object (registered under two names via `add_command`), so this mapping
+    only drives `--help` annotation — dispatch equivalence comes from object
+    identity, not from anything read here.
+    """
+
+    def __init__(self, *args: object, aliases: dict[str, str] | None = None, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        self._aliases = aliases or {}
+
+    def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
+        # Temporarily swap each alias's registered command for a proxy that
+        # annotates its short-help string, then delegate to Click's own
+        # layout. `self.commands` is the public registry Group.get_command/
+        # list_commands read from (see click.Group docstring: "The registered
+        # subcommands by their exported names.").
+        originals: dict[str, click.Command] = {}
+        for alias, target in self._aliases.items():
+            real = self.commands.get(alias)
+            if real is not None:
+                originals[alias] = real
+                self.commands[alias] = _AliasedShortHelpCommand(real, target)
+        try:
+            super().format_commands(ctx, formatter)
+        finally:
+            self.commands.update(originals)
+
+
+@click.group("service", cls=AliasedGroup, aliases=_ALIASES)
 def service_group() -> None:
     """Control workspace services via the registered orchestrator extension.
 
@@ -96,6 +161,12 @@ def service_group() -> None:
     are forwarded on argv but `--json` is a winter-side render toggle only.
     `logs` render options (-f/-n/--since/--until/-t) are appended to the orchestrator
     argv as CLI flags after the positional patterns.
+
+    `start`/`stop` are exact CLI-only aliases of `up`/`down` — the very same
+    click.Command objects registered under a second name, so options, `--wait`/
+    `--timeout` semantics, and exit codes are identical, and any future change to
+    `up`/`down` is inherited automatically. The orchestrator wire contract is
+    unaffected: `start`/`stop` still dispatch the `up`/`down` action word.
     """
 
 
@@ -141,6 +212,13 @@ def up_cmd(ctx: click.Context, patterns: tuple[str, ...], wait: bool, timeout_s:
     handler.run(ServiceParams(action="up", patterns=patterns, wait=wait, timeout_s=timeout_s))
 
 
+# `start` is a genuine alias of `up`: the exact same click.Command object,
+# registered under a second name. Same options, same callback, same
+# `ServiceParams(action="up", ...)` dispatch — no duplicated command body, so
+# any future change to `up_cmd` (e.g. a new option) is inherited automatically.
+service_group.add_command(up_cmd, name="start")
+
+
 @service_group.command("down", short_help=_HELP_DOWN)
 @click.argument("patterns", nargs=-1, required=True)
 @click.pass_context
@@ -156,6 +234,10 @@ def down_cmd(ctx: click.Context, patterns: tuple[str, ...]) -> None:
     """
     handler = _service_handler(ctx)
     handler.run(ServiceParams(action="down", patterns=patterns))
+
+
+# `stop` is a genuine alias of `down` — see the comment above `start`.
+service_group.add_command(down_cmd, name="stop")
 
 
 @service_group.command("status", short_help=_HELP_STATUS)

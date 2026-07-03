@@ -11,6 +11,8 @@ winter service up workspace                           # bring up only the worksp
 winter service down alpha                             # stop env alpha's services (leaves workspace scope running)
 winter service down '*/web'                            # stop the web service in every env (needs provider support — see below)
 winter service down workspace                         # tear down the workspace scope explicitly
+winter service start alpha                            # alias of `up alpha`
+winter service stop alpha                             # alias of `down alpha`
 winter service status                                 # report all services in all envs (patterns optional)
 winter service status alpha                           # all services in alpha (expands to alpha/*)
 winter service status alpha/api                       # one specific service
@@ -35,6 +37,8 @@ winter service logs alpha -t                          # prefix each line with it
 ```
 
 `winter service` owns a stable `up`/`down`/`status`/`restart`/`logs` interface and dispatches each invocation to the orchestrator(s) the workspace registers. Consumers depend on `winter service …` and never on the orchestrator's implementation, so a workspace can swap tmux for containers or a supervising daemon without re-teaching agents, docs, or habits.
+
+`start` and `stop` are exact CLI-only aliases of `up` and `down` — the identical options (including `up`'s `--wait`/`--timeout`), PATTERNS grammar, and exit codes, sharing the same implementation rather than a copy. `winter service start alpha` behaves exactly like `winter service up alpha`; `winter service stop alpha` exactly like `winter service down alpha`. They exist purely as CLI sugar: the orchestrator wire contract is unchanged, and `start`/`stop` still dispatch the `up`/`down` action word — no orchestrator ever sees `start` or `stop` on the wire.
 
 `up`, `down`, `status`, `restart`, and `logs` all use **segment-aware glob PATTERNS** over `<env>/<service>` — the same vocabulary `winter ws` uses for `<env>/<repo>` (see [ws/patterns.md](./ws/patterns.md)). Within each segment, `*`, `?`, and `[...]` match as usual; `*` does not cross `/`. A bare `<env>` (no slash) expands to `<env>/*` and matches by glob too (`'al*'` matches every configured env starting with `al`). Multiple patterns can be passed in one invocation. Cross-environment selection is supported: `'*/backend'` selects the `backend` service across every env. For `up`, `down`, `restart`, and `logs`, at least one pattern is required (action commands require an explicit target — no implicit "everything", mirroring `winter ws merge` requiring a source ref). For `status`, omitting all patterns selects every service in every env (read-shaped, defaults to all like `winter ws status`).
 
