@@ -81,7 +81,7 @@ The bundled tmux orchestrator supports an opt-in per-service startup retry polic
 
 ### Registering orchestrator(s)
 
-Binding one or more providers into a workspace is a configuration concern — the single-provider key, the ordered multi-provider list, the implicit sole-provider and implicit-all rules, and the deprecated legacy keys are owned by [configuration/capabilities.md](../configuration/capabilities.md#capability-registry). To see the binding a workspace currently resolves, run `winter capabilities` ([capabilities.md](./capabilities.md)).
+Binding one or more providers into a workspace is a configuration concern — the single-provider key, the ordered multi-provider list, the implicit sole-provider and implicit-all rules, and the deprecated/removed legacy keys are owned by [configuration/capabilities.md](../configuration/capabilities.md#capability-registry). To see the binding a workspace currently resolves, run `winter capabilities` ([capabilities.md](./capabilities.md)).
 
 ### Adding a second provider
 
@@ -148,7 +148,7 @@ winter --service-orchestrator=alpha/winter-service-tmux service up alpha
 WINTER_SERVICE_ORCHESTRATOR=alpha/winter-service-tmux winter service status
 ```
 
-**Precedence (highest wins):** `--service-orchestrator` flag → `WINTER_SERVICE_ORCHESTRATOR` env var → `capabilities.service` / `service_orchestrator` key in `.winter/config.toml`.
+**Precedence (highest wins):** `--service-orchestrator` flag → `WINTER_SERVICE_ORCHESTRATOR` env var → `capabilities.service` key in `.winter/config.toml`.
 
 **Scope with multiple providers:** the override flag collapses fan-out to a single provider for that invocation — the configured providers are ignored and dispatch goes to the override target only.
 

@@ -110,20 +110,14 @@ def test_load_maps_workspace_doctor_and_lint_scripts() -> None:
     assert config.lint == ["context/lint.sh"]
 
 
-def test_load_maps_service_orchestrator() -> None:
+def test_service_orchestrator_key_raises_config_error() -> None:
+    """The removed `service_orchestrator` top-level key is a hard load-time error."""
     config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
     fs = FakeFilesystem(files={config_path: ""})
     svc = _service(fs, {config_path: {"service_orchestrator": "winter-service-tmux"}})
 
-    assert svc.load().service_orchestrator == "winter-service-tmux"
-
-
-def test_load_service_orchestrator_defaults_to_none() -> None:
-    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
-    fs = FakeFilesystem(files={config_path: ""})
-    svc = _service(fs, {config_path: {}})
-
-    assert svc.load().service_orchestrator is None
+    with pytest.raises(ConfigError, match="service_orchestrator"):
+        svc.load()
 
 
 def test_load_maps_top_level_prefix_to_skill_prefix() -> None:
@@ -359,17 +353,8 @@ def test_capabilities_overlay_overrides_per_key() -> None:
     assert svc.load().capabilities == {"service": ["my-local-orchestrator"]}
 
 
-def test_capabilities_aliased_from_service_orchestrator() -> None:
-    """Legacy service_orchestrator key folds into capabilities["service"] as a one-element list."""
-    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
-    fs = FakeFilesystem(files={config_path: ""})
-    svc = _service(fs, {config_path: {"service_orchestrator": "winter-service-tmux"}})
-
-    config = svc.load()
-    assert config.capabilities == {"service": ["winter-service-tmux"]}
-
-
-def test_capabilities_explicit_wins_over_service_orchestrator_alias() -> None:
+def test_service_orchestrator_key_raises_even_when_capabilities_service_explicit() -> None:
+    """The removed key is a hard error regardless of an explicit capabilities.service binding."""
     config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
     fs = FakeFilesystem(files={config_path: ""})
     svc = _service(
@@ -382,8 +367,8 @@ def test_capabilities_explicit_wins_over_service_orchestrator_alias() -> None:
         },
     )
 
-    config = svc.load()
-    assert config.capabilities["service"] == ["A"]
+    with pytest.raises(ConfigError, match="service_orchestrator"):
+        svc.load()
 
 
 def test_capabilities_empty_when_neither_key_present() -> None:
@@ -742,16 +727,6 @@ def test_capabilities_service_string_folds_to_single_element_list() -> None:
     assert config.capabilities["service"] == ["winter-service-tmux"]
 
 
-def test_service_orchestrator_single_string_normalizes_to_one_element_capabilities_list() -> None:
-    """Legacy service_orchestrator (singular) folds into capabilities["service"] as a one-element list."""
-    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
-    fs = FakeFilesystem(files={config_path: ""})
-    svc = _service(fs, {config_path: {"service_orchestrator": "winter-service-tmux"}})
-
-    config = svc.load()
-    assert config.capabilities["service"] == ["winter-service-tmux"]
-
-
 def test_capabilities_service_list_stored_in_declared_order() -> None:
     """capabilities.service = ["tmux", "docker"] → list stored in declared order."""
     config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
@@ -763,24 +738,6 @@ def test_capabilities_service_list_stored_in_declared_order() -> None:
 
     config = svc.load()
     assert config.capabilities["service"] == ["winter-service-tmux", "winter-service-docker"]
-
-
-def test_capabilities_service_list_explicit_wins_over_legacy_key() -> None:
-    """When capabilities.service is set, the legacy service_orchestrator key is ignored."""
-    config_path = WORKSPACE_ROOT / WINTER_DIR / CONFIG_FILE
-    fs = FakeFilesystem(files={config_path: ""})
-    svc = _service(
-        fs,
-        {
-            config_path: {
-                "capabilities": {"service": ["A", "B"]},
-                "service_orchestrator": "ignored",
-            }
-        },
-    )
-
-    config = svc.load()
-    assert config.capabilities["service"] == ["A", "B"]
 
 
 # ── standalone_repository ref field ──────────────────────────────────────────

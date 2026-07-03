@@ -547,23 +547,13 @@ class WorkspaceConfig(BaseModel):
     standalone_repos: list[StandaloneRepositoryConfig] = Field(default_factory=list)
     """Repos declared in `[[standalone_repository]]`."""
 
-    service_orchestrator: str | None = None
-    """Deprecated — use `capabilities["service"]` instead (kept for back-compat).
-
-    Previously the direct key for the extension that orchestrates services. At load
-    time, when no explicit `capabilities.service` is set, this value is folded into
-    `capabilities["service"]` automatically. Still parsed and aliased so existing
-    configs without a `[capabilities]` table continue to work unchanged."""
-
     capabilities: dict[str, list[str]] = Field(default_factory=dict)
     """Maps a capability slot name (e.g. `service`) to an ordered list of provider
     extension names for that slot.
 
     In `.winter/config.toml` a slot value may be a string OR a list of strings;
     both forms are normalized to a list at parse time (string → one-element list).
-    Supersedes the deprecated `service_orchestrator` root key, which is folded into
-    `capabilities["service"]` at load time when no explicit `capabilities.service`
-    is set. Only `service` is currently a known slot."""
+    Only `service` is currently a known slot."""
 
     doctor: str | None = None
     """Optional path to a workspace-level `winter doctor` probe script (relative to workspace_root).

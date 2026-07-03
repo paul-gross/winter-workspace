@@ -27,9 +27,9 @@ After changing the service contract (adding, removing, or updating a provider), 
 
 The only in-scope slot today is `service`. Future slots are added to `CapabilitySlot` in the code and the registry handles them uniformly.
 
-### Deprecated keys
+### Deprecated / removed keys
 
-- **`service_orchestrator`** in config — single-string legacy key; normalised at config load into a one-element `capabilities.service` binding. Ignored when `capabilities.service` is already set explicitly. Use `[capabilities].service` for new workspaces.
+- **`service_orchestrator`** in config — removed pre-1.0. A `.winter/config.toml` that still sets this top-level key fails to load with a `ConfigError` naming the key and pointing at `[capabilities].service`. Use `[capabilities].service` for new workspaces.
 - **`orchestrate_services`** in manifest — the service-slot-only predecessor of `provides.service`; still read as a fallback via `capability_entrypoint()`. Use `[provides].service` for new extensions.
 
 ## Service orchestration
@@ -44,7 +44,7 @@ Three config paths connect the interface to an implementation:
 - **Multiple providers** — `capabilities.service = ["<name-1>", "<name-2>"]` (a list value in the same `[capabilities]` table). Every named provider is bound; list order carries no execution semantics. Each provider must declare `provides.service` in its `winter-ext.toml`. Repeated names are de-duplicated (preserving order) at config load.
 - **Extension manifest** — `provides.service = "<path>"` in the `[provides]` table in each extension's `winter-ext.toml`, an executable entrypoint relative to the extension's repo root.
 
-How these bindings resolve into a dispatch target, and how the deprecated `service_orchestrator` / `orchestrate_services` aliases are normalised, is owned by [Capability registry](#capability-registry) above. For dispatch-time multi-provider fan-out (`up` aborts on first failure, `down` best-effort, the ownership index for targeted `logs`/`restart`, the `logs -f` single-owner restriction, and merged `status`), see [../usage/service.md](../usage/service.md).
+How these bindings resolve into a dispatch target, and how the deprecated `orchestrate_services` manifest alias is normalised, is owned by [Capability registry](#capability-registry) above. For dispatch-time multi-provider fan-out (`up` aborts on first failure, `down` best-effort, the ownership index for targeted `logs`/`restart`, the `logs -f` single-owner restriction, and merged `status`), see [../usage/service.md](../usage/service.md).
 
 ### Entrypoint contract
 

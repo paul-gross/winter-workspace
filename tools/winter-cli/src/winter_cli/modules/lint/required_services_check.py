@@ -106,9 +106,8 @@ class RequiredServicesLintCheck:
                     ),
                     file=rel,
                     remediation=(
-                        "Register a service orchestrator via `service_orchestrator` or "
-                        "`[capabilities] service` in .winter/config.toml, or remove "
-                        "the required_services declarations."
+                        "Register a service orchestrator via `[capabilities] service` "
+                        "in .winter/config.toml, or remove the required_services declarations."
                     ),
                 )
             )

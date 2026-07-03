@@ -129,7 +129,7 @@ def _configure_logging(verbose: bool, log_level_env: str | None) -> None:
         "short-circuits the registered-extension lookup and reads that directory's "
         "winter-ext.toml directly. A bare name falls back to the registered-extension "
         "lookup. Takes precedence over WINTER_SERVICE_ORCHESTRATOR and "
-        "service_orchestrator in .winter/config.toml."
+        "capabilities.service in .winter/config.toml."
     ),
 )
 @click.option(

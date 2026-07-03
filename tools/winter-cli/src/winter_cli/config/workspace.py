@@ -202,14 +202,13 @@ class WorkspaceConfigService:
                 if _deduped_cap:
                     capabilities[slot_key] = _deduped_cap
 
-        # Legacy back-compat: service_orchestrator (singular) folds into
-        # capabilities["service"] when no explicit capabilities.service is set.
-        if (
-            "service" not in capabilities
-            and isinstance(merged.get("service_orchestrator"), str)
-            and merged["service_orchestrator"]
-        ):
-            capabilities["service"] = [merged["service_orchestrator"]]
+        # `service_orchestrator` (singular) was removed pre-1.0 in favor of
+        # `capabilities.service`. A config that still sets it gets a hard,
+        # actionable error rather than a silent fold.
+        if "service_orchestrator" in merged:
+            raise ConfigError(
+                "Unsupported config key `service_orchestrator` detected. Use `[capabilities] service = ...` instead."
+            )
 
         # Legacy back-compat: session_prefix (deprecated) folds into service_prefix
         # when no explicit service_prefix is set. Only pass each key through when it
@@ -298,9 +297,6 @@ class WorkspaceConfigService:
             standalone_repos=standalone_repos,
             skill_prefix=skill_prefix,
             skills_dir=skills_dir,
-            service_orchestrator=(
-                merged.get("service_orchestrator") if isinstance(merged.get("service_orchestrator"), str) else None
-            ),
             capabilities=capabilities,
             doctor=merged.get("doctor") if isinstance(merged.get("doctor"), str) else None,
             lint=_coerce_str_list(merged.get("lint")),
