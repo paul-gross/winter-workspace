@@ -18,6 +18,7 @@ Coverage:
   once per unique scope (cached across cells sharing a scope).
 - Cell positional (bare scope vs scope-qualified pattern) is forwarded verbatim
   as the single positional argv token.
+- WINTER_SERVICE_TIMEOUT is injected on up (default and caller-supplied), never on down.
 """
 
 from __future__ import annotations
@@ -348,6 +349,35 @@ def test_down_injects_provisioned_env_vars_when_provisioner_present() -> None:
     assert call_env["WINTER_PORT_BASE"] == "4060"
     assert call_env["WINTER_SERVICE_PREFIX"] == "myproj"
     assert call_env["DATABASE_URL"] == "postgres://localhost/myapp_alpha"
+
+
+def test_up_injects_default_timeout_env_var() -> None:
+    """Without an explicit timeout_s, up injects the DEFAULT_WAIT_TIMEOUT_S default."""
+    runner = FakeSubprocessRunner()
+    svc = _make_fan_out(runner)
+
+    svc.up([_cell(_pa())])
+
+    assert runner.call_envs[0]["WINTER_SERVICE_TIMEOUT"] == "120.0"
+
+
+def test_up_injects_custom_timeout_env_var() -> None:
+    """A caller-supplied timeout_s is forwarded verbatim as a plain float string."""
+    runner = FakeSubprocessRunner()
+    svc = _make_fan_out(runner)
+
+    svc.up([_cell(_pa())], 45.0)
+
+    assert runner.call_envs[0]["WINTER_SERVICE_TIMEOUT"] == "45.0"
+
+
+def test_down_does_not_inject_timeout_env_var() -> None:
+    runner = FakeSubprocessRunner()
+    svc = _make_fan_out(runner)
+
+    svc.down([_cell(_pa())])
+
+    assert "WINTER_SERVICE_TIMEOUT" not in runner.call_envs[0]
 
 
 def test_up_no_provisioned_env_vars_when_provisioner_absent() -> None:

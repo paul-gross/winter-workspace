@@ -639,3 +639,32 @@ def test_handler_up_without_wait_does_not_poll_status() -> None:
     _handler(runner).run(ServiceParams(action="up", patterns=("alpha",)))
     # No --wait → up behaves exactly as before: no status poll.
     assert runner.popen_calls == []
+
+
+# ── WINTER_SERVICE_TIMEOUT end-to-end ─────────────────────────────────────────
+
+
+def test_handler_up_injects_default_timeout_without_wait() -> None:
+    """The effective timeout_s (default 120.0) is injected on up even without --wait."""
+    runner = FakeSubprocessRunner()
+    _handler(runner).run(ServiceParams(action="up", patterns=("alpha",)))
+    # Every up dispatch (workspace-ensure + env) carries the default timeout.
+    for env in runner.call_envs:
+        assert env["WINTER_SERVICE_TIMEOUT"] == "120.0"
+
+
+def test_handler_up_injects_custom_timeout_with_wait() -> None:
+    """A caller-supplied --timeout is forwarded verbatim as WINTER_SERVICE_TIMEOUT."""
+    runner = FakeSubprocessRunner(
+        popen_responses={f"{STATUS_ENTRYPOINT} status alpha/*": ([_status_doc("alpha", [("api", "healthy")])], 0)},
+    )
+    _handler(runner).run(ServiceParams(action="up", patterns=("alpha",), wait=True, timeout_s=45.0))
+    for env in runner.call_envs:
+        assert env["WINTER_SERVICE_TIMEOUT"] == "45.0"
+
+
+def test_handler_down_does_not_inject_timeout() -> None:
+    runner = FakeSubprocessRunner()
+    _handler(runner).run(ServiceParams(action="down", patterns=("alpha",)))
+    for env in runner.call_envs:
+        assert "WINTER_SERVICE_TIMEOUT" not in env

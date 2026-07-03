@@ -97,9 +97,19 @@ Fields per entry:
 
 **Consume or ignore rule:** a provider that understands `WINTER_SERVICE_MANIFEST` reads the file and merges the extension-declared service definitions into its live session configuration. A provider that predates this contract or does not implement it ignores the env var — the variable's presence is never an error. `down` never sets `WINTER_SERVICE_MANIFEST`; providers MUST NOT depend on it during shutdown.
 
+## Per-action env var: `WINTER_SERVICE_TIMEOUT`
+
+On `up` only, winter injects the effective `winter service up --wait --timeout` value as a plain float string:
+
+| Var | When set | Meaning |
+|-----|----------|---------|
+| `WINTER_SERVICE_TIMEOUT` | `up` only | The effective wait timeout in seconds (winter's `--timeout`, default `120.0` when not supplied), as a plain float string (e.g. `"120.0"`). Set whether or not `--wait` was passed. |
+
+This lets a provider honour the caller's timeout in its own up-time readiness gate (e.g. a `depends_on` health wait) without winter needing to expose a separate flag for it. `down` and `status` never set `WINTER_SERVICE_TIMEOUT`. A provider that predates this contract or does not implement it ignores the env var — its presence is never an error.
+
 ## Per-action parameters
 
-The always-present vars above — the five base-contract vars, including `WINTER_SERVICE_PREFIX` — are exported on every dispatch. The scope vars (`WINTER_ENV`, `WINTER_ENV_INDEX`, `WINTER_PORT_BASE`, `WINTER_WORKSPACE_PORT_BASE`, and the computed band entries) are additionally injected on `up`/`down`/`status`; `restart` and `logs` forward verbatim with only the five base vars (services source their scope env via `winter env <scope>` at runtime). `WINTER_SERVICE_MANIFEST` is additionally set on `up` when extension-declared services exist (see above). All action parameters travel on argv.
+The always-present vars above — the five base-contract vars, including `WINTER_SERVICE_PREFIX` — are exported on every dispatch. The scope vars (`WINTER_ENV`, `WINTER_ENV_INDEX`, `WINTER_PORT_BASE`, `WINTER_WORKSPACE_PORT_BASE`, and the computed band entries) are additionally injected on `up`/`down`/`status`; `restart` and `logs` forward verbatim with only the five base vars (services source their scope env via `winter env <scope>` at runtime). `WINTER_SERVICE_MANIFEST` and `WINTER_SERVICE_TIMEOUT` are additionally set on `up` (see above). All action parameters travel on argv.
 
 Service selection for `status`, `restart`, and `logs` is positional argv. The `logs` action additionally carries its render options as CLI flags appended **after** the positional patterns, mirroring `winter service logs`' own surface:
 

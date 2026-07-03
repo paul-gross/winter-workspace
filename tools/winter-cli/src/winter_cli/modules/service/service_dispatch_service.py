@@ -12,6 +12,7 @@ from winter_cli.modules.service.provider_invocation import (
 )
 from winter_cli.modules.service.service_fan_out_service import FanOutCell, ServiceFanOutService
 from winter_cli.modules.service.service_provider_index import ServiceDescribeService
+from winter_cli.modules.service.service_readiness_service import DEFAULT_WAIT_TIMEOUT_S
 from winter_cli.modules.service.service_reporter import IServiceReporter
 from winter_cli.modules.service.service_status_matrix_service import (
     ServiceStatusMatrixService,
@@ -77,10 +78,18 @@ class ServiceDispatchService:
         self._service_prefix = service_prefix
         self._reporter = reporter
 
-    def dispatch(self, action: str, positionals: list[str]) -> int:
-        """Run the orchestrator's entrypoint and return its exit code unmodified."""
+    def dispatch(self, action: str, positionals: list[str], timeout_s: float = DEFAULT_WAIT_TIMEOUT_S) -> int:
+        """Run the orchestrator's entrypoint and return its exit code unmodified.
+
+        ``timeout_s`` is only consulted for ``up`` — it is injected into every
+        matched cell's provider subprocess env as ``WINTER_SERVICE_TIMEOUT`` (see
+        ``ServiceFanOutService.up``), regardless of whether the caller passed
+        ``--wait``. It defaults to ``DEFAULT_WAIT_TIMEOUT_S`` so callers that have
+        no ``--timeout`` concept of their own (e.g. provision's service check)
+        still inject the effective default.
+        """
         if action == "up":
-            return self._dispatch_up_down("up", tuple(positionals))
+            return self._dispatch_up_down("up", tuple(positionals), timeout_s)
 
         if action == "down":
             return self._dispatch_up_down("down", tuple(positionals))
@@ -95,7 +104,9 @@ class ServiceDispatchService:
         merged = build_provider_env(resolved, self._workspace_root, self._service_prefix)
         return self._subprocess_runner.call(cmd, cwd=self._workspace_root, env=merged)
 
-    def _dispatch_up_down(self, action: str, patterns: tuple[str, ...]) -> int:
+    def _dispatch_up_down(
+        self, action: str, patterns: tuple[str, ...], timeout_s: float = DEFAULT_WAIT_TIMEOUT_S
+    ) -> int:
         """Fan ``up``/``down`` out across every matched (provider, scope) cell.
 
         Reuses ``ServiceStatusMatrixService.build_matrix`` for enumeration — the
@@ -114,6 +125,10 @@ class ServiceDispatchService:
         of just the named services — winter#139 MUST-FIX). ``cell_service_patterns``
         detects this case and each matched cell is expanded into one FanOutCell per
         service pattern, each carrying its own ``<scope>/<svc>`` positional.
+
+        ``timeout_s`` is forwarded to ``ServiceFanOutService.up`` (ignored for
+        ``down``), which injects it as ``WINTER_SERVICE_TIMEOUT`` into every
+        cell's provider subprocess env.
         """
         providers = self._orchestrator_resolver.resolve_all()
 
@@ -150,7 +165,7 @@ class ServiceDispatchService:
                 )
 
         if action == "up":
-            return self._fan_out_service.up(fan_cells)
+            return self._fan_out_service.up(fan_cells, timeout_s)
         return self._fan_out_service.down(fan_cells)
 
     def _dispatch_restart(self, patterns: list[str]) -> int:

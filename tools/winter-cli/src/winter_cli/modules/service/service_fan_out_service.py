@@ -34,6 +34,15 @@ into every cell's provider subprocess environment.  ``down`` never calls the col
 it shuts providers down without aggregating manifests.  Providers that understand the
 contract read the TOML file and merge the extension-declared services into their live
 configuration; providers that predate the contract ignore the env var.
+
+Effective wait timeout
+-----------------------
+``up`` also injects ``WINTER_SERVICE_TIMEOUT`` — the effective ``winter service up
+--wait --timeout`` value (core's ``timeout_s``, always the winter-side default or the
+user-supplied override, regardless of whether ``--wait`` was passed) — as a plain
+float string into every cell's provider subprocess environment, so providers can honor
+the caller's timeout in their own up-time readiness gates (e.g. ``depends_on``).
+``down`` never injects it.
 """
 
 from __future__ import annotations
@@ -50,10 +59,15 @@ from winter_cli.modules.service.provider_invocation import (
     build_provider_env,
     provision_scope_env,
 )
+from winter_cli.modules.service.service_readiness_service import DEFAULT_WAIT_TIMEOUT_S
 
 if TYPE_CHECKING:
     from winter_cli.modules.service.service_manifest_collector import ServiceManifestCollectorService
     from winter_cli.modules.service.service_reporter import IServiceReporter
+
+# The env-var name handed to each provider subprocess on `up`, carrying the
+# effective `winter service up --wait --timeout` value (core's `timeout_s`).
+WINTER_SERVICE_TIMEOUT_ENV = "WINTER_SERVICE_TIMEOUT"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -114,7 +128,7 @@ class ServiceFanOutService:
 
     # ── public interface ──────────────────────────────────────────────────────
 
-    def up(self, cells: list[FanOutCell]) -> int:
+    def up(self, cells: list[FanOutCell], timeout_s: float = DEFAULT_WAIT_TIMEOUT_S) -> int:
         """Start every cell's provider in forward order.
 
         Injects the computed env trio (``WINTER_ENV``, ``WINTER_ENV_INDEX``,
@@ -122,12 +136,14 @@ class ServiceFanOutService:
         env-band entries) into every cell's provider subprocess environment,
         provisioned once per unique scope. Collects the extension-declared
         service manifest once (lazily) and injects ``WINTER_SERVICE_MANIFEST``
-        on top.
+        on top, alongside ``WINTER_SERVICE_TIMEOUT`` (``timeout_s`` as a plain
+        float string) so providers can honor the caller's effective
+        ``--timeout`` in their own up-time readiness gates.
         Returns 0 on full success. Returns the first non-zero exit code on
         cell failure, without dispatching subsequent cells.
         """
         provisioned_cache: dict[str, dict[str, str]] = {}
-        extra_env = self._collect_manifest_env()
+        extra_env = {**self._collect_manifest_env(), WINTER_SERVICE_TIMEOUT_ENV: str(timeout_s)}
         for cell in cells:
             provisioned = self._provisioned_for(cell.scope, provisioned_cache)
             exit_code = self._run_action(cell, "up", provisioned, extra_env)

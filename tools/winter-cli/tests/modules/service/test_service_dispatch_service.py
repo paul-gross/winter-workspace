@@ -288,6 +288,39 @@ def test_dispatch_no_selection_env_vars_for_down() -> None:
     assert "WINTER_SERVICE_PATTERNS" not in env
 
 
+# ── WINTER_SERVICE_TIMEOUT injection (up only) ───────────────────────────────
+
+
+def test_dispatch_up_injects_default_timeout_env_var() -> None:
+    """`up` with no explicit timeout_s injects the DEFAULT_WAIT_TIMEOUT_S default (120.0)."""
+    runner = FakeSubprocessRunner()
+    _service(runner).dispatch("up", ["alpha"])
+    env = runner.call_envs[0]
+    assert env["WINTER_SERVICE_TIMEOUT"] == "120.0"
+
+
+def test_dispatch_up_injects_custom_timeout_env_var() -> None:
+    """`up` forwards a caller-supplied timeout_s verbatim as a plain float string."""
+    runner = FakeSubprocessRunner()
+    _service(runner).dispatch("up", ["alpha"], 45.0)
+    env = runner.call_envs[0]
+    assert env["WINTER_SERVICE_TIMEOUT"] == "45.0"
+
+
+def test_dispatch_down_does_not_inject_timeout_env_var() -> None:
+    runner = FakeSubprocessRunner()
+    _service(runner).dispatch("down", ["alpha"])
+    env = runner.call_envs[0]
+    assert "WINTER_SERVICE_TIMEOUT" not in env
+
+
+def test_dispatch_status_does_not_inject_timeout_env_var() -> None:
+    runner = FakeSubprocessRunner()
+    _service(runner).dispatch("status", ["alpha"])
+    env = runner.call_envs[0]
+    assert "WINTER_SERVICE_TIMEOUT" not in env
+
+
 # ── leading-dash pattern forwarding ──────────────────────────────────────────
 
 

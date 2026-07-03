@@ -85,8 +85,8 @@ class ServiceHandler:
         workspace_explicit = any(p == WORKSPACE_SCOPE or p.startswith(f"{WORKSPACE_SCOPE}/") for p in patterns)
         ws_code = 0
         if not workspace_explicit:
-            ws_code = self._dispatch_service.dispatch("up", [WORKSPACE_SCOPE])
-        target_code = self._dispatch_service.dispatch("up", list(patterns))
+            ws_code = self._dispatch_service.dispatch("up", [WORKSPACE_SCOPE], timeout_s)
+        target_code = self._dispatch_service.dispatch("up", list(patterns), timeout_s)
         first_failure = ws_code if ws_code != 0 else target_code
         if first_failure != 0:
             sys.exit(first_failure)

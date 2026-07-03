@@ -51,6 +51,10 @@ description = "Port-band start for this scope: config.base_port + WINTER_ENV_IND
 name        = "WINTER_WORKSPACE_PORT_BASE"
 description = "Port-band start for index 0 (the workspace scope); always equals WINTER_PORT_BASE when scope is 'workspace'. Injected on up/down/status only."
 
+[[env_var]]
+name        = "WINTER_SERVICE_TIMEOUT"
+description = "The effective `winter service up --wait --timeout` value in seconds, as a plain float string (default \"120.0\"). Injected on up only, whether or not --wait was passed."
+
 # Exit-code conventions for the service capability.
 [[exit_code]]
 code    = 0
