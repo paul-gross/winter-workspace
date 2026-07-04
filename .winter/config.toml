@@ -1,0 +1,217 @@
+main_branch = "master"
+
+# Workspace service-namespace prefix. Injected to every service provider as
+# WINTER_SERVICE_PREFIX, so tmux sessions are named "wws-<env>" and the docker
+# provider namespaces on the same "wws" (matching wws-rabbitmq, WWS_* ports).
+service_prefix = "wws"
+
+# Per-env port allocation: port base = base_port + index * ports_per_env.
+# 20-per-env spacing (alpha=4020, beta=4040, …). winter-test-service uses
+# the +10/+11/+12 sub-band per env.
+base_port = 4000
+ports_per_env = 20
+
+# Env variable bands (see context/winter-cli/configuration/ports-and-environments.md).
+# The env-provisioner resolves these per scope and injects them into service
+# providers: workspace scope gets only the workspace band; a feature env gets the
+# workspace band unioned with the feature band (feature wins key collisions).
+
+# Feature-env variables — per-env, on each env's own port base.
+# ${WINTER_PORT_BASE+N} resolves against the env's port base (alpha=4020,
+# beta=4040, …), so each env gets its own ports from one template.
+[env.feature.vars]
+# winter-test-service — web/api ports on this env's +10/+11 sub-band.
+WTS_WEB_PORT = "${WINTER_PORT_BASE+10}"
+WTS_API_PORT = "${WINTER_PORT_BASE+11}"
+# Postgres is a workspace singleton (container wws-postgres) on the workspace
+# band — not a per-env container — so the port is the same for every env. Each
+# env connects to its own database + role `wts_<env>` inside that shared
+# instance, carved out by the postgres provision resource below (mirroring the
+# RabbitMQ per-env vhost). WTS_DB_PORT aliases the workspace-band WWS_POSTGRES_PORT
+# (rendered first, already resolved to the +3 band value) rather than re-deriving
+# it; DATABASE_URL then interpolates the env name into the per-env db/user/password.
+WTS_DB_PORT  = "${WWS_POSTGRES_PORT}"
+DATABASE_URL = "postgresql://wts_${WINTER_ENV}:wts_${WINTER_ENV}@localhost:${WTS_DB_PORT}/wts_${WINTER_ENV}"
+
+# Workspace (index-0) variables — shared across the workspace and inherited by
+# every feature env. Reference ${WINTER_WORKSPACE_PORT_BASE+N} (the index-0 band);
+# WINTER_PORT_BASE is intentionally unavailable when rendering this band.
+[env.workspace.vars]
+# Shared RabbitMQ broker (workspace singleton). RABBITMQ_PORT is the app-facing
+# AMQP port (band base+1 = 4001), inherited by every feature env. WWS_RABBITMQ_*
+# are the compose-facing host ports — pre-computed here so workspace-compose.yaml's
+# ${WWS_RABBITMQ_*_PORT} refs resolve to the band value (compose does no arithmetic
+# of its own), the same treatment as WWS_POSTGRES_PORT below.
+RABBITMQ_PORT          = "${WINTER_WORKSPACE_PORT_BASE+1}"
+WWS_RABBITMQ_AMQP_PORT = "${WINTER_WORKSPACE_PORT_BASE+1}"
+WWS_RABBITMQ_MGMT_PORT = "${WINTER_WORKSPACE_PORT_BASE+2}"
+# Shared Postgres singleton host port (workspace band base+3 = 4003). Injected
+# into the docker provider on `service up workspace` so workspace-compose.yaml
+# publishes wws-postgres on it; the pre-computed value also lets the compose
+# `${WWS_POSTGRES_PORT}` ref work (compose does no arithmetic of its own).
+WWS_POSTGRES_PORT      = "${WINTER_WORKSPACE_PORT_BASE+3}"
+
+# Two service providers, bound explicitly. tmux runs the from-source services
+# (docs, shell, api, web, worker); winter-service-docker runs the dockerized
+# daemons (workspace-shared db + rabbitmq). Order is the `up` fan-out order —
+# docker first so the db/broker are up before the tmux api/worker that need them
+# (`up <env>` ensures the workspace scope first regardless). Service names are
+# globally unique across providers, so logs/restart route to the right one.
+[capabilities]
+service = ["winter-service-docker", "winter-service-tmux"]
+
+[core_checks.file_size]
+injected_bytes = 100000
+reference_bytes = 100000
+
+[[project_repository]]
+name = "winter"
+url = "git@github.com:paul-gross/winter.git"
+
+[[project_repository]]
+name = "winter-canon"
+url = "git@github.com:paul-gross/winter-canon.git"
+
+[[project_repository]]
+name = "winter-github"
+url = "git@github.com:paul-gross/winter-github.git"
+
+[[project_repository]]
+name = "winter-harness"
+url = "git@github.com:paul-gross/winter-harness.git"
+
+[[project_repository]]
+name = "winter-product"
+url = "git@github.com:paul-gross/winter-product.git"
+
+[[project_repository]]
+name = "winter-service-tmux"
+url = "git@github.com:paul-gross/winter-service-tmux.git"
+
+[[project_repository]]
+name = "winter-service-docker"
+url = "git@github.com:paul-gross/winter-service-docker.git"
+
+[[project_repository]]
+name = "winter-workflow"
+url = "git@github.com:paul-gross/winter-workflow.git"
+
+[[project_repository]]
+name = "winter-docs"
+url = "git@github.com:paul-gross/winter-docs.git"
+
+[[project_repository]]
+url = "git@github.com:paul-gross/winter-nvim.git"
+
+[[project_repository]]
+name = "winter-test-service"
+url = "git@github.com:paul-gross/winter-test-service.git"
+
+[[project_repository]]
+name = "winter-plugin-api"
+url = "git@github.com:paul-gross/winter-plugin-api.git"
+
+[[project_repository]]
+name = "winter-benchmark"
+url = "git@github.com:paul-gross/winter-benchmark.git"
+
+[[standalone_repository]]
+name = "winter-canon"
+url = "git@github.com:paul-gross/winter-canon.git"
+path = ".winter/ext/canon"
+
+[[standalone_repository]]
+name = "winter-github"
+url = "git@github.com:paul-gross/winter-github.git"
+path = ".winter/ext/github"
+
+[[standalone_repository]]
+name = "winter-harness"
+url = "git@github.com:paul-gross/winter-harness.git"
+path = ".winter/ext/harness"
+
+[[standalone_repository]]
+name = "winter-service-tmux"
+url = "git@github.com:paul-gross/winter-service-tmux.git"
+path = ".winter/ext/service-tmux"
+
+[[standalone_repository]]
+name = "winter-service-docker"
+url = "git@github.com:paul-gross/winter-service-docker.git"
+path = ".winter/ext/service-docker"
+
+[[standalone_repository]]
+name = "winter-workflow"
+url = "git@github.com:paul-gross/winter-workflow.git"
+path = ".winter/ext/workflow"
+
+# ===========================================================================
+# Provisioning — `winter provision <env>` lifecycle handlers
+#
+# Dependency install: one feature-environment handler per project that needs
+# deps. `project = "<name>"` (paul-gross/winter#105) sets cwd to that repo's
+# worktree (<env>/<name>/) with parse-time validation against [[project_repository]]
+# and a hard error if the worktree is missing — preferred over a hand-rolled `cd`.
+# ===========================================================================
+
+[[provision.dependency]]
+scope = "feature-environment"
+project = "winter"
+apply = "cd tools/winter-cli && mise trust . && mise run install"
+
+[[provision.dependency]]
+scope = "feature-environment"
+project = "winter-test-service"
+apply = "uv sync && (cd web && npm install --no-audit --no-fund)"
+
+[[provision.dependency]]
+scope = "feature-environment"
+project = "winter-docs"
+apply = "npm install --no-audit --no-fund"
+
+[[provision.dependency]]
+scope = "feature-environment"
+project = "winter-plugin-api"
+apply = "uv sync"
+
+# ===========================================================================
+# Per-env RabbitMQ slice — carves a vhost + user `wts-<env>` out of the shared
+# workspace broker (container `wws-rabbitmq`, declared scope="workspace" in the
+# docker manifest). `required_services` gates on it being up first; cwd = env
+# root; WINTER_ENV is set. apply is idempotent (skip add_* when present, always
+# re-assert permissions); destroy tolerates already-gone entities.
+# ===========================================================================
+
+[[provision.resource]]
+scope = "feature-environment"
+apply = [
+  "docker exec wws-rabbitmq rabbitmqctl list_vhosts --quiet | grep -qx \"wts-$WINTER_ENV\" || docker exec wws-rabbitmq rabbitmqctl add_vhost \"wts-$WINTER_ENV\"",
+  "docker exec wws-rabbitmq rabbitmqctl list_users --quiet | awk '{print $1}' | grep -qx \"wts-$WINTER_ENV\" || docker exec wws-rabbitmq rabbitmqctl add_user \"wts-$WINTER_ENV\" \"wts-$WINTER_ENV\"",
+  "docker exec wws-rabbitmq rabbitmqctl set_permissions -p \"wts-$WINTER_ENV\" \"wts-$WINTER_ENV\" '.*' '.*' '.*'",
+]
+destroy = [
+  "docker exec wws-rabbitmq rabbitmqctl delete_vhost \"wts-$WINTER_ENV\" || true",
+  "docker exec wws-rabbitmq rabbitmqctl delete_user \"wts-$WINTER_ENV\" || true",
+]
+required_services = ["workspace/rabbitmq"]
+
+# ===========================================================================
+# Per-env Postgres slice — carves a database + role `wts_<env>` out of the
+# shared workspace Postgres (container `wws-postgres`, scope="workspace" in the
+# docker manifest), mirroring the RabbitMQ vhost above. `required_services` gates
+# on it being up; WINTER_ENV is set; `wts` is the bootstrap superuser. apply is
+# idempotent (skip CREATE when the role/db already exists); destroy tolerates
+# already-gone entities and force-drops the db to evict live app connections.
+# ===========================================================================
+
+[[provision.resource]]
+scope = "feature-environment"
+apply = [
+  "docker exec wws-postgres psql -U wts -tAc \"SELECT 1 FROM pg_roles WHERE rolname='wts_$WINTER_ENV'\" | grep -q 1 || docker exec wws-postgres psql -U wts -c \"CREATE ROLE wts_$WINTER_ENV LOGIN PASSWORD 'wts_$WINTER_ENV'\"",
+  "docker exec wws-postgres psql -U wts -tAc \"SELECT 1 FROM pg_database WHERE datname='wts_$WINTER_ENV'\" | grep -q 1 || docker exec wws-postgres psql -U wts -c \"CREATE DATABASE wts_$WINTER_ENV OWNER wts_$WINTER_ENV\"",
+]
+destroy = [
+  "docker exec wws-postgres psql -U wts -c \"DROP DATABASE IF EXISTS wts_$WINTER_ENV WITH (FORCE)\" || true",
+  "docker exec wws-postgres psql -U wts -c \"DROP ROLE IF EXISTS wts_$WINTER_ENV\" || true",
+]
+required_services = ["workspace/db"]
