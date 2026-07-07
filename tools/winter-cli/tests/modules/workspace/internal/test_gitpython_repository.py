@@ -83,7 +83,9 @@ def test_add_worktree_with_base_branch_passes_b_flag(
 
     adapter.add_worktree(_SOURCE_PATH, _WT_PATH, branch="alpha", base_branch="main")
 
-    git_mock.Repo.return_value.git.worktree.assert_called_once_with("add", str(_WT_PATH), "-b", "alpha", "main")
+    git_mock.Repo.return_value.git.worktree.assert_called_once_with(
+        "add", str(_WT_PATH), "-b", "alpha", "--no-track", "main"
+    )
 
 
 def test_add_worktree_raises_repo_error_on_git_command_error(
@@ -536,3 +538,60 @@ def test_get_head_commit_raises_repo_error_on_git_command_error(
 
     assert "rev-parse HEAD" in ei.value.message
     assert ei.value.subcommand == "rev-parse"
+
+
+# ── add_worktree (real-git regression: issue #148) ─────────────────────────
+#
+# These use a real `git init` repo rather than mocks so the `--no-track` fix
+# is validated against actual git behavior — the incidental-upstream bug this
+# guards against only reproduces under real git's `branch.autoSetupMerge` /
+# remote-tracking-base semantics, which a mocked `git.worktree` call can't
+# exercise.
+
+
+def _configure(r: git.Repo) -> git.Repo:
+    with r.config_writer() as cw:
+        cw.set_value("user", "email", "test@example.com")
+        cw.set_value("user", "name", "Test")
+        cw.set_value("commit", "gpgsign", "false")
+    return r
+
+
+def test_add_worktree_no_track_survives_auto_setup_merge_always(tmp_path: Path) -> None:
+    """Branch created from a local base is not born tracking that base under `autoSetupMerge = always`."""
+    adapter = GitPythonRepository(RepoErrorFactory())
+    source = tmp_path / "source"
+    r = _configure(git.Repo.init(str(source), initial_branch="master"))
+    (source / "README").write_text("init\n")
+    r.index.add(["README"])
+    r.index.commit("init")
+    with r.config_writer() as cw:
+        cw.set_value("branch", "autoSetupMerge", "always")
+
+    worktree_path = tmp_path / "env" / "source"
+    adapter.add_worktree(source, worktree_path, branch="beta", base_branch="master")
+
+    with git.Repo(str(worktree_path)) as wt:
+        tb = wt.active_branch.tracking_branch()
+    assert tb is None
+
+
+def test_add_worktree_no_track_survives_remote_tracking_base(tmp_path: Path) -> None:
+    """Branch created from a remote-tracking base ref does not inherit that ref as its upstream."""
+    adapter = GitPythonRepository(RepoErrorFactory())
+    origin_bare = tmp_path / "origin.git"
+    seed = _configure(git.Repo.init(str(tmp_path / "seed"), initial_branch="master"))
+    (tmp_path / "seed" / "README").write_text("init\n")
+    seed.index.add(["README"])
+    seed.index.commit("init")
+    seed.git.clone("--bare", str(tmp_path / "seed"), str(origin_bare))
+
+    source = tmp_path / "source"
+    _configure(git.Repo.clone_from(str(origin_bare), str(source)))
+
+    worktree_path = tmp_path / "env" / "source"
+    adapter.add_worktree(source, worktree_path, branch="gamma", base_branch="origin/master")
+
+    with git.Repo(str(worktree_path)) as wt:
+        tb = wt.active_branch.tracking_branch()
+    assert tb is None

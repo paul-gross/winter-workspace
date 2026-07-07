@@ -423,7 +423,8 @@ class InitService:
         label = repo.name
 
         try:
-            if not self._fs.exists(worktree_path):
+            newly_created = not self._fs.exists(worktree_path)
+            if newly_created:
                 self._create_git_worktree(repo, branch_name, worktree_path)
                 reporter.repo_action(label, location, "worktree_created")
             else:
@@ -432,7 +433,7 @@ class InitService:
             self._apply_identity(worktree_path)
             self._write_excludes(worktree_path, repo, reporter, location)
             self._configure_pinned_tracking(repo, worktree_path, reporter)
-            self._connect_inferred_upstream(repo, worktree_path, inferred_upstream, reporter)
+            self._connect_inferred_upstream(repo, worktree_path, inferred_upstream, reporter, newly_created)
             self._run_cmds(worktree_path, repo, reporter)
         except (RepoError, OSError) as exc:
             reporter.repo_error(label, str(exc))
@@ -472,21 +473,33 @@ class InitService:
         worktree_path: Path,
         inferred_upstream: str | None,
         reporter: IInitReporter,
+        newly_created: bool = False,
     ) -> None:
         """Wire a non-pinned worktree to `inferred_upstream` when it has no upstream yet.
 
         Skips pinned repos entirely — their tracking is owned by
-        `_configure_pinned_tracking`. Idempotent: a worktree that already has an
-        upstream is left unchanged. When `inferred_upstream` is None (ambiguous or
-        no siblings), leaves the worktree unconnected for the user to wire
-        explicitly with `winter ws connect`.
+        `_configure_pinned_tracking`. Idempotent: a worktree that already existed
+        before this init run and already has an upstream is left unchanged —
+        that tracking is operator-owned. When `inferred_upstream` is None
+        (ambiguous or no siblings), leaves the worktree unconnected for the user
+        to wire explicitly with `winter ws connect`.
+
+        `newly_created` is a defense-in-depth backstop for a worktree branch
+        created in *this* init run: `_create_git_worktree` creates it with
+        `--no-track` precisely so it is never born with an incidental upstream,
+        but if it somehow already reports one anyway (e.g. a git version that
+        ignores `--no-track`, or a future regression), init — not the operator —
+        is still the sole owner of that branch's tracking this run, so the
+        inferred upstream wins over whatever it was born with.
         """
         if repo.pinned:
             return
         if inferred_upstream is None:
             return
         current = self._git_repo.get_tracking_branch(worktree_path)
-        if current is not None:
+        if current == inferred_upstream:
+            return
+        if current is not None and not newly_created:
             return
         self._git_repo.set_upstream_to(worktree_path, inferred_upstream)
         self._git_repo.set_push_default_upstream(worktree_path)

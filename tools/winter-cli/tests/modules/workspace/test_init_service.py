@@ -892,6 +892,62 @@ def test_reconcile_env_infers_upstream_for_newly_added_repo(
     assert alpha_upstreams == []
 
 
+def test_reconcile_env_infers_upstream_despite_born_with_incidental_tracking(
+    init_reporter: FakeInitReporter,
+) -> None:
+    """Regression for #148: a newly-created branch born auto-tracking is still wired to the inferred upstream.
+
+    Simulates a branch that comes out of `add_worktree` already reporting a
+    tracking branch — e.g. what `git worktree add -b <branch> <base>` would do
+    under `branch.autoSetupMerge = always`, or when `<base>` is itself a
+    remote-tracking ref, before the `--no-track` fix. Even though the fake
+    reports a non-None (and wrong) tracking branch for the just-created
+    worktree, init must still apply the env's inferred upstream rather than
+    bailing out on the stale "already has an upstream" guard.
+    """
+    cfg = _two_repo_config()
+    alpha_main = WORKSPACE_ROOT / "projects" / "alpha-repo"
+    beta_main = WORKSPACE_ROOT / "projects" / "beta-repo"
+    alpha_worktree = WORKSPACE_ROOT / "myenv" / "alpha-repo"
+    beta_worktree = WORKSPACE_ROOT / "myenv" / "beta-repo"
+
+    fs = FakeFilesystem(
+        directories=[
+            WORKSPACE_ROOT / "projects",
+            alpha_main,
+            beta_main,
+            # alpha-repo worktree already exists; beta-repo is absent (newly added)
+            alpha_worktree,
+        ]
+    )
+    fs.directories.add(WORKSPACE_ROOT / ".git" / "info")
+    fs.files[WORKSPACE_ROOT / ".git" / "info" / "exclude"] = ""
+
+    git = FakeGitRepository()
+    git.local_branches[alpha_main] = ["myenv"]
+    git.local_branches[beta_main] = ["main"]
+    # alpha-repo worktree already has an upstream — the env's shared upstream.
+    git.tracking_branches[alpha_worktree] = "origin/master"
+    # beta-repo's worktree doesn't exist yet, but once "created" it is born
+    # with an incidental upstream unrelated to the env (a local branch, as
+    # `autoSetupMerge = always` would produce from a local base branch).
+    git.tracking_branches[beta_worktree] = "main"
+
+    svc = _service(cfg, fs, FakeSubprocessRunner(), git)
+    ok = svc.reconcile_env("myenv", init_reporter)
+
+    assert ok is True
+    # beta-repo worktree was created
+    assert any(wt == beta_main for wt, _, _, _ in git.added_worktrees)
+    # inferred upstream still applied, overriding the incidental born-with tracking
+    assert (beta_worktree, "origin/master") in git.upstreams_set
+    assert beta_worktree in git.push_default_set
+    auto_connect_actions = [a for a in init_reporter.actions if a[2] == "upstream_inferred"]
+    assert len(auto_connect_actions) == 1
+    assert auto_connect_actions[0][0] == "beta-repo"
+    assert auto_connect_actions[0][3] == "origin/master"
+
+
 def test_reconcile_env_leaves_repo_unconnected_when_siblings_diverge(
     init_reporter: FakeInitReporter,
 ) -> None:

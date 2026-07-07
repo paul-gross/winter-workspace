@@ -45,7 +45,13 @@ class GitPythonRepository:
                 if base_branch is None:
                     r.git.worktree("add", str(worktree_path), branch)
                 else:
-                    r.git.worktree("add", str(worktree_path), "-b", branch, base_branch)
+                    # `--no-track` keeps the new branch from being born with an
+                    # incidental upstream (e.g. under `branch.autoSetupMerge =
+                    # always`, or when base_branch resolves to a remote-tracking
+                    # ref) so init's own tracking logic — `_connect_inferred_upstream`
+                    # for non-pinned repos, `_configure_pinned_tracking` for pinned
+                    # ones — is the sole authority over the branch's upstream.
+                    r.git.worktree("add", str(worktree_path), "-b", branch, "--no-track", base_branch)
         except git.GitCommandError as exc:
             raise self._error_factory.from_git(
                 exc,
