@@ -89,8 +89,9 @@ class WorktreeSnapshot:
     `tracking_*` fields are relative to the configured upstream ref.
     `staged`, `unstaged`, and `untracked` are file counts; `dirty` is the
     deduplicated union of staged, unstaged, and untracked. `last_commit_subject`
-    is the first line of the most recent commit message, or None when the
-    branch has no commits beyond origin/<main>.
+    is the first line of HEAD's tip commit message, or None when the branch
+    has no commits beyond origin/<main> (including when no main branch is
+    configured).
     """
 
     repo: str

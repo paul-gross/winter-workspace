@@ -16,7 +16,7 @@ from winter_cli.modules.tui.widgets.refresh_status import RefreshStatus
 from winter_cli.modules.tui.widgets.repo_detail_view import PanelOutcome, RepoDetailView, render_detail_panels
 from winter_cli.modules.workspace.models import (
     RepoError,
-    RepoStatus,
+    RepoStatusAndHistory,
     StandaloneRepository,
     Workspace,
 )
@@ -66,7 +66,7 @@ class StandaloneDetailScreen(KeybindingMixin, PluginActionMixin, Screen):
         self._detail_panels = list(plugin_registry.detail_panels)
         # Retained for parity with WorktreeDetailScreen and as a test/observability
         # hook on the last-rendered status; not read by the screen itself.
-        self._repo_detail: RepoStatus | None = None
+        self._repo_detail: RepoStatusAndHistory | None = None
 
     def compose(self):
         yield Header()
@@ -109,13 +109,14 @@ class StandaloneDetailScreen(KeybindingMixin, PluginActionMixin, Screen):
         outcomes = render_detail_panels(self._detail_panels, DetailPanelContext(repo=repo))
         self.app.call_from_thread(self._update_widgets, detail, outcomes)
 
-    def _update_widgets(self, detail: RepoStatus, outcomes: list[PanelOutcome]) -> None:
+    def _update_widgets(self, detail: RepoStatusAndHistory, outcomes: list[PanelOutcome]) -> None:
         self._repo_detail = detail
 
         header = self.query_one("#detail-header", Static)
-        branch = detail.branch or "detached"
-        tracking = detail.tracking_branch or "no upstream"
-        header.update(f"  [bold]{detail.name}[/bold]  {branch}  [dim]→ {tracking}[/dim]")
+        status = detail.status
+        branch = status.branch or "detached"
+        tracking = status.tracking_branch or "no upstream"
+        header.update(f"  [bold]{status.name}[/bold]  {branch}  [dim]→ {tracking}[/dim]")
 
         self.query_one("#detail-info", RepoDetailView).show_repo(detail, outcomes)
         self.query_one("#refresh-status", RefreshStatus).finish_refresh()

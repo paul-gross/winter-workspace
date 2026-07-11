@@ -6,7 +6,10 @@ import git
 
 from winter_cli.modules.workspace.env_index import GREEK_LETTERS, resolve_env_index
 from winter_cli.modules.workspace.env_index_registry import IEnvIndexRegistry
-from winter_cli.modules.workspace.internal.branch_tracking import read_origin_merge_branch
+from winter_cli.modules.workspace.internal.branch_tracking import (
+    feature_branch_from_upstream,
+    read_origin_merge_branch,
+)
 from winter_cli.modules.workspace.internal.repo_error_factory import RepoErrorFactory
 from winter_cli.modules.workspace.models import (
     FeatureEnvironment,
@@ -53,8 +56,9 @@ class ReadWorkspaceRepository:
         self,
         env: FeatureEnvironment,
         project_repos: list[ProjectRepository],
+        worktree_tracking: dict[str, str | None] | None = None,
     ) -> FeatureEnvironmentStatus:
-        branches = self._read_feature_branches(env, project_repos)
+        branches = self._read_feature_branches(env, project_repos, worktree_tracking)
         # `feature_branch` is the env's primary — the first *connected* non-pinned
         # worktree's branch (a disconnected leading repo is skipped, so the
         # primary is the first repo that actually tracks a feature branch).
@@ -134,6 +138,7 @@ class ReadWorkspaceRepository:
         self,
         env: FeatureEnvironment,
         project_repos: list[ProjectRepository],
+        worktree_tracking: dict[str, str | None] | None,
     ) -> list[str | None]:
         """The configured feature branch of each non-pinned worktree, in repo order.
 
@@ -143,12 +148,30 @@ class ReadWorkspaceRepository:
         worktree). `get_environment_status` takes the first non-`None` entry as
         the env's primary `feature_branch`; the full list lets it count how many
         *distinct* remote branches the env's worktrees span.
+
+        When `worktree_tracking` is supplied (repo name -> the status piece's
+        porcelain `tracking_branch`, already gathered elsewhere in the same
+        refresh), the feature branch is derived from it with no `git.Repo` open
+        at all — see `feature_branch_from_upstream`. Callers without a
+        pre-gathered status piece (single-env CLI commands) pass `None` and get
+        the original per-repo `git.Repo` open.
+
+        Conscious divergence: on the dashboard's error-tolerant path, a repo
+        whose status probe failed (and was skipped via `on_repo_error`) is
+        simply absent from `worktree_tracking`, so `.get(repo.name)` reads as
+        "disconnected" here — even though an independent config read might
+        still have succeeded for that repo. Narrow enough (the status probe
+        and the config read fail together in practice) to accept rather than
+        pay for a second `git.Repo` open just to cover it.
         """
         branches: list[str | None] = []
         for repo in project_repos:
             if repo.pinned:
                 continue
-            branches.append(self._read_worktree_feature_branch(env.path / repo.name, repo.name))
+            if worktree_tracking is not None:
+                branches.append(feature_branch_from_upstream(worktree_tracking.get(repo.name)))
+            else:
+                branches.append(self._read_worktree_feature_branch(env.path / repo.name, repo.name))
         return branches
 
     def _read_worktree_feature_branch(self, worktree_path: Path, repo_name: str) -> str | None:
@@ -156,7 +179,9 @@ class ReadWorkspaceRepository:
 
         Delegates to `read_origin_merge_branch`, which reads
         `branch.<head>.{remote,merge}` config directly so a freshly-connected,
-        never-fetched worktree reads back as connected immediately.
+        never-fetched worktree reads back as connected immediately. Only used
+        when the caller has no already-gathered status piece to derive the
+        branch from (see `_read_feature_branches`).
         """
         if not (worktree_path / ".git").exists():
             return None

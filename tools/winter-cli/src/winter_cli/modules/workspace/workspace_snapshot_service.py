@@ -144,22 +144,19 @@ class WorkspaceSnapshotService:
                 if effective_patterns and not matches_any_pattern(env.name, repo_name, effective_patterns):
                     continue
 
-                # get_worktree_repo_statuses returns coarse RepoStatus objects
-                # (no staged/unstaged/untracked breakdown). Re-probe via
-                # get_worktree_status to recover the fine-grained counts that
-                # WorktreeSnapshot requires. The dashboard path skips this
-                # second probe because no dashboard field needs the breakdown.
+                # get_worktree_repo_statuses returns coarse WorktreeRepoStatus rows
+                # (no staged/unstaged/untracked breakdown, no last_commit_subject).
+                # Re-probe via get_worktree_status_for_snapshot to recover the
+                # fine-grained counts plus a minimal tip-subject read that
+                # WorktreeSnapshot requires. The dashboard path skips this second
+                # probe because no dashboard field needs either.
                 try:
-                    rs = self._repo_repo.get_worktree_status(wt_status.worktree)
+                    rs = self._repo_repo.get_worktree_status_for_snapshot(wt_status.worktree)
                 except RepoError as exc:
                     if on_repo_error is None:
                         raise
                     on_repo_error(wt_status.worktree, exc)
                     continue
-
-                last_subject: str | None = None
-                if rs.recent_commits:
-                    last_subject = rs.recent_commits[0].message
 
                 worktree_snapshots.append(
                     WorktreeSnapshot(
@@ -175,7 +172,7 @@ class WorkspaceSnapshotService:
                         unstaged=rs.unstaged_count,
                         untracked=rs.untracked_count,
                         dirty=len(rs.dirty_files),
-                        last_commit_subject=last_subject,
+                        last_commit_subject=rs.last_commit_subject,
                         pinned=wt_status.worktree.repository.pinned,
                         main_branch=wt_status.worktree.repository.main_branch,
                     )
@@ -422,14 +419,15 @@ class WorkspaceSnapshotService:
         is skipped (returns ``None``); when it is ``None`` (CLI / JSON), the
         error propagates so the command exits non-zero. Per-worktree errors are
         routed to the same callback by `get_worktree_repo_statuses`.
+
+        `get_worktree_repo_statuses` runs first so its per-repo status pieces
+        (each already a single `git.Repo` open) can feed `get_environment_status`
+        the worktree tracking branches it needs — the env-level feature-branch
+        read then derives from that porcelain output instead of opening every
+        worktree's repo a second time (see `_read_feature_branches`).
         """
 
         try:
-            env_status = self._env_status_svc.get_environment_status(
-                env,
-                project_repos,
-                env_decorators or None,
-            )
             env_worktrees = self._env_status_svc.get_feature_environment_worktrees(env, project_repos)
             # Per-worktree errors flow straight to the caller's callback (it is
             # already worktree-typed); `get_worktree_repo_statuses` skips on a
@@ -439,6 +437,13 @@ class WorkspaceSnapshotService:
                 env_worktrees,
                 worktree_repo_decorators or None,
                 on_repo_error=on_repo_error,
+            )
+            worktree_tracking = {rs.worktree.repository.name: rs.tracking_branch for rs in repo_statuses}
+            env_status = self._env_status_svc.get_environment_status(
+                env,
+                project_repos,
+                env_decorators or None,
+                worktree_tracking=worktree_tracking,
             )
         except RepoError as exc:
             if on_repo_error is None:

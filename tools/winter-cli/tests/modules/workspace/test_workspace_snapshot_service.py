@@ -21,7 +21,6 @@ from winter_cli.modules.workspace.models import (
     FeatureEnvironmentStatus,
     FeatureWorktree,
     ProjectRepository,
-    RepoCommit,
     RepoError,
     RepoStatus,
     StandaloneRepository,
@@ -83,7 +82,10 @@ class FakeReadWorkspaceRepository:
         return FeatureEnvironment(workspace=workspace, name=name, index=1, path=workspace.root_path / name)
 
     def get_environment_status(
-        self, env: FeatureEnvironment, project_repos: list[ProjectRepository]
+        self,
+        env: FeatureEnvironment,
+        project_repos: list[ProjectRepository],
+        worktree_tracking: dict[str, str | None] | None = None,
     ) -> FeatureEnvironmentStatus:
         if env.name in self._env_errors:
             raise self._env_errors[env.name]
@@ -115,6 +117,11 @@ class FakeRepoRepository:
         if name in self._errors:
             raise self._errors[name]
         return self._worktree_statuses[name]
+
+    def get_worktree_status_for_snapshot(self, worktree: FeatureWorktree) -> RepoStatus:
+        # Same canned data as get_worktree_status — the fixtures already carry
+        # last_commit_subject where a test needs it (see _dirty_repo_status).
+        return self.get_worktree_status(worktree)
 
     def get_project_status(self, repo: ProjectRepository) -> RepoStatus:
         name = repo.name
@@ -217,7 +224,6 @@ def _clean_repo_status(name: str, *, env_name: str = "alpha") -> RepoStatus:
         staged_count=0,
         unstaged_count=0,
         untracked_count=0,
-        recent_commits=[],
         tracking_branch="origin/feature/x",
         tracking_ahead=0,
         tracking_behind=0,
@@ -237,7 +243,6 @@ def _dirty_repo_status(
     commit_subject: str | None = None,
 ) -> RepoStatus:
     dirty_files = [f"f{i}" for i in range(staged + unstaged + untracked)]
-    recent_commits = [RepoCommit(short_hash="abc1234", message=commit_subject)] if commit_subject else []
     return RepoStatus(
         name=name,
         path=f"{WORKSPACE_ROOT}/{env_name}/{name}",
@@ -249,11 +254,11 @@ def _dirty_repo_status(
         staged_count=staged,
         unstaged_count=unstaged,
         untracked_count=untracked,
-        recent_commits=recent_commits,
         tracking_branch="origin/feature/x",
         tracking_ahead=ahead,
         tracking_behind=0,
         tracking_ref_present=True,
+        last_commit_subject=commit_subject,
     )
 
 

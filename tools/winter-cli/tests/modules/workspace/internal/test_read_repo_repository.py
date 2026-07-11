@@ -252,30 +252,89 @@ def test_parse_graph_log_boundary_detection_ignores_subject_text() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Call-count: the three-richer-calls contract (AC: ~3 git calls per repo)
+# Call-count: the piece-selection contract — status-only pieces never touch
+# `git log --graph`; only the status+history composite pays for it.
 # --------------------------------------------------------------------------- #
 
 
-def test_build_repo_status_issues_three_git_calls(monkeypatch: pytest.MonkeyPatch, repo: ReadRepoRepository) -> None:
+def test_get_project_status_issues_two_git_calls_and_no_graph_log(
+    monkeypatch: pytest.MonkeyPatch, repo: ReadRepoRepository
+) -> None:
     git_mock = _fake_git_repo(monkeypatch)
     monkeypatch.setattr(Path, "exists", lambda self: True)
     r = git_mock.Repo.return_value
     r.git.status.return_value = _porcelain("# branch.head alpha")
     r.git.rev_list.return_value = "0\t0\n"
-    r.git.log.return_value = ""
     project = ProjectRepository(name="demo", main_path=_PROJECT_PATH, main_branch="main")
 
     repo.get_project_status(project)
 
-    # Exactly the three richer calls in the happy path — no narrow per-question
-    # probes, no defensive rev-parse (that only fires on a tolerated failure).
+    # Status piece only: porcelain status + main-branch rev-list — no graph log,
+    # no defensive rev-parse (that only fires on a tolerated failure).
     assert r.git.status.call_count == 1
     assert r.git.rev_list.call_count == 1
-    assert r.git.log.call_count == 1
+    assert r.git.log.call_count == 0
     assert r.git.rev_parse.call_count == 0
 
 
-def test_build_repo_status_status_call_uses_porcelain_v2(
+def test_get_worktree_status_issues_no_graph_log_call(
+    monkeypatch: pytest.MonkeyPatch, repo: ReadRepoRepository
+) -> None:
+    # The dashboard grid path (get_worktree_status) — AC: no `git log --graph`
+    # subprocess on the grid refresh.
+    git_mock = _fake_git_repo(monkeypatch)
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+    r = git_mock.Repo.return_value
+    r.git.status.return_value = _porcelain("# branch.head alpha")
+    r.git.rev_list.return_value = "0\t0\n"
+    wt = _worktree()
+
+    repo.get_worktree_status(wt)
+
+    assert r.git.log.call_count == 0
+
+
+def test_get_worktree_status_for_snapshot_issues_minimal_tip_probe_not_graph(
+    monkeypatch: pytest.MonkeyPatch, repo: ReadRepoRepository
+) -> None:
+    # `ws status`'s last_commit_subject consumer — one minimal `git log -1`
+    # call, never the `--graph` walk, when the worktree is ahead of main.
+    git_mock = _fake_git_repo(monkeypatch)
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+    r = git_mock.Repo.return_value
+    r.git.status.return_value = _porcelain("# branch.head alpha")
+    r.git.rev_list.return_value = "0\t1\n"  # behind=0, ahead=1
+    r.git.log.return_value = "feat: subject\n"
+    wt = _worktree()
+
+    status = repo.get_worktree_status_for_snapshot(wt)
+
+    r.git.log.assert_called_once_with("-1", "--format=%s", "HEAD")
+    assert status.last_commit_subject == "feat: subject"
+
+
+def test_get_worktree_status_for_snapshot_skips_tip_probe_at_parity(
+    monkeypatch: pytest.MonkeyPatch, repo: ReadRepoRepository
+) -> None:
+    # A worktree sitting exactly at origin/<main> (no divergence) must yield
+    # `last_commit_subject=None` without even issuing the `git log -1` call —
+    # this preserves the pre-refactor `recent_commits[0].message` semantics
+    # (empty at parity) for issue #152's "ws status --json output is
+    # unchanged" acceptance criterion.
+    git_mock = _fake_git_repo(monkeypatch)
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+    r = git_mock.Repo.return_value
+    r.git.status.return_value = _porcelain("# branch.head alpha")
+    r.git.rev_list.return_value = "0\t0\n"  # behind=0, ahead=0: at parity
+    wt = _worktree()
+
+    status = repo.get_worktree_status_for_snapshot(wt)
+
+    assert r.git.log.call_count == 0
+    assert status.last_commit_subject is None
+
+
+def test_get_worktree_status_and_history_issues_three_git_calls(
     monkeypatch: pytest.MonkeyPatch, repo: ReadRepoRepository
 ) -> None:
     git_mock = _fake_git_repo(monkeypatch)
@@ -284,6 +343,24 @@ def test_build_repo_status_status_call_uses_porcelain_v2(
     r.git.status.return_value = _porcelain("# branch.head alpha")
     r.git.rev_list.return_value = "0\t0\n"
     r.git.log.return_value = ""
+    wt = _worktree()
+
+    repo.get_worktree_status_and_history(wt)
+
+    # Status + history composite: exactly the three richer calls, one
+    # `git.Repo` open shared across all of them.
+    assert r.git.status.call_count == 1
+    assert r.git.rev_list.call_count == 1
+    assert r.git.log.call_count == 1
+    assert git_mock.Repo.call_count == 1
+
+
+def test_build_status_call_uses_porcelain_v2(monkeypatch: pytest.MonkeyPatch, repo: ReadRepoRepository) -> None:
+    git_mock = _fake_git_repo(monkeypatch)
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+    r = git_mock.Repo.return_value
+    r.git.status.return_value = _porcelain("# branch.head alpha")
+    r.git.rev_list.return_value = "0\t0\n"
     project = ProjectRepository(name="demo", main_path=_PROJECT_PATH, main_branch="main")
 
     repo.get_project_status(project)
@@ -292,7 +369,7 @@ def test_build_repo_status_status_call_uses_porcelain_v2(
     r.git.rev_list.assert_called_once_with("--left-right", "--count", "origin/main...HEAD")
 
 
-def test_build_repo_status_raises_when_present_main_ref_rev_list_fails(
+def test_build_status_raises_when_present_main_ref_rev_list_fails(
     monkeypatch: pytest.MonkeyPatch, repo: ReadRepoRepository
 ) -> None:
     # rev-list fails but origin/main resolves — a real error, not the tolerated
@@ -309,7 +386,7 @@ def test_build_repo_status_raises_when_present_main_ref_rev_list_fails(
         repo.get_project_status(project)
 
 
-def test_build_repo_status_raises_when_present_main_ref_log_fails(
+def test_build_status_and_history_raises_when_present_main_ref_log_fails(
     monkeypatch: pytest.MonkeyPatch, repo: ReadRepoRepository
 ) -> None:
     # The graph log fails but origin/main resolves — propagates rather than
@@ -321,10 +398,10 @@ def test_build_repo_status_raises_when_present_main_ref_log_fails(
     r.git.rev_list.return_value = "0\t0\n"
     r.git.log.side_effect = git.GitCommandError("log", 128)
     r.git.rev_parse.return_value = "deadbeef"  # main ref present
-    project = ProjectRepository(name="demo", main_path=_PROJECT_PATH, main_branch="main")
+    wt = _worktree()
 
     with pytest.raises(RepoError):
-        repo.get_project_status(project)
+        repo.get_worktree_status_and_history(wt)
 
 
 # --------------------------------------------------------------------------- #
@@ -463,6 +540,17 @@ def _project(path: Path, name: str = "demo", main_branch: str | None = "main") -
     return ProjectRepository(name=name, main_path=path, main_branch=main_branch)
 
 
+def _real_worktree(path: Path, main_branch: str | None = "main") -> FeatureWorktree:
+    # `FeatureWorktree.path` is `environment.path / repository.name`, so wiring
+    # env.path=path.parent and repository.name=path.name makes the worktree
+    # resolve back to the real repo checked out at `path` — the same trick
+    # `test_real_worktree_status_reports_branch` uses.
+    workspace = Workspace(root_path=path.parent, service_prefix="t", main_branch="main")
+    env = FeatureEnvironment(workspace=workspace, name="alpha", index=1, path=path.parent)
+    project = ProjectRepository(name=path.name, main_path=path, main_branch=main_branch)
+    return FeatureWorktree(workspace=workspace, environment=env, repository=project)
+
+
 def test_real_clean_tree(tmp_path: Path, repo: ReadRepoRepository) -> None:
     _init_repo(tmp_path)
     _commit(tmp_path, "f.txt", "a\n", "init")
@@ -569,11 +657,12 @@ def test_real_missing_origin_main_tolerated(tmp_path: Path, repo: ReadRepoReposi
     _commit(tmp_path, "f.txt", "1\n", "only commit")
 
     status = repo.get_project_status(_project(tmp_path))
-
     assert status.ahead == 0
     assert status.behind == 0
-    assert status.recent_commits == []
-    assert any("only commit" in line for line in status.commit_graph)
+
+    detail = repo.get_worktree_status_and_history(_real_worktree(tmp_path))
+    assert detail.history.recent_commits == []
+    assert any("only commit" in line for line in detail.history.commit_graph)
 
 
 def test_real_commit_graph_and_recent_commits(tmp_path: Path, repo: ReadRepoRepository) -> None:
@@ -583,16 +672,16 @@ def test_real_commit_graph_and_recent_commits(tmp_path: Path, repo: ReadRepoRepo
     _commit(tmp_path, "f.txt", "2\n", "feat: first")
     _commit(tmp_path, "f.txt", "3\n", "feat: second")
 
-    status = repo.get_project_status(_project(tmp_path))
+    detail = repo.get_worktree_status_and_history(_real_worktree(tmp_path))
 
     # recent_commits is the divergence ahead of origin/main, newest first, and
     # excludes the boundary merge-base.
-    assert [c.message for c in status.recent_commits] == ["feat: second", "feat: first"]
-    assert all(len(c.short_hash) == 7 for c in status.recent_commits)
+    assert [c.message for c in detail.history.recent_commits] == ["feat: second", "feat: first"]
+    assert all(len(c.short_hash) == 7 for c in detail.history.recent_commits)
     # The graph renders the boundary commit with an `o` glyph; the branch commits
     # render with `*`.
-    assert any(line.startswith("o ") and "base commit" in line for line in status.commit_graph)
-    assert any(line.startswith("* ") and "feat: second" in line for line in status.commit_graph)
+    assert any(line.startswith("o ") and "base commit" in line for line in detail.history.commit_graph)
+    assert any(line.startswith("* ") and "feat: second" in line for line in detail.history.commit_graph)
 
 
 def test_real_merge_topology_graph_and_tip(tmp_path: Path, repo: ReadRepoRepository) -> None:
@@ -610,20 +699,20 @@ def test_real_merge_topology_graph_and_tip(tmp_path: Path, repo: ReadRepoReposit
     _git(tmp_path, "merge", "-q", "--no-edit", "side")
     _commit(tmp_path, "d", "z\n", "after merge")
 
-    status = repo.get_project_status(_project(tmp_path))
+    detail = repo.get_worktree_status_and_history(_real_worktree(tmp_path))
 
     # Tip subject is HEAD, deterministic regardless of merge-sibling ordering.
-    assert status.recent_commits[0].message == "after merge"
+    assert detail.history.recent_commits[0].message == "after merge"
     # All four branch commits surface (set, not order); the boundary base does not.
-    assert {c.message for c in status.recent_commits} == {
+    assert {c.message for c in detail.history.recent_commits} == {
         "after merge",
         "add c on side",
         "add b",
         "Merge branch 'side' into feat",
     }
     # Full topology rendered: a merge node, a connector line, and the `o` boundary.
-    assert any(line.startswith("|") for line in status.commit_graph)
-    assert any(line.startswith("o ") and "base" in line for line in status.commit_graph)
+    assert any(line.startswith("|") for line in detail.history.commit_graph)
+    assert any(line.startswith("o ") and "base" in line for line in detail.history.commit_graph)
 
 
 def test_real_low_core_abbrev_keeps_all_recent_commits(tmp_path: Path, repo: ReadRepoRepository) -> None:
@@ -637,11 +726,11 @@ def test_real_low_core_abbrev_keeps_all_recent_commits(tmp_path: Path, repo: Rea
     _commit(tmp_path, "f", "2\n", "merge of stuff into core")
     _commit(tmp_path, "f", "3\n", "second wOrk")
 
-    status = repo.get_project_status(_project(tmp_path))
+    detail = repo.get_worktree_status_and_history(_real_worktree(tmp_path))
 
-    assert [c.message for c in status.recent_commits] == ["second wOrk", "merge of stuff into core"]
+    assert [c.message for c in detail.history.recent_commits] == ["second wOrk", "merge of stuff into core"]
     # The boundary base commit is still excluded.
-    assert "base commit" not in [c.message for c in status.recent_commits]
+    assert "base commit" not in [c.message for c in detail.history.recent_commits]
 
 
 def test_real_standalone_detail_lists_head_commits(tmp_path: Path, repo: ReadRepoRepository) -> None:
@@ -650,13 +739,13 @@ def test_real_standalone_detail_lists_head_commits(tmp_path: Path, repo: ReadRep
         _commit(tmp_path, "f.txt", f"{i}\n", f"commit {i}")
     standalone = StandaloneRepository(name="ext", path=tmp_path)  # main_branch=None
 
-    status = repo.get_standalone_detail(standalone)
+    detail = repo.get_standalone_detail(standalone)
 
-    assert status.name == "ext"
-    assert status.branch == "main"
+    assert detail.status.name == "ext"
+    assert detail.status.branch == "main"
     # recent_from_head lists tip commits on HEAD itself, newest first.
-    assert [c.message for c in status.recent_commits] == ["commit 2", "commit 1", "commit 0"]
-    assert any("commit 2" in line for line in status.commit_graph)
+    assert [c.message for c in detail.history.recent_commits] == ["commit 2", "commit 1", "commit 0"]
+    assert any("commit 2" in line for line in detail.history.commit_graph)
 
 
 def test_real_detached_head(tmp_path: Path, repo: ReadRepoRepository) -> None:
@@ -679,8 +768,16 @@ def test_real_unborn_head(tmp_path: Path, repo: ReadRepoRepository) -> None:
 
     assert status.branch == "main"
     assert status.dirty_files == []
-    assert status.recent_commits == []
-    assert status.commit_graph == []
+
+    detail = repo.get_worktree_status_and_history(_real_worktree(tmp_path))
+    assert detail.history.recent_commits == []
+    assert detail.history.commit_graph == []
+
+    # The minimal tip-subject probe tolerates the unborn HEAD the same way —
+    # the missing `origin/main` ref keeps `ahead` at 0, so the probe short-
+    # circuits before ever touching the unborn HEAD.
+    snapshot_status = repo.get_worktree_status_for_snapshot(_real_worktree(tmp_path))
+    assert snapshot_status.last_commit_subject is None
 
 
 def test_real_worktree_status_reports_branch(tmp_path: Path, repo: ReadRepoRepository) -> None:
@@ -695,3 +792,31 @@ def test_real_worktree_status_reports_branch(tmp_path: Path, repo: ReadRepoRepos
     status = repo.get_worktree_status(wt)
 
     assert status.branch == "alpha"
+
+
+def test_real_get_worktree_status_for_snapshot_reads_tip_subject(tmp_path: Path, repo: ReadRepoRepository) -> None:
+    _init_repo(tmp_path)
+    _commit(tmp_path, "f.txt", "1\n", "first")
+    _git(tmp_path, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _commit(tmp_path, "f.txt", "2\n", "feat: second commit")
+
+    status = repo.get_worktree_status_for_snapshot(_real_worktree(tmp_path))
+
+    assert status.last_commit_subject == "feat: second commit"
+
+
+def test_real_get_worktree_status_for_snapshot_last_commit_subject_null_at_parity(
+    tmp_path: Path, repo: ReadRepoRepository
+) -> None:
+    # Regression guard for issue #152's "ws status --json output is
+    # unchanged" acceptance criterion: a worktree sitting exactly at
+    # `origin/<main>` (no divergence) must yield `last_commit_subject=None`,
+    # matching the pre-refactor `recent_commits[0].message` semantics — not
+    # HEAD's tip subject unconditionally.
+    _init_repo(tmp_path)
+    _commit(tmp_path, "f.txt", "1\n", "first")
+    _git(tmp_path, "update-ref", "refs/remotes/origin/main", "HEAD")
+
+    status = repo.get_worktree_status_for_snapshot(_real_worktree(tmp_path))
+
+    assert status.last_commit_subject is None

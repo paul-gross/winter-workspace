@@ -33,7 +33,14 @@ from winter_cli.modules.tui.widgets.repo_detail_view import (
     build_repo_info_markup,
     render_detail_panels,
 )
-from winter_cli.modules.workspace.models import RepoCommit, RepoStatus, StandaloneRepository, Workspace
+from winter_cli.modules.workspace.models import (
+    RepoCommit,
+    RepoHistory,
+    RepoStatus,
+    RepoStatusAndHistory,
+    StandaloneRepository,
+    Workspace,
+)
 from winter_cli.modules.workspace.models.service_model import StandaloneRepoStatus
 from winter_cli.plugins.types import DetailPanelContext
 
@@ -92,33 +99,41 @@ def test_render_detail_panels_coerces_non_renderable_to_str() -> None:
 # --- build_repo_info_markup upstream wording ---------------------------------
 
 
+def _wrap(status: RepoStatus, history: RepoHistory | None = None) -> RepoStatusAndHistory:
+    return RepoStatusAndHistory(status=status, history=history or RepoHistory())
+
+
 def test_info_markup_no_upstream() -> None:
-    detail = RepoStatus(name="r", path="/p", main_branch="main", tracking_branch=None)
+    detail = _wrap(RepoStatus(name="r", path="/p", main_branch="main", tracking_branch=None))
     assert "Upstream: [dim]none[/dim]" in build_repo_info_markup(detail)
 
 
 def test_info_markup_unborn_upstream() -> None:
     # tracking_ref_present == False — configured but never pushed/fetched.
-    detail = RepoStatus(
-        name="r",
-        path="/p",
-        main_branch="main",
-        tracking_branch="origin/feature/x",
-        tracking_ref_present=False,
+    detail = _wrap(
+        RepoStatus(
+            name="r",
+            path="/p",
+            main_branch="main",
+            tracking_branch="origin/feature/x",
+            tracking_ref_present=False,
+        )
     )
     markup = build_repo_info_markup(detail)
     assert "origin/feature/x configured, not yet pushed/fetched" in markup
 
 
 def test_info_markup_tracked_and_present() -> None:
-    detail = RepoStatus(
-        name="r",
-        path="/p",
-        main_branch="main",
-        tracking_branch="origin/feature/x",
-        tracking_ref_present=True,
-        tracking_ahead=2,
-        tracking_behind=0,
+    detail = _wrap(
+        RepoStatus(
+            name="r",
+            path="/p",
+            main_branch="main",
+            tracking_branch="origin/feature/x",
+            tracking_ref_present=True,
+            tracking_ahead=2,
+            tracking_behind=0,
+        )
     )
     markup = build_repo_info_markup(detail)
     assert "tracking origin/feature/x — ahead 2, behind 0" in markup
@@ -128,16 +143,14 @@ def test_info_markup_tracked_and_present() -> None:
 
 
 def test_commit_graph_empty_state_names_main() -> None:
-    detail = RepoStatus(name="r", path="/p", main_branch="main")
+    detail = _wrap(RepoStatus(name="r", path="/p", main_branch="main"))
     assert "No commits beyond origin/main" in build_commit_graph(detail).plain
 
 
 def test_commit_graph_renders_topology_lines() -> None:
-    detail = RepoStatus(
-        name="r",
-        path="/p",
-        main_branch="main",
-        commit_graph=["* abc1234 work", "o def5678 base"],
+    detail = _wrap(
+        RepoStatus(name="r", path="/p", main_branch="main"),
+        RepoHistory(commit_graph=["* abc1234 work", "o def5678 base"]),
     )
     plain = build_commit_graph(detail).plain
     assert "* abc1234 work" in plain
@@ -156,17 +169,20 @@ class _ViewApp(App):
         yield RepoDetailView(self._panels, id="detail-info")
 
 
-def _repo_status() -> RepoStatus:
-    return RepoStatus(
+def _repo_status_and_history() -> RepoStatusAndHistory:
+    status = RepoStatus(
         name="winter-harness",
         path="/tmp/ws/context/harness",
         main_branch=None,
         branch="main",
         tracking_branch="origin/main",
         tracking_ref_present=True,
+    )
+    history = RepoHistory(
         recent_commits=[RepoCommit(short_hash="abc1234", message="recent work")],
         commit_graph=["* abc1234 recent work"],
     )
+    return RepoStatusAndHistory(status=status, history=history)
 
 
 @pytest.mark.asyncio
@@ -192,7 +208,7 @@ async def test_view_with_panels_renders_tabs_and_updates_content() -> None:
         assert len(view.query(TabbedContent)) == 1
 
         outcomes = render_detail_panels([_Panel(captured)], DetailPanelContext(repo=_REPO))
-        view.show_repo(_repo_status(), outcomes)
+        view.show_repo(_repo_status_and_history(), outcomes)
         await pilot.pause()
 
         assert "recent work" in str(view.query_one("#repo-graph", Static).render())
@@ -206,7 +222,7 @@ async def test_view_renders_panel_error_state() -> None:
         await pilot.pause()
         view = app.query_one("#detail-info", RepoDetailView)
         outcomes = render_detail_panels([_BoomPanel()], DetailPanelContext(repo=_REPO))
-        view.show_repo(_repo_status(), outcomes)
+        view.show_repo(_repo_status_and_history(), outcomes)
         await pilot.pause()
         assert "Panel error" in str(view.query_one("#detail-panel-0", Static).render())
 
@@ -226,10 +242,10 @@ class _FakeRepoFactory:
 
 
 class _FakeRepoRepo:
-    def __init__(self, detail: RepoStatus) -> None:
+    def __init__(self, detail: RepoStatusAndHistory) -> None:
         self._detail = detail
 
-    def get_standalone_detail(self, repo: StandaloneRepository) -> RepoStatus:
+    def get_standalone_detail(self, repo: StandaloneRepository) -> RepoStatusAndHistory:
         return self._detail
 
     def get_standalone_status(self, repo: StandaloneRepository) -> StandaloneRepoStatus:
@@ -257,7 +273,7 @@ class _DetailApp(App):
 def _make_standalone_screen(panels: list[Any]) -> StandaloneDetailScreen:
     return StandaloneDetailScreen(
         repo_name="winter-harness",
-        repo_repo=cast(Any, _FakeRepoRepo(_repo_status())),
+        repo_repo=cast(Any, _FakeRepoRepo(_repo_status_and_history())),
         repo_factory=cast(Any, _FakeRepoFactory()),
         workspace=_WORKSPACE,
         plugin_registry=cast(Any, _FakePluginRegistry(panels)),
@@ -276,7 +292,7 @@ async def test_standalone_detail_shows_repo_and_panel() -> None:
         await pilot.pause()
 
         assert screen._repo_detail is not None
-        assert screen._repo_detail.name == "winter-harness"
+        assert screen._repo_detail.status.name == "winter-harness"
         # The panel got a standalone (repo-bearing) context, not a worktree one.
         assert len(captured) == 1
         assert captured[0].repo is _REPO

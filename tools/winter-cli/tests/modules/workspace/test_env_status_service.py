@@ -41,7 +41,10 @@ class FakeReadWorkspaceRepository:
         return FeatureEnvironment(workspace=workspace, name=name, index=1, path=workspace.root_path / name)
 
     def get_environment_status(
-        self, env: FeatureEnvironment, project_repos: list[ProjectRepository]
+        self,
+        env: FeatureEnvironment,
+        project_repos: list[ProjectRepository],
+        worktree_tracking: dict[str, str | None] | None = None,
     ) -> FeatureEnvironmentStatus:
         return FeatureEnvironmentStatus(environment=env, feature_branch=self._feature_branch)
 
@@ -90,6 +93,54 @@ def test_get_environment_status_delegates_to_worktree_repo(workspace: Workspace)
 
     status = svc.get_environment_status(env, project_repos=[])
     assert status.feature_branch == "feature/x"
+
+
+def test_get_environment_status_omits_worktree_tracking_by_default(workspace: Workspace) -> None:
+    """With no `worktree_tracking` supplied, `None` is forwarded.
+
+    Callers without an already-gathered status piece (most CLI commands) get
+    the `IReadWorkspaceRepository.get_environment_status` interface's own
+    `worktree_tracking=None` default — the same "no status piece gathered
+    yet" state as if the argument had been omitted entirely.
+    """
+    calls: list[tuple[Any, ...]] = []
+
+    class _RecordingWorktreeRepo:
+        def get_environment_status(self, *args: Any) -> FeatureEnvironmentStatus:
+            calls.append(args)
+            env = args[0]
+            return FeatureEnvironmentStatus(environment=env, feature_branch=None)
+
+    svc = EnvStatusService(
+        worktree_repo=_RecordingWorktreeRepo(),  # type: ignore[arg-type]
+        repo_repo=FakeWriteRepoRepository(),  # type: ignore[arg-type]
+    )
+    env = FeatureEnvironment(workspace=workspace, name="alpha", index=1, path=workspace.root_path / "alpha")
+
+    svc.get_environment_status(env, project_repos=[])
+
+    assert calls == [(env, [], None)]
+
+
+def test_get_environment_status_forwards_worktree_tracking_when_supplied(workspace: Workspace) -> None:
+    calls: list[tuple[Any, ...]] = []
+
+    class _RecordingWorktreeRepo:
+        def get_environment_status(self, *args: Any) -> FeatureEnvironmentStatus:
+            calls.append(args)
+            env = args[0]
+            return FeatureEnvironmentStatus(environment=env, feature_branch=None)
+
+    svc = EnvStatusService(
+        worktree_repo=_RecordingWorktreeRepo(),  # type: ignore[arg-type]
+        repo_repo=FakeWriteRepoRepository(),  # type: ignore[arg-type]
+    )
+    env = FeatureEnvironment(workspace=workspace, name="alpha", index=1, path=workspace.root_path / "alpha")
+    tracking: dict[str, str | None] = {"demo": "origin/feature/x"}
+
+    svc.get_environment_status(env, project_repos=[], worktree_tracking=tracking)
+
+    assert calls == [(env, [], tracking)]
 
 
 # ── get_worktree_repo_statuses (parallel fan-out) ────────────────────────────

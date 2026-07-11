@@ -20,7 +20,7 @@ from winter_cli.modules.workspace.env_status_service import EnvStatusService
 from winter_cli.modules.workspace.models import (
     FeatureEnvironmentStatus,
     RepoError,
-    RepoStatus,
+    RepoStatusAndHistory,
     Workspace,
     WorktreeRepoStatus,
 )
@@ -70,7 +70,7 @@ class WorktreeDetailScreen(KeybindingMixin, PluginActionMixin, Screen):
         self._env_status: FeatureEnvironmentStatus | None = None
         self._repo_statuses: list[WorktreeRepoStatus] = []
         self._focused_repo: str | None = focused_repo
-        self._repo_detail: RepoStatus | None = None
+        self._repo_detail: RepoStatusAndHistory | None = None
         self._detail_repo_keys: list[str] = []
 
     def compose(self):
@@ -102,7 +102,6 @@ class WorktreeDetailScreen(KeybindingMixin, PluginActionMixin, Screen):
         try:
             project_repos = self._repo_factory.get_project_repos()
             env = self._workspace_repo.get_environment(self._workspace, self.worktree_name)
-            env_status = self._env_status_svc.get_environment_status(env, project_repos, environment_decorators or None)
             env_worktrees = self._env_status_svc.get_feature_environment_worktrees(env, project_repos)
         except RepoError as exc:
             self._capture_error(f"WorktreeDetailScreen({self.worktree_name}).refresh", exc)
@@ -120,6 +119,21 @@ class WorktreeDetailScreen(KeybindingMixin, PluginActionMixin, Screen):
             worktree_repo_decorators or None,
             on_repo_error=_on_repo_error,
         )
+        # The env-level feature-branch read derives from the per-repo status
+        # pieces just gathered above, instead of opening every worktree's repo
+        # a second time (see `_read_feature_branches`).
+        worktree_tracking = {rs.worktree.repository.name: rs.tracking_branch for rs in repo_statuses}
+        try:
+            env_status = self._env_status_svc.get_environment_status(
+                env,
+                project_repos,
+                environment_decorators or None,
+                worktree_tracking=worktree_tracking,
+            )
+        except RepoError as exc:
+            self._capture_error(f"WorktreeDetailScreen({self.worktree_name}).refresh", exc)
+            self.app.call_from_thread(self._on_refresh_finished)
+            return
         self.app.call_from_thread(self._update_widgets, env_status, repo_statuses)
 
     def _on_refresh_finished(self) -> None:
@@ -227,7 +241,7 @@ class WorktreeDetailScreen(KeybindingMixin, PluginActionMixin, Screen):
             wt = next((wt for wt in env_worktrees.worktrees if wt.repository.name == repo_name), None)
             if wt is None:
                 return
-            detail = self._repo_repo.get_worktree_status(wt)
+            detail = self._repo_repo.get_worktree_status_and_history(wt)
         except RepoError as exc:
             self._capture_error(
                 f"WorktreeDetailScreen({self.worktree_name}).load_repo_detail({repo_name})",
@@ -239,7 +253,7 @@ class WorktreeDetailScreen(KeybindingMixin, PluginActionMixin, Screen):
         outcomes = render_detail_panels(self._detail_panels, DetailPanelContext(worktree=wt))
         self.app.call_from_thread(self._update_repo_info, detail, outcomes)
 
-    def _update_repo_info(self, detail: RepoStatus, outcomes: list[PanelOutcome]) -> None:
+    def _update_repo_info(self, detail: RepoStatusAndHistory, outcomes: list[PanelOutcome]) -> None:
         self._repo_detail = detail
         self.query_one("#detail-info", RepoDetailView).show_repo(detail, outcomes)
 

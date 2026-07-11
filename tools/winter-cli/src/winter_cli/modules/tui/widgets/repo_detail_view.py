@@ -2,8 +2,9 @@
 
 Both the feature-environment (`WorktreeDetailScreen`) and standalone
 (`StandaloneDetailScreen`) detail views render the *same* single-repo body — a
-`RepoStatus` summary (branch / tracking / dirty files / recent commits) and any
-`IDetailPanel`s a plugin contributed. This widget is that body.
+`RepoStatusAndHistory` summary (branch / tracking / dirty files / recent
+commits) and any `IDetailPanel`s a plugin contributed. This widget is that
+body.
 
 With zero contributed panels it renders exactly the built-in info `Static` (no
 tab bar). With one or more panels it renders a `TabbedContent` whose first tab
@@ -27,7 +28,7 @@ from rich.text import Text
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Static, TabbedContent, TabPane
 
-from winter_cli.modules.workspace.models import RepoStatus
+from winter_cli.modules.workspace.models import RepoStatusAndHistory
 from winter_cli.plugins.types import DetailPanelContext, IDetailPanel
 
 
@@ -66,7 +67,7 @@ def render_detail_panels(panels: list[IDetailPanel], context: DetailPanelContext
     return outcomes
 
 
-def _upstream_line(detail: RepoStatus) -> str:
+def _upstream_line(status: RepoStatusAndHistory) -> str:
     """One line that makes the upstream's state unambiguous.
 
     Three distinct states the old flat `Tracking: <branch>` conflated:
@@ -74,54 +75,58 @@ def _upstream_line(detail: RepoStatus) -> str:
     (configured but never pushed/fetched — `tracking_ref_present == False`),
     and a tracked-and-present upstream with its ahead/behind divergence.
     """
-    tracking = detail.tracking_branch
+    tracking = status.status.tracking_branch
     if tracking is None:
         return "Upstream: [dim]none[/dim]"
-    if not detail.tracking_ref_present:
+    if not status.status.tracking_ref_present:
         return f"Upstream: [dark_orange]{tracking} configured, not yet pushed/fetched[/dark_orange]"
-    return f"Upstream: tracking {tracking} — ahead {detail.tracking_ahead}, behind {detail.tracking_behind}"
+    return (
+        f"Upstream: tracking {tracking} — ahead {status.status.tracking_ahead}, behind {status.status.tracking_behind}"
+    )
 
 
-def build_repo_info_markup(detail: RepoStatus) -> str:
+def build_repo_info_markup(detail: RepoStatusAndHistory) -> str:
     """Build the built-in info panel's console markup from a repo's status.
 
     Branch / upstream / main-divergence header plus the dirty-file list. The
     commit history is rendered separately by `build_commit_graph` into its own
     scrollable area.
     """
+    status = detail.status
     lines = [
-        f"[bold]{detail.name}[/bold]",
-        f"Branch:   {detail.branch or '—'}",
+        f"[bold]{status.name}[/bold]",
+        f"Branch:   {status.branch or '—'}",
         _upstream_line(detail),
     ]
-    if detail.main_branch:
-        lines.append(f"[dim]vs origin/{detail.main_branch}:[/dim] ahead {detail.ahead}, behind {detail.behind}")
+    if status.main_branch:
+        lines.append(f"[dim]vs origin/{status.main_branch}:[/dim] ahead {status.ahead}, behind {status.behind}")
 
-    if len(detail.dirty_files) > 0:
-        lines.append(f"\n[bold]Modified ({len(detail.dirty_files)}):[/bold]")
-        for f in detail.dirty_files[:15]:
+    if len(status.dirty_files) > 0:
+        lines.append(f"\n[bold]Modified ({len(status.dirty_files)}):[/bold]")
+        for f in status.dirty_files[:15]:
             lines.append(f"  {f}")
-        remaining = len(detail.dirty_files) - 15
+        remaining = len(status.dirty_files) - 15
         if remaining > 0:
             lines.append(f"  ... and {remaining} more")
 
     return "\n".join(lines)
 
 
-def build_commit_graph(detail: RepoStatus) -> Text:
+def build_commit_graph(detail: RepoStatusAndHistory) -> Text:
     """Render the `git log --graph` history as a Rich `Text` for the scroll area.
 
     Built by appending plain lines (never markup parsing) so graph glyphs and
     commit subjects can't be mis-read as console markup. Abbreviated hashes are
     highlighted so the topology reads like `git log`.
     """
-    if not detail.commit_graph:
-        if detail.main_branch:
-            return Text(f"No commits beyond origin/{detail.main_branch}.", style="dim")
+    commit_graph = detail.history.commit_graph
+    if not commit_graph:
+        if detail.status.main_branch:
+            return Text(f"No commits beyond origin/{detail.status.main_branch}.", style="dim")
         return Text("No commit history.", style="dim")
 
     text = Text()
-    for i, line in enumerate(detail.commit_graph):
+    for i, line in enumerate(commit_graph):
         if i > 0:
             text.append("\n")
         text.append(line)
@@ -165,7 +170,7 @@ class RepoDetailView(Vertical):
         with VerticalScroll(id="repo-graph-scroll"):
             yield Static(id="repo-graph")
 
-    def show_repo(self, detail: RepoStatus, outcomes: list[PanelOutcome]) -> None:
+    def show_repo(self, detail: RepoStatusAndHistory, outcomes: list[PanelOutcome]) -> None:
         """Update the built-in info and every contributed panel from a fresh refresh.
 
         `outcomes` is aligned by index with the panels this view composed, so it

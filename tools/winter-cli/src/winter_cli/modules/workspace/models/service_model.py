@@ -35,7 +35,14 @@ class RepoCommit:
 
 @dataclasses.dataclass
 class RepoStatus:
-    """Detailed git status of a single repository — branch, ahead/behind, dirty files, and recent commits."""
+    """Git status of a single repository — branch, ahead/behind, and dirty files.
+
+    Deliberately history-free: `RepoHistory` carries the `commit_graph` /
+    `recent_commits` pair that costs a `git log --graph` subprocess. Every
+    surface that only renders status (the dashboard grid, `ws status`) gathers
+    this piece alone; the detail screens that also render history compose it
+    with a `RepoHistory` into a `RepoStatusAndHistory`.
+    """
 
     name: str
     path: str
@@ -47,17 +54,6 @@ class RepoStatus:
     staged_count: int = 0
     unstaged_count: int = 0
     untracked_count: int = 0
-    recent_commits: list[RepoCommit] = dataclasses.field(default_factory=list)
-    commit_graph: list[str] = dataclasses.field(default_factory=list)
-    """`git log --graph`-style lines down to the merge-base with main.
-
-    Each entry is one rendered graph line (graph glyphs + abbreviated hash +
-    decoration + subject, the `--oneline --decorate` shape), preserving
-    branch/merge topology — unlike the flat, capped `recent_commits` list the
-    matrix and standalone summaries still use.
-    Empty when HEAD has no commits beyond `origin/<main>` or `origin/<main>` is
-    missing (fresh clone, no fetch).
-    """
     tracking_branch: str | None = None
     tracking_ahead: int = 0
     tracking_behind: int = 0
@@ -69,6 +65,49 @@ class RepoStatus:
     tracking_ahead == 0). Without this, both states read as tracking_ahead=0
     because git rev-list silently returns 0 when the ref is missing.
     """
+    last_commit_subject: str | None = None
+    """HEAD's tip commit subject, or None when HEAD sits at parity with
+    `origin/<main>` (no commits beyond it) or no main branch is configured.
+
+    Read by a minimal `git log -1 --format=%s` probe gated on `ahead` — never
+    executed when `ahead == 0`. Matches the pre-refactor
+    `recent_commits[0].message` semantics without paying for the history
+    walk. Populated only by `get_worktree_status_for_snapshot` (the `ws
+    status` `last_commit_subject` consumer) — every other `RepoStatus`
+    producer leaves this `None` so a surface that doesn't render it doesn't
+    pay for the probe.
+    """
+
+
+@dataclasses.dataclass
+class RepoHistory:
+    """The expensive `git log --graph` piece of a repo's detail view — commit graph and recent commits."""
+
+    recent_commits: list[RepoCommit] = dataclasses.field(default_factory=list)
+    commit_graph: list[str] = dataclasses.field(default_factory=list)
+    """`git log --graph`-style lines down to the merge-base with main.
+
+    Each entry is one rendered graph line (graph glyphs + abbreviated hash +
+    decoration + subject, the `--oneline --decorate` shape), preserving
+    branch/merge topology — unlike the flat, capped `recent_commits` list,
+    `commit_graph`'s detail-view-only companion within this same `RepoHistory`.
+    Empty when HEAD has no commits beyond `origin/<main>` or `origin/<main>` is
+    missing (fresh clone, no fetch).
+    """
+
+
+@dataclasses.dataclass
+class RepoStatusAndHistory:
+    """The composite a detail view renders — a repo's status plus its history.
+
+    The compound name announces the extra `git log --graph` cost `RepoHistory`
+    carries; gathered only by the worktree/standalone detail screens, on open
+    and on their own refresh interval — never by the dashboard grid or
+    `ws status`.
+    """
+
+    status: RepoStatus
+    history: RepoHistory
 
 
 @dataclasses.dataclass

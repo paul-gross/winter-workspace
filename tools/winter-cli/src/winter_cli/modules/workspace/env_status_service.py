@@ -54,6 +54,7 @@ class EnvStatusService:
         env: FeatureEnvironment,
         project_repos: list[ProjectRepository],
         env_decorators: list[IEnvironmentDecorator] | None = None,
+        worktree_tracking: dict[str, str | None] | None = None,
     ) -> FeatureEnvironmentStatus:
         """Read the env's git-tracked status and let visual plugins decorate it.
 
@@ -61,8 +62,14 @@ class EnvStatusService:
         worktree path, and may write into `status.extensions` to surface a badge
         in the dashboard column header. Pass `env_decorators=None` (default) when
         you don't want decoration — e.g. headless `winter ws status` JSON output.
+
+        `worktree_tracking` forwards a caller's already-gathered per-repo status
+        piece (repo name -> `RepoStatus.tracking_branch`) so the feature branch
+        is derived without a second `git.Repo` open per worktree — see
+        `ReadWorkspaceRepository._read_feature_branches`. Omit it (the default)
+        when no status piece has been gathered yet.
         """
-        status = self._worktree_repo.get_environment_status(env, project_repos)
+        status = self._worktree_repo.get_environment_status(env, project_repos, worktree_tracking)
         if env_decorators:
             for decorator in env_decorators:
                 try:

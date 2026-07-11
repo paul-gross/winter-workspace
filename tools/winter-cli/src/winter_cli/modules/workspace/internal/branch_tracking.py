@@ -52,3 +52,28 @@ def read_origin_merge_branch(
     if remote != "origin" or not merge.startswith("refs/heads/"):
         return None
     return merge[len("refs/heads/") :]
+
+
+def feature_branch_from_upstream(tracking_branch: str | None) -> str | None:
+    """Derive the bare origin-tracked branch name from a porcelain `branch.upstream` value.
+
+    `tracking_branch` is `<remote>/<upstream-branch-short-name>` — the porcelain-v2
+    `# branch.upstream` header value already read by `_parse_status_porcelain_v2`
+    as part of the status piece's single porcelain call, present the moment the
+    upstream is configured (no fetch required, same "connected immediately"
+    contract `read_origin_merge_branch` provides). Splitting on the first `/`
+    isolates the remote name (git remote names cannot contain `/`) from the
+    branch, which may itself contain further slashes (e.g. `feature/x`).
+
+    Mirrors `read_origin_merge_branch`'s "origin only" contract: any other
+    remote, or no upstream at all, returns `None`. Callers that already hold a
+    `RepoStatus.tracking_branch` from the same gathering exercise use this
+    instead of opening a second `git.Repo` just to re-read the same config via
+    `branch.<head>.{remote,merge}`.
+    """
+    if tracking_branch is None:
+        return None
+    remote, sep, branch = tracking_branch.partition("/")
+    if not sep or remote != "origin":
+        return None
+    return branch

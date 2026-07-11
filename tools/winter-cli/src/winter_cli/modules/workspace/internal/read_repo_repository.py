@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import enum
 import logging
 from pathlib import Path
 
@@ -13,7 +14,9 @@ from winter_cli.modules.workspace.models import (
     ProjectRepository,
     RepoCommit,
     RepoDiffResult,
+    RepoHistory,
     RepoStatus,
+    RepoStatusAndHistory,
     StandaloneRepository,
     StandaloneRepoStatus,
     Workspace,
@@ -181,6 +184,35 @@ def _parse_graph_log(out: str) -> tuple[list[str], list[RepoCommit]]:
     return graph_lines, commits
 
 
+class _Piece(enum.Flag):
+    """Which piece(s) an open-repo visit gathers — an explicit parameter of the visit.
+
+    `STATUS` runs the porcelain-v2 status call plus the main-branch `rev-list`;
+    `HISTORY` runs the expensive `git log --graph` walk; `TIP_SUBJECT` reads
+    `ahead` from the already-gathered `STATUS` piece and, only when HEAD is
+    ahead of `origin/<main>`, runs a single minimal `git log -1 --format=%s`.
+    A caller composes exactly the pieces its surface renders, so e.g. the
+    dashboard grid never pays for `HISTORY` and `ws status` never pays for a
+    full history walk just to read the tip subject.
+    """
+
+    STATUS = enum.auto()
+    HISTORY = enum.auto()
+    TIP_SUBJECT = enum.auto()
+
+
+@dataclasses.dataclass
+class _Visit:
+    """Result of one open-repo visit — only the requested pieces are populated."""
+
+    status: _PorcelainStatus | None = None
+    ahead: int = 0
+    behind: int = 0
+    commit_graph: list[str] = dataclasses.field(default_factory=list)
+    recent_commits: list[RepoCommit] = dataclasses.field(default_factory=list)
+    tip_subject: str | None = None
+
+
 class ReadRepoRepository:
     """Read-only GitPython implementation. All GitPython usage is confined here."""
 
@@ -188,16 +220,33 @@ class ReadRepoRepository:
         self._error_factory = error_factory
 
     def get_worktree_status(self, worktree: FeatureWorktree) -> RepoStatus:
-        return self._build_repo_status(worktree.path, worktree.repository.name, worktree.repository.main_branch)
+        return self._build_status(
+            worktree.path, worktree.repository.name, worktree.repository.main_branch, pieces=_Piece.STATUS
+        )
 
-    def get_standalone_detail(self, repo: StandaloneRepository) -> RepoStatus:
-        # The standalone detail screen reuses the worktree detail's RepoStatus
+    def get_worktree_status_for_snapshot(self, worktree: FeatureWorktree) -> RepoStatus:
+        # `ws status`'s `last_commit_subject` consumer: one visit, status plus a
+        # minimal tip-subject probe (gated on `ahead`, so it's null at parity
+        # with origin/<main> — same as the pre-refactor recent_commits[0] read)
+        # — never the full history walk.
+        return self._build_status(
+            worktree.path,
+            worktree.repository.name,
+            worktree.repository.main_branch,
+            pieces=_Piece.STATUS | _Piece.TIP_SUBJECT,
+        )
+
+    def get_worktree_status_and_history(self, worktree: FeatureWorktree) -> RepoStatusAndHistory:
+        return self._build_status_and_history(worktree.path, worktree.repository.name, worktree.repository.main_branch)
+
+    def get_standalone_detail(self, repo: StandaloneRepository) -> RepoStatusAndHistory:
+        # The standalone detail screen reuses the worktree detail's composite
         # shape (branch / tracking / dirty files / recent commits). Unlike a
         # feature worktree, a standalone has no feature branch ahead of main, so
         # `recent_from_head` lists the tip commits on HEAD itself — otherwise a
         # standalone with no configured `main_branch` would show an empty
         # history.
-        return self._build_repo_status(repo.path, repo.name, repo.main_branch, recent_from_head=True)
+        return self._build_status_and_history(repo.path, repo.name, repo.main_branch, recent_from_head=True)
 
     def get_standalone_status(self, repo: StandaloneRepository) -> StandaloneRepoStatus:
         # Missing-on-disk / not-a-repo aren't errors — the dashboard renders
@@ -277,7 +326,7 @@ class ReadRepoRepository:
             return StandaloneRepoStatus(repository=repo)
 
     def get_project_status(self, repo: ProjectRepository) -> RepoStatus:
-        return self._build_repo_status(repo.main_path, repo.name, repo.main_branch)
+        return self._build_status(repo.main_path, repo.name, repo.main_branch, pieces=_Piece.STATUS)
 
     def get_diff(self, worktree: FeatureWorktree, mode: DiffMode) -> RepoDiffResult:
         name = worktree.repository.name
@@ -324,8 +373,8 @@ class ReadRepoRepository:
                 try:
                     ahead = int(r.git.rev_list("--count", f"{main_ref}..HEAD"))
                 except git.GitCommandError as exc:
-                    # Same missing-ref tolerance as _build_repo_status: a brand-new
-                    # clone with no `origin/<main>` yet returns 0 commits ahead.
+                    # Same missing-ref tolerance as _read_main_ahead_behind: a
+                    # brand-new clone with no `origin/<main>` yet returns 0 commits ahead.
                     try:
                         r.git.rev_parse("--verify", "--quiet", main_ref)
                     except git.GitCommandError:
@@ -362,18 +411,84 @@ class ReadRepoRepository:
             ports_per_env=ports_per_env,
         )
 
-    def _build_repo_status(
+    def _build_status(
+        self,
+        repo_path: Path,
+        name: str,
+        main_branch: str | None,
+        *,
+        pieces: _Piece,
+    ) -> RepoStatus:
+        """Build the lean `RepoStatus` piece from one open-repo visit.
+
+        `pieces` never includes `HISTORY` here — callers that need history go
+        through `_build_status_and_history` instead, so the grid / `ws status`
+        / project-status paths that call this never pay for `git log --graph`.
+        """
+        visit = self._visit(repo_path, name, main_branch, pieces=pieces)
+        return self._status_from_visit(name, repo_path, main_branch, visit)
+
+    def _build_status_and_history(
         self,
         repo_path: Path,
         name: str,
         main_branch: str | None,
         recent_from_head: bool = False,
-    ) -> RepoStatus:
-        # Missing-on-disk / not-a-repo aren't errors — they're legitimate
-        # "this worktree hasn't been provisioned yet" states the dashboard
-        # renders as an empty row.
-        if not repo_path.exists():
+    ) -> RepoStatusAndHistory:
+        visit = self._visit(
+            repo_path,
+            name,
+            main_branch,
+            pieces=_Piece.STATUS | _Piece.HISTORY,
+            recent_from_head=recent_from_head,
+        )
+        status = self._status_from_visit(name, repo_path, main_branch, visit)
+        history = RepoHistory(commit_graph=visit.commit_graph, recent_commits=visit.recent_commits)
+        return RepoStatusAndHistory(status=status, history=history)
+
+    @staticmethod
+    def _status_from_visit(name: str, repo_path: Path, main_branch: str | None, visit: _Visit) -> RepoStatus:
+        if visit.status is None:
             return RepoStatus(name=name, path=str(repo_path), main_branch=main_branch)
+        s = visit.status
+        return RepoStatus(
+            name=name,
+            path=str(repo_path),
+            main_branch=main_branch,
+            branch=s.branch,
+            ahead=visit.ahead,
+            behind=visit.behind,
+            dirty_files=s.dirty_files,
+            staged_count=len(s.staged_files),
+            unstaged_count=len(s.unstaged_files),
+            untracked_count=len(s.untracked_files),
+            tracking_branch=s.tracking_branch,
+            tracking_ahead=s.tracking_ahead,
+            tracking_behind=s.tracking_behind,
+            tracking_ref_present=s.tracking_ref_present,
+            last_commit_subject=visit.tip_subject,
+        )
+
+    def _visit(
+        self,
+        repo_path: Path,
+        name: str,
+        main_branch: str | None,
+        *,
+        pieces: _Piece,
+        recent_from_head: bool = False,
+    ) -> _Visit:
+        """Open the repo once and gather exactly the requested `pieces`.
+
+        The single `git.Repo` open per repo per gathering exercise: every
+        piece-probe below (`_read_status`, `_read_main_ahead_behind`,
+        `_read_history`, `_read_tip_subject`) runs against the same open `r`.
+        Missing-on-disk / not-a-repo aren't errors — they're legitimate "this
+        worktree hasn't been provisioned yet" states the caller renders as an
+        empty row.
+        """
+        if not repo_path.exists():
+            return _Visit()
 
         # InvalidGitRepositoryError / NoSuchPathError are raised by the
         # `git.Repo(...)` constructor before `__enter__`, not by methods on an
@@ -381,35 +496,30 @@ class ReadRepoRepository:
         # failures — the wider `try` body is structural, not a widened catch.
         try:
             with git.Repo(str(repo_path)) as r:
-                # Three richer git calls replace the old ~15-20 narrow ones:
-                # `git status --porcelain=v2 --branch` (branch, upstream, tracking
-                # ahead/behind, staged/unstaged/untracked), one `rev-list
-                # --left-right --count` (main ahead/behind), and one `git log
-                # --graph` (commit graph + recent commits).
-                status = self._read_status(r, name, repo_path)
-                ahead, behind = self._read_main_ahead_behind(r, name, repo_path, main_branch)
-                commit_graph, recent_commits = self._read_history(r, name, repo_path, main_branch, recent_from_head)
+                status: _PorcelainStatus | None = None
+                ahead = behind = 0
+                commit_graph: list[str] = []
+                recent_commits: list[RepoCommit] = []
+                tip_subject: str | None = None
 
-                return RepoStatus(
-                    name=name,
-                    path=str(repo_path),
-                    main_branch=main_branch,
-                    branch=status.branch,
+                if _Piece.STATUS in pieces:
+                    status = self._read_status(r, name, repo_path)
+                    ahead, behind = self._read_main_ahead_behind(r, name, repo_path, main_branch)
+                if _Piece.HISTORY in pieces:
+                    commit_graph, recent_commits = self._read_history(r, name, repo_path, main_branch, recent_from_head)
+                if _Piece.TIP_SUBJECT in pieces:
+                    tip_subject = self._read_tip_subject(r, ahead)
+
+                return _Visit(
+                    status=status,
                     ahead=ahead,
                     behind=behind,
-                    dirty_files=status.dirty_files,
-                    staged_count=len(status.staged_files),
-                    unstaged_count=len(status.unstaged_files),
-                    untracked_count=len(status.untracked_files),
-                    recent_commits=recent_commits,
                     commit_graph=commit_graph,
-                    tracking_branch=status.tracking_branch,
-                    tracking_ahead=status.tracking_ahead,
-                    tracking_behind=status.tracking_behind,
-                    tracking_ref_present=status.tracking_ref_present,
+                    recent_commits=recent_commits,
+                    tip_subject=tip_subject,
                 )
         except (git.InvalidGitRepositoryError, git.NoSuchPathError):
-            return RepoStatus(name=name, path=str(repo_path), main_branch=main_branch)
+            return _Visit()
 
     def _read_status(self, r: git.Repo, name: str, repo_path: Path) -> _PorcelainStatus:
         # One porcelain-v2 call yields branch, upstream, tracking ahead/behind, and
@@ -458,9 +568,9 @@ class ReadRepoRepository:
         # surfaces the merge-base commit (marked `o`) so the history shows where
         # the branch left main. recent_commits is the non-boundary slice, capped at
         # 5. It follows the graph's topological order rather than the old
-        # iter_commits date-order walk, so the tip (the only element read
-        # downstream, in workspace_snapshot_service) is identical while sibling
-        # commits across a merge may sort differently — invisible to every render.
+        # iter_commits date-order walk — invisible to the detail views, the only
+        # remaining consumer (the `ws status` tip subject moved to the cheaper
+        # `_read_tip_subject` probe and no longer reads this list).
         main_ref = f"origin/{main_branch}" if main_branch else None
         if main_ref is not None and not recent_from_head:
             try:
@@ -499,6 +609,26 @@ class ReadRepoRepository:
             return True
         except git.GitCommandError:
             return False
+
+    def _read_tip_subject(self, r: git.Repo, ahead: int) -> str | None:
+        # The minimal probe for `ws status`'s `last_commit_subject`. Preserves
+        # the pre-refactor semantics — `recent_commits[0].message` from the
+        # `origin/<main>..HEAD` history walk — without paying for that walk:
+        # `ahead` (already computed by the STATUS piece this is always
+        # requested alongside) is 0 whenever HEAD sits at parity with
+        # `origin/<main>` or no main branch is configured, exactly the cases
+        # the old history walk yielded an empty `recent_commits`. Only then is
+        # HEAD's tip commit a candidate for `last_commit_subject`, so the `git
+        # log -1` call is skipped entirely at parity. Tolerant of an unborn
+        # HEAD (brand-new repo, no commits yet) the same way `_head_graph` is.
+        if ahead == 0:
+            return None
+        try:
+            out = r.git.log("-1", "--format=%s", "HEAD")
+        except git.GitCommandError:
+            return None
+        subject = out.strip()
+        return subject or None
 
 
 # Typecheck-time conformance sentinel — Pyright rejects this return if

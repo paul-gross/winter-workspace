@@ -34,7 +34,9 @@ from winter_cli.modules.workspace.models.domain_model import (
 from winter_cli.modules.workspace.models.service_model import (
     FeatureEnvironmentOverview,
     FeatureEnvironmentStatus,
+    RepoHistory,
     RepoStatus,
+    RepoStatusAndHistory,
     WorktreeRepoStatus,
 )
 
@@ -162,7 +164,7 @@ class _FakeEnvStatusSvc:
         self._env = env
         self._repo_statuses = repo_statuses
 
-    def get_environment_status(self, _env, _project_repos, _decorators):
+    def get_environment_status(self, _env, _project_repos, _decorators, worktree_tracking=None):
         return FeatureEnvironmentStatus(environment=self._env, feature_branch="feature/alpha")
 
     def get_feature_environment_worktrees(self, _env, _project_repos):
@@ -176,8 +178,9 @@ class _FakeEnvStatusSvc:
 
 
 class _FakeRepoRepo:
-    def get_worktree_status(self, wt: FeatureWorktree) -> RepoStatus:
-        return RepoStatus(name=wt.repository.name, path=str(wt.path), main_branch="main")
+    def get_worktree_status_and_history(self, wt: FeatureWorktree) -> RepoStatusAndHistory:
+        status = RepoStatus(name=wt.repository.name, path=str(wt.path), main_branch="main")
+        return RepoStatusAndHistory(status=status, history=RepoHistory())
 
 
 class _DetailApp(App):
@@ -223,7 +226,7 @@ async def test_detail_screen_opens_on_supplied_focused_repo():
         assert table.cursor_row == 1
         # Per-repo info panel loaded the focused repo, not the first.
         assert screen._repo_detail is not None
-        assert screen._repo_detail.name == "b"
+        assert screen._repo_detail.status.name == "b"
 
 
 @pytest.mark.asyncio

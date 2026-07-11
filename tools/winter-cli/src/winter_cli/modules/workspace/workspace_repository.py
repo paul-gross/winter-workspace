@@ -19,4 +19,5 @@ class IReadWorkspaceRepository(Protocol):
         self,
         env: FeatureEnvironment,
         project_repos: list[ProjectRepository],
+        worktree_tracking: dict[str, str | None] | None = None,
     ) -> FeatureEnvironmentStatus: ...
