@@ -61,9 +61,7 @@ def test_call_from_thread_safe_noops_when_worker_cancelled(monkeypatch: pytest.M
     """A cancelled worker does not touch the UI even while the app still runs."""
     app = _app(is_running=True)
     host = _Host(app)
-    monkeypatch.setattr(
-        screens.plugin_action_mixin, "get_current_worker", lambda: MagicMock(is_cancelled=True)
-    )
+    monkeypatch.setattr(screens.plugin_action_mixin, "get_current_worker", lambda: MagicMock(is_cancelled=True))
 
     result = host._call_from_thread_safe(MagicMock(name="callback"))
 

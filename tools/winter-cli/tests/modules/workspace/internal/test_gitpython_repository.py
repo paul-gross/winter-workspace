@@ -281,9 +281,7 @@ def test_set_upstream_to_raises_repo_error_on_git_command_error(
 ) -> None:
     git_mock = _fake_git_repo(monkeypatch)
     git_mock.Repo.return_value.active_branch.name = "alpha"
-    git_mock.Repo.return_value.git.config.side_effect = git.GitCommandError(
-        ("git", "config"), 128, stderr=b"boom"
-    )
+    git_mock.Repo.return_value.git.config.side_effect = git.GitCommandError(("git", "config"), 128, stderr=b"boom")
 
     with pytest.raises(RepoError) as ei:
         adapter.set_upstream_to(_REPO_PATH, "origin/main")

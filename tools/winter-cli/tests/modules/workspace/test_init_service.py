@@ -1156,9 +1156,7 @@ def _connected_env_config_with_cmd() -> WorkspaceConfig:
         git_identity=GitIdentity(name="Bot", email="bot@example.com"),
         project_repos=[
             ProjectRepositoryConfig(name="alpha-repo", url="git@example.com:org/alpha-repo.git"),
-            ProjectRepositoryConfig(
-                name="beta-repo", url="git@example.com:org/beta-repo.git", cmd=["mise trust"]
-            ),
+            ProjectRepositoryConfig(name="beta-repo", url="git@example.com:org/beta-repo.git", cmd=["mise trust"]),
         ],
     )
 
