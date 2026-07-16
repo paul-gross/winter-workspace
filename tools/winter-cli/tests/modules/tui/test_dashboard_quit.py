@@ -13,8 +13,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from winter_cli.container import Container
-from winter_cli.modules.tui import screens
 from winter_cli.modules.tui.app import WinterDashboardApp
+from winter_cli.modules.tui.screens import plugin_action_mixin
 from winter_cli.modules.tui.screens.plugin_action_mixin import PluginActionMixin
 from winter_cli.modules.tui.screens.workspace import WorkspaceScreen
 from winter_cli.modules.workspace.workspace_snapshot_service import DashboardRefreshData
@@ -61,7 +61,7 @@ def test_call_from_thread_safe_noops_when_worker_cancelled(monkeypatch: pytest.M
     """A cancelled worker does not touch the UI even while the app still runs."""
     app = _app(is_running=True)
     host = _Host(app)
-    monkeypatch.setattr(screens.plugin_action_mixin, "get_current_worker", lambda: MagicMock(is_cancelled=True))
+    monkeypatch.setattr(plugin_action_mixin, "get_current_worker", lambda: MagicMock(is_cancelled=True))
 
     result = host._call_from_thread_safe(MagicMock(name="callback"))
 
