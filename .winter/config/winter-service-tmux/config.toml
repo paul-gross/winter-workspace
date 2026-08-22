@@ -1,0 +1,105 @@
+# Declarative manifest for winter-service-tmux.
+# See winter-service-tmux:/workflow/config.toml.example for annotated schema docs.
+#
+# Validate with:
+#   cd alpha/winter-service-tmux
+#   PYTHONPATH=src python3 -m service_manifest.cli validate /path/to/workspace
+
+layout_hook = "layout-hook.sh"
+workspace_layout_hook = "workspace-layout-hook.sh"
+
+# ---------------------------------------------------------------------------
+# Services
+# ---------------------------------------------------------------------------
+
+# --- winter-test-service (window 0): the full-stack test fixture ----------
+# api / web / worker, launched from the env root via the repo's documented run
+# commands (see winter-test-service:/README.md). Every entrypoint reads its
+# config from the environment; each pane self-sources `eval "$(winter env <env>)"`
+# (which exports WTS_* / DATABASE_URL / RABBITMQ_PORT), so the child process
+# inherits the per-env values directly — no static env file involved.
+#
+# The `db` (Postgres) and `rabbitmq` (broker) services are workspace singletons
+# under winter-service-docker now — both real docker daemons, so compose owns
+# their lifecycle and healthchecks rather than a raw `docker run` in a tmux pane.
+# See workspace:/.winter/config/winter-service-docker/{config.toml,workspace-compose.yaml}.
+
+[[service]]
+# Pane 0.0: FastAPI / uvicorn. Honors BOOT_DELAY_SECONDS; exposes chaos endpoints.
+name = "api"
+target = "0.0"
+cmd = "cd winter-test-service && PYTHONPATH=.:api uv run python -m app"
+
+[service.health]
+# FastAPI readiness endpoint (api/app/main.py: GET /api/health). ${WTS_API_PORT}
+# resolves per-env from the scope band injected on up/down/status.
+type = "url"
+target = "http://localhost:${WTS_API_PORT}/api/health"
+
+[[service]]
+# Pane 0.1: React + Vite dev server (proxies /api to the api service).
+name = "web"
+target = "0.1"
+cmd = "cd winter-test-service/web && npm run dev"
+
+[service.health]
+# Vite dev server serves the app index at / once ready.
+type = "url"
+target = "http://localhost:${WTS_WEB_PORT}/"
+
+[[service]]
+# Pane 0.2: Python worker — steady heartbeat log stream + DB writes.
+name = "worker"
+target = "0.2"
+cmd = "cd winter-test-service && uv run python -m worker.main"
+
+# --- docs + utility shell (window 1) --------------------------------------
+
+[[service]]
+# Pane 1.0: winter-docs dev server. Runs from the env's winter-docs worktree
+# and binds to $WINTER_PORT_BASE so each env serves on its own port.
+# Served under the site's /winter-docs base path.
+name = "docs"
+target = "1.0"
+cmd = 'cd winter-docs && npm run dev -- --port "${WINTER_PORT_BASE:-4321}" --host'
+
+[service.health]
+# Astro dev server serves under the /winter-docs base path (see cmd port binding).
+type = "url"
+target = "http://localhost:${WINTER_PORT_BASE}/winter-docs"
+
+[[service]]
+# Pane 1.1: utility shell — empty command leaves an interactive prompt.
+# log = "pane": read live via tmux capture-pane (no file persistence) — also the
+# canonical pane-mode example for testing `winter service logs <env> shell`.
+name = "shell"
+target = "1.1"
+cmd = ""
+log = "pane"
+
+# --- workspace session: follow the shared docker service logs -------------
+# The wws-workspace tmux session (created by `winter service up workspace`) gets
+# two side-by-side panes, each following one workspace-singleton service via
+# `winter service logs` — the provider-agnostic seam, which routes the pattern to
+# its owning provider (winter-service-docker here). tmux stays a viewport onto the
+# service contract rather than reaching past it to raw `docker logs`; `-f` follow
+# is legal because each pattern resolves to a single owning provider.
+# winter-service-docker is listed first in [capabilities], so it starts the
+# containers before this tmux scope — the containers exist by the time these panes
+# run. The `while … sleep 1` wrapper re-attaches if a container is not up yet or
+# restarts (winter service logs exits when the stream ends). log = "pane": display
+# only, no redundant file capture. Pane geometry is created by workspace-layout-hook.sh.
+
+[[service]]
+name = "db-logs"
+scope = "workspace"
+target = "0.0"
+cmd = "while true; do winter service logs workspace/db -f; sleep 1; done"
+log = "pane"
+
+[[service]]
+name = "rabbitmq-logs"
+scope = "workspace"
+target = "0.1"
+cmd = "while true; do winter service logs workspace/rabbitmq -f; sleep 1; done"
+log = "pane"
