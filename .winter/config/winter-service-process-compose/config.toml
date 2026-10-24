@@ -1,0 +1,55 @@
+# Declarative manifest for winter-service-process-compose.
+# See winter-service-process-compose:/workflow/config.toml.example for the annotated schema.
+#
+# The api/web/worker entries are the winter-service-tmux entries verbatim (the entry is the interchangeable
+# contract between the two providers); api additionally carries the provider-native [service.restart]. This
+# manifest is driven through `--service-orchestrator=./<env>/winter-service-process-compose`, never bound in
+# [capabilities], so tmux keeps api/web/worker.
+
+[[service]]
+# Pane 0.0: FastAPI / uvicorn. Honors BOOT_DELAY_SECONDS; exposes chaos endpoints.
+name = "api"
+target = "0.0"
+cmd = "cd winter-test-service && PYTHONPATH=.:api uv run python -m app"
+
+[service.health]
+# FastAPI readiness endpoint (api/app/main.py: GET /api/health). ${WTS_API_PORT}
+# resolves per-env from the scope band injected on up/down/status.
+type = "url"
+target = "http://localhost:${WTS_API_PORT}/api/health"
+
+[service.restart]
+# Native to this provider; the tmux provider ignores it.
+policy = "on_failure"
+backoff_seconds = 1
+max_restarts = 5
+
+[[service]]
+# Pane 0.1: React + Vite dev server (proxies /api to the api service).
+name = "web"
+target = "0.1"
+cmd = "cd winter-test-service/web && npm run dev"
+
+[service.health]
+# Vite dev server serves the app index at / once ready.
+type = "url"
+target = "http://localhost:${WTS_WEB_PORT}/"
+
+[[service]]
+# Pane 0.2: Python worker — steady heartbeat log stream + DB writes.
+name = "worker"
+target = "0.2"
+cmd = "cd winter-test-service && uv run python -m worker.main"
+
+# --- workspace-scoped fixture ----------------------------------------------
+# A trivial long-running workspace service with a cmd health probe, so the workspace scope has something to bring
+# up and down without touching the docker singletons.
+
+[[service]]
+name = "pc-fixture"
+scope = "workspace"
+cmd = "sleep 100000"
+
+[service.health]
+type = "cmd"
+target = "true"

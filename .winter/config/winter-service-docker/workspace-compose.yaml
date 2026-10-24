@@ -1,0 +1,63 @@
+# Workspace-scoped singleton services for winter-service-docker — the shared
+# Postgres `db` and RabbitMQ broker, run once for the whole workspace (compose
+# project wws-workspace). winter injects the workspace-scope env (WINTER_* plus
+# [env.workspace.vars]) into the provider process on every dispatch, so the host
+# ports below resolve from those injected vars; the inline :- defaults keep the
+# file runnable by hand.
+#
+# Runnable by hand — inject the workspace env first, then run compose:
+#   set -a; eval "$(winter env workspace)"; set +a
+#   docker compose -p wws-workspace -f .winter/config/winter-service-docker/workspace-compose.yaml up -d
+
+services:
+  # Shared Postgres (workspace scope, project wws-workspace). Every feature env
+  # connects to this one instance on WWS_POSTGRES_PORT (workspace band +3), but
+  # to its own per-env database + role `wts_<env>` — carved out by the postgres
+  # provision resource in workspace:/.winter/config.toml, mirroring the RabbitMQ
+  # per-env vhost. POSTGRES_USER `wts` is the bootstrap superuser the provision
+  # scripts `docker exec wws-postgres psql -U wts` against; container_name is
+  # pinned so that exec resolves regardless of the compose project name. The
+  # named volume persists the per-env databases across `service down/up workspace`.
+  db:
+    image: postgres:16
+    container_name: wws-postgres
+    environment:
+      POSTGRES_USER: wts
+      POSTGRES_PASSWORD: wts
+      POSTGRES_DB: wts
+    ports:
+      - "${WWS_POSTGRES_PORT:-4003}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wts"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Workspace-shared broker (workspace scope, project wws-workspace). Host ports
+  # come from the injected workspace env (WWS_RABBITMQ_AMQP_PORT / _MGMT_PORT);
+  # the inline :- defaults (4001 / 4002, assuming base 4000) keep it runnable by
+  # hand. The container's internal ports stay at RabbitMQ's standard 5672 / 15672;
+  # only the host-published side moves onto winter's band. Each env's worker
+  # reaches it via RABBITMQ_PORT. container_name is pinned so the provision vhost
+  # scripts' `docker exec wws-rabbitmq` resolves regardless of the compose project
+  # name.
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: wws-rabbitmq
+    ports:
+      - "${WWS_RABBITMQ_AMQP_PORT:-4001}:5672"
+      - "${WWS_RABBITMQ_MGMT_PORT:-4002}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+# Named volume holding Postgres's data directory, so the per-env databases
+# survive `winter service down`/`up` (compose down does not remove named volumes
+# without -v). Namespaced by COMPOSE_PROJECT_NAME → wws-workspace_postgres-data.
+volumes:
+  postgres-data:
+    driver: local
