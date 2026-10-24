@@ -1,0 +1,37 @@
+# Declarative manifest for winter-service-docker.
+# See winter-service-docker:/workflow/config.toml.example for the annotated schema.
+#
+# Scaffolded for the winter-test-service stack: the workspace-shared Postgres `db`
+# and RabbitMQ `rabbitmq` broker — both formerly raw `docker run` panes in the
+# tmux manifest, now compose-managed workspace singletons with healthchecks (so
+# `winter service up workspace --wait` is a genuine readiness gate).
+
+# COMPOSE_PROJECT_NAME prefix (per-env project = <prefix>-<env>, workspace =
+# <prefix>-workspace) comes from the workspace-level `service_prefix` config,
+# injected as WINTER_SERVICE_PREFIX on every dispatch action — so it resolves to
+# `wws` here (wws-<env>, wws-workspace). No `project_prefix` override needed.
+
+# All services are workspace singletons, so only one compose file is declared:
+# the orchestrator selects workspace-compose.yaml for the `workspace` scope.
+# There are no per-env docker services, so no environment_compose_file is set.
+workspace_compose_file = "workspace-compose.yaml"
+
+# --- Workspace-shared Postgres ---------------------------------------------
+# Workspace scope → one instance (container wws-postgres) in wws-workspace,
+# shared across every env. Per-env isolation is a database + role `wts_<env>`
+# created by the postgres provision resource in workspace:/.winter/config.toml
+# (mirroring the RabbitMQ per-env vhost), not a container per env. Winter injects
+# the workspace scope env, so workspace-compose.yaml publishes on ${WWS_POSTGRES_PORT}.
+[[service]]
+name = "db"
+scope = "workspace"
+
+# --- Workspace-shared RabbitMQ broker --------------------------------------
+# Workspace scope → one instance in wws-workspace, shared across every env.
+# Host ports come from the injected workspace env (workspace scope has no
+# WSD_PORT_*). `workspace/rabbitmq` resolves here for the provision resource's
+# required_services gate; container_name is pinned in workspace-compose.yaml so
+# the provision scripts' `docker exec wws-rabbitmq` keeps working.
+[[service]]
+name = "rabbitmq"
+scope = "workspace"
